@@ -29,6 +29,10 @@ logs/
 *.log
 artifacts/
 synthetic_data/
+outputs/
+
+# Agent state
+.claude/
 
 # IDE
 .idea/

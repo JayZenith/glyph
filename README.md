@@ -1,6 +1,6 @@
 # glyph
 
-Teach an LLM a structured trace format with explicit `plan` / `act` / `response` phases, todos, and Unicode operators (`🏷` tag, `※` ref, `⊨` satisfies, `𝑝` confidence). See [`def.md`](def.md).
+Teach an LLM a structured trace format with explicit `plan` / `act` / `response` phases, todos, and Unicode operators (`🏷` tag, `※` ref, `⊨` satisfies, `𝑝` confidence). See [`docs/def.md`](docs/def.md).
 
 **Status:** SFT shipped (Qwen3-4B-Base + LoRA). RL is next.
 

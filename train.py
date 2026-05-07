@@ -175,15 +175,15 @@ class TrainConfig:
     # Training (optimized for 8xH200 140GB with 32k context)
     output_dir: str = "./checkpoints"
     num_train_epochs: int = 3
-    per_device_train_batch_size: int = 2  # Should fit easily on H200
-    gradient_accumulation_steps: int = 4  # Effective batch = 2 * 4 * 8 GPUs = 64
+    per_device_train_batch_size: int = 1  # Single A100 80GB; bf16 + LoRA fits with 8k seq
+    gradient_accumulation_steps: int = 8  # Effective batch = 1 * 8 * 1 GPU = 8
     learning_rate: float = 2e-5
     warmup_ratio: float = 0.03
     weight_decay: float = 0.01
     lr_scheduler_type: str = "cosine"
     
-    # LoRA (set use_lora=False for full fine-tune)
-    use_lora: bool = False
+    # LoRA (default True; set False for full fine-tune)
+    use_lora: bool = True
     lora_r: int = 64
     lora_alpha: int = 64
     lora_dropout: float = 0.05
@@ -390,15 +390,16 @@ def setup_model_and_tokenizer(config: TrainConfig):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="Qwen/Qwen3-4B-Base")
-    parser.add_argument("--data", type=str, default="traces.processed.jsonl")
-    parser.add_argument("--output", type=str, default="./checkpoints")
+    parser.add_argument("--data", type=str, default="synthetic_data/sft_train_1098_official.jsonl")
+    parser.add_argument("--output", type=str, default="runs/sft1")
     parser.add_argument("--tokenizer", type=str, help="Tokenizer name/path; defaults to --model")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--grad-accum", type=int, default=8)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--max-seq-length", type=int, default=8192)
-    parser.add_argument("--use-lora", action="store_true")
+    parser.add_argument("--use-lora", action=argparse.BooleanOptionalAction, default=True,
+                        help="Use LoRA (default True). Disable with --no-use-lora for full fine-tune.")
     parser.add_argument("--lora-r", type=int, default=64)
     parser.add_argument("--lora-alpha", type=int, default=64)
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint")

@@ -309,6 +309,7 @@ def main():
     parser.add_argument("--save-steps", type=int, default=500)
     parser.add_argument("--save-total-limit", type=int, default=3)
     parser.add_argument("--skip-merge", action="store_true", help="Skip merged-model save (do it locally instead)")
+    parser.add_argument("--enable-gen-eval", action="store_true", help="Run greedy generation eval after each evaluate()")
     parser.add_argument("--cache-dir", type=str, default=".cache", help="Cache directory for tokenized data")
     args = parser.parse_args()
     
@@ -422,7 +423,8 @@ def main():
         trainer_kwargs["lm_head_lr"] = config.lm_head_lr
         trainer_kwargs["lm_head_module_names"] = tuple(config.lora_modules_to_save)
     trainer = trainer_cls(**trainer_kwargs)
-    trainer.add_callback(GenEvalCallback(tokenizer))
+    if args.enable_gen_eval:
+        trainer.add_callback(GenEvalCallback(tokenizer))
     
     # Train
     print("\n" + "="*60)

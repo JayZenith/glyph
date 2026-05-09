@@ -12,6 +12,7 @@ class TrainConfig:
     # Data
     data_path: str = "synthetic_data/sft_train_1098_official.jsonl"
     max_seq_length: int = 8192
+    masking_mode: str = "assistant_only"  # "assistant_only" | "full_trace"
 
     # Training
     output_dir: str = "runs/sft1"

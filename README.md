@@ -99,5 +99,5 @@ python -m sft.eval_test_loss \
 ## Caveats
 
 - Dataset CLI flags weren't recorded — re-running `data/build.sh` gives a similar dataset, not byte-identical. Pull from HF for exact reproduction. See [`synthetic_data/data_manifest.json`](synthetic_data/data_manifest.json).
-- Only one ablation isolated (lm_head LR). The 2×2 over `modules_to_save` × loss-masking is pending.
+- Only one ablation isolated (lm_head LR). The 2×2 over `modules_to_save` × loss-masking is run via `python -m sft.train --modules-to-save ... --masking-mode ...`; protocol + results table in [`docs/ablation.md`](docs/ablation.md).
 - Eval is small (5 prompts × 1 seed). Plan: 30+ prompts × 3 seeds + LM-judge semantic eval.

@@ -20,15 +20,25 @@ def load_traces(data_path: str) -> list[dict]:
     return traces
 
 
-def create_dataset(traces: list[dict], tokenizer, max_seq_length: int, cache_dir: str = ".cache") -> Dataset:
-    """Tokenize traces with assistant-only loss masking; cache the result.
+def create_dataset(
+    traces: list[dict],
+    tokenizer,
+    max_seq_length: int,
+    cache_dir: str = ".cache",
+    masking_mode: str = "assistant_only",
+) -> Dataset:
+    """Tokenize traces with the chosen loss masking; cache the result.
 
-    Labels are -100 everywhere except inside `<|im_start|>assistant\\n` ... `<|im_end|>`.
-    The assistant span includes the trailing `<|im_end|>` so the model is trained
-    to actually emit the stop token.
+    masking_mode:
+      - "assistant_only" (default): labels are -100 everywhere except inside
+        `<|im_start|>assistant\\n` ... `<|im_end|>` (the trailing `<|im_end|>`
+        is included so the model is trained to emit the stop token).
+      - "full_trace": labels = input_ids (no masking; train on system+user too).
     """
+    if masking_mode not in ("assistant_only", "full_trace"):
+        raise ValueError(f"masking_mode must be 'assistant_only' or 'full_trace', got {masking_mode!r}")
     cache_key = hashlib.md5(
-        f"v2_assistant_mask_{len(traces)}_{tokenizer.name_or_path}_{max_seq_length}".encode()
+        f"v3_{masking_mode}_{len(traces)}_{tokenizer.name_or_path}_{max_seq_length}".encode()
     ).hexdigest()[:12]
     cache_path = Path(cache_dir) / f"tokenized_{cache_key}"
 
@@ -85,7 +95,10 @@ def create_dataset(traces: list[dict], tokenizer, max_seq_length: int, cache_dir
             padding=False,
             return_attention_mask=True,
         )
-        tokenized["labels"] = [make_labels(ids) for ids in tokenized["input_ids"]]
+        if masking_mode == "assistant_only":
+            tokenized["labels"] = [make_labels(ids) for ids in tokenized["input_ids"]]
+        else:  # full_trace
+            tokenized["labels"] = [list(ids) for ids in tokenized["input_ids"]]
         return tokenized
 
     dataset = Dataset.from_list(traces)

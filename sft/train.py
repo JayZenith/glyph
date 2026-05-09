@@ -94,6 +94,10 @@ def main():
                         help="Use LoRA (default True). Disable with --no-use-lora for full fine-tune.")
     parser.add_argument("--lora-r", type=int, default=64)
     parser.add_argument("--lora-alpha", type=int, default=64)
+    parser.add_argument("--modules-to-save", choices=["lm_head", "none"], default="lm_head",
+                        help="Which non-LoRA modules to fully train. 'lm_head' (default) | 'none'")
+    parser.add_argument("--masking-mode", choices=["assistant_only", "full_trace"], default="assistant_only",
+                        help="Loss masking. 'assistant_only' (default) masks system+user; 'full_trace' trains on all tokens")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint")
     parser.add_argument("--resume-from", type=str, help="Resume from specific checkpoint")
     parser.add_argument("--save-steps", type=int, default=500)
@@ -115,9 +119,11 @@ def main():
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
         max_seq_length=args.max_seq_length,
+        masking_mode=args.masking_mode,
         use_lora=args.use_lora,
         lora_r=args.lora_r,
         lora_alpha=args.lora_alpha,
+        lora_modules_to_save=[] if args.modules_to_save == "none" else ["lm_head"],
         save_steps=args.save_steps,
         save_total_limit=args.save_total_limit,
     )
@@ -138,7 +144,10 @@ def main():
     model, tokenizer = setup_model_and_tokenizer(config)
 
     traces = load_traces(config.data_path)
-    full_dataset = create_dataset(traces, tokenizer, config.max_seq_length, args.cache_dir)
+    full_dataset = create_dataset(
+        traces, tokenizer, config.max_seq_length, args.cache_dir,
+        masking_mode=config.masking_mode,
+    )
 
     # 80/10/10 train/val/test split with fixed seed.
     # val: in-loop loss tracking + early stopping

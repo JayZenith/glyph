@@ -69,10 +69,18 @@ _(fill in after each run completes)_
 |---|---|---|---|---|---|---|---|
 | A — lm_head + assistant_only | **0.958** | **0.972** | **4/5** | **100%** | **100%** | **100%** | **6.4** |
 | B — none + assistant_only    | 0.971 | 0.986 | 0/5 | **0%** | 100% | 100% | 2.0 |
-| C — lm_head + full_trace     | _ | _ | _/5 | _% | _% | _% | _ |
-| D — none + full_trace        | _ | _ | _/5 | _% | _% | _% | _ |
+| C — lm_head + full_trace     | 0.937† | 0.936† | 3/5 | **100%** | 100% | 100% | 5.8 |
+| D — none + full_trace        | 0.961† | 0.959† | 0/5 | 60% | **40%** | 100% | 2.6 |
 
 **A vs B isolates `lm_head` in `modules_to_save`.** Loss/perplexity barely move (0.958 → 0.971), the model still writes plans and tool calls, but it never emits `<|im_end|>` (0% termination, every prompt truncates at 6000 tokens). Confirms the lm_head fix is what taught termination.
+
+**A vs C isolates assistant-only masking.** With lm_head trained, full_trace masking still terminates (100%). Format quality is slightly worse (3/5 valid, 5.8 avg vs A's 4/5, 6.4) — masking is a real but marginal contribution.
+
+**D (no lm_head + full_trace) — different failure mode than B.** D terminates 60% (full_trace gives gradient on every `<|im_end|>` in the trace, partial fix) but exposes a new failure: **repetition jumps up (no_repetition drops 100% → 40%)**. The lm_head fix was suppressing repetition too, not just teaching termination.
+
+**Summary:** lm_head training is the load-bearing fix. Without it (B, D), the model breaks. With it (A, C), the model works. Assistant-only masking is a small refinement on top.
+
+† C and D val/test loss are computed over **all tokens** (full_trace mode), not just assistant tokens. They are not directly comparable with A and B's numbers (which average over assistant tokens only). The clean apples-to-apples signal is the formal-eval columns.
 
 A is the live `JayZenith/glyph-sft-v1` re-evaluated with `--limit 5`. Reproduces the original eval exactly. val_loss from `artifacts/sft_run_v2/sft1.log` (epoch 3); test_loss from `artifacts/sft_run_v2/eval_test_loss.json`.
 

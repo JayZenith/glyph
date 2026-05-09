@@ -23,7 +23,13 @@ Vary one of two flags per run:
 
 ## Eval
 
-Same `python -m sft.eval_formal --output ... --max-new-tokens 6000 --limit 5` (5-prompt smoke). Metrics: valid_traces, ends_with_response, no_repetition, has_plan, has_tool_call, avg score.
+Three signals collected per run:
+
+1. **Validation loss** (in-loop) — Trainer evaluates on the val split every 25 steps (`load_best_model_at_end=True`, `metric=eval_loss`). Final value is the `eval_loss` at epoch 3 in the training log.
+2. **Held-out test loss** (forward-only, post-hoc) — `python -m sft.eval_test_loss --test-set runs/abl_X/test_set --output runs/abl_X/test_loss.json`.
+3. **Format quality** (greedy generation) — `python -m sft.eval_formal --sft-model runs/abl_X/merged --output runs/abl_X/eval.json --max-new-tokens 6000 --limit 5`.
+
+**Splits are identical across A/B/C/D.** All four runs use the same seed=42 `train_test_split` on the same 1098 traces, so the train/val/test partition is the same. Comparisons are like-for-like.
 
 ## Commands
 
@@ -59,14 +65,14 @@ python -m sft.eval_formal --sft-model runs/abl_X/merged \
 
 _(fill in after each run completes)_
 
-| run | valid_traces | ends_with_response | no_repetition | has_plan | avg_score |
-|---|---|---|---|---|---|
-| A — lm_head + assistant_only | **4/5** | **100%** | **100%** | **100%** | **6.4** |
-| B — none + assistant_only    | _/5 | _% | _% | _% | _ |
-| C — lm_head + full_trace     | _/5 | _% | _% | _% | _ |
-| D — none + full_trace        | _/5 | _% | _% | _% | _ |
+| run | val_loss (final) | test_loss | valid_traces | ends_with_response | no_repetition | has_plan | avg_score |
+|---|---|---|---|---|---|---|---|
+| A — lm_head + assistant_only | **0.958** | **0.972** | **4/5** | **100%** | **100%** | **100%** | **6.4** |
+| B — none + assistant_only    | _ | _ | _/5 | _% | _% | _% | _ |
+| C — lm_head + full_trace     | _ | _ | _/5 | _% | _% | _% | _ |
+| D — none + full_trace        | _ | _ | _/5 | _% | _% | _% | _ |
 
-A is the live `JayZenith/glyph-sft-v1` re-evaluated with `--limit 5`. Reproduces the original eval exactly.
+A is the live `JayZenith/glyph-sft-v1` re-evaluated with `--limit 5`. Reproduces the original eval exactly. val_loss from `artifacts/sft_run_v2/sft1.log` (epoch 3); test_loss from `artifacts/sft_run_v2/eval_test_loss.json`.
 
 ## Interpretation
 

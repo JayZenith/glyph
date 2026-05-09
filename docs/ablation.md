@@ -61,10 +61,12 @@ _(fill in after each run completes)_
 
 | run | valid_traces | ends_with_response | no_repetition | has_plan | avg_score |
 |---|---|---|---|---|---|
-| A — lm_head + assistant_only | _/5 | _% | _% | _% | _ |
+| A — lm_head + assistant_only | **4/5** | **100%** | **100%** | **100%** | **6.4** |
 | B — none + assistant_only    | _/5 | _% | _% | _% | _ |
 | C — lm_head + full_trace     | _/5 | _% | _% | _% | _ |
 | D — none + full_trace        | _/5 | _% | _% | _% | _ |
+
+A is the live `JayZenith/glyph-sft-v1` re-evaluated with `--limit 5`. Reproduces the original eval exactly.
 
 ## Interpretation
 

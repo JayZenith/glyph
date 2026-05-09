@@ -67,3 +67,202 @@ formal_eval:
         description: Find duplicate values
         params:
           column: { type: string }
+
+  # ----- no-tool reasoning -----
+  - name: reasoning_career_pivot
+    user: "I'm a backend engineer with 6 years experience considering a switch into ML research. What should I weigh, and what would you actually do?"
+    tools: []
+
+  - name: reasoning_explain_concept
+    user: "Explain quicksort to a strong CS undergrad, including why the average case is n log n but worst case is n squared."
+    tools: []
+
+  - name: reasoning_math_word
+    user: "A train leaves Chicago at 60 mph at 9am. Another leaves St Louis at 75 mph at 10am heading toward it. Cities are 300 miles apart. When and where do they meet?"
+    tools: []
+
+  - name: reasoning_ethics_tradeoff
+    user: "A friend asks me to write them a recommendation letter and I don't actually think they're a good fit for the role. How do I handle this?"
+    tools: []
+
+  - name: reasoning_summarize_decide
+    user: "Summarize the main arguments for and against universal basic income, then say which side you find more convincing and why."
+    tools: []
+
+  # ----- single-tool -----
+  - name: tool_weather_basic
+    user: "What's the weather in Boston tomorrow?"
+    tools:
+      - name: get_weather
+        description: Fetch weather
+        params:
+          location: { type: string }
+          date: { type: string }
+
+  - name: tool_calculator
+    user: "If I invest $5000 at 6% annual compound interest for 20 years, what's the final value? Use the calculator."
+    tools:
+      - name: calculator
+        description: Evaluate a math expression
+        params:
+          expression: { type: string }
+
+  - name: tool_file_load_summarize
+    user: "Load the meeting notes at /docs/q3_planning.md and give me a 5-bullet summary."
+    tools:
+      - name: load_file
+        description: Read a file from disk
+        params:
+          path: { type: string }
+
+  - name: tool_url_fetch
+    user: "Fetch the Wikipedia page on the Manhattan Project and tell me who Robert Oppenheimer reported to."
+    tools:
+      - name: fetch_url
+        description: Fetch a webpage
+        params:
+          url: { type: string }
+
+  - name: tool_db_query
+    user: "How many active users signed up in the last 30 days?"
+    tools:
+      - name: run_sql
+        description: Execute a read-only SQL query
+        params:
+          query: { type: string }
+
+  # ----- multi-tool -----
+  - name: tool_research_compile
+    user: "Research the current state of fusion energy commercialization. Find recent news, fetch the most relevant article, and summarize where things stand."
+    tools:
+      - name: search_web
+        description: Search the web
+        params:
+          query: { type: string }
+      - name: fetch_page
+        description: Fetch a webpage
+        params:
+          url: { type: string }
+
+  - name: tool_data_clean
+    user: "I have a CSV of user signups at /data/signups.csv. Find rows with malformed emails and tell me how many to drop."
+    tools:
+      - name: load_csv
+        description: Load CSV
+        params:
+          path: { type: string }
+      - name: filter_rows
+        description: Filter rows by predicate
+        params:
+          column: { type: string }
+          predicate: { type: string }
+
+  - name: tool_email_triage
+    user: "Look through my unread emails from this morning and flag anything urgent."
+    tools:
+      - name: list_emails
+        description: List recent emails
+        params:
+          since: { type: string }
+      - name: classify_email
+        description: Classify an email as urgent / normal / spam
+        params:
+          subject: { type: string }
+          body: { type: string }
+
+  # ----- long horizon -----
+  - name: long_horizon_debug_ci
+    user: "Our CI fails intermittently on main, maybe 1 in 10 runs. Help me track it down — assume access to logs, code search, and the ability to re-run jobs."
+    tools:
+      - name: get_ci_logs
+        description: Fetch CI logs for a run
+        params:
+          run_id: { type: string }
+      - name: code_search
+        description: Search the codebase
+        params:
+          query: { type: string }
+
+  - name: long_horizon_product_launch
+    user: "Plan a 6-week launch for a new B2B feature. Engineering, marketing, support, and legal all need to be ready. Walk me through the sequence."
+    tools: []
+
+  - name: long_horizon_research_project
+    user: "I'm starting a 3-month research project on tool-use evaluation for LLMs. Help me scope, plan, and identify risks."
+    tools: []
+
+  # ----- error / ambiguity recovery -----
+  - name: error_tool_timeout
+    user: "What's the weather in Vancouver right now?"
+    tools:
+      - name: get_weather
+        description: Fetch weather (may time out)
+        params:
+          location: { type: string }
+
+  - name: error_ambiguous_user
+    user: "Can you help me figure out the thing with the dashboard?"
+    tools: []
+
+  - name: error_missing_param
+    user: "Translate this for me."
+    tools:
+      - name: translate
+        description: Translate text between languages
+        params:
+          text: { type: string }
+          target_language: { type: string }
+
+  - name: error_conflicting_tools
+    user: "Find me the population of Lagos."
+    tools:
+      - name: search_web
+        description: Search the web
+        params:
+          query: { type: string }
+      - name: lookup_facts
+        description: Structured fact lookup
+        params:
+          entity: { type: string }
+          attribute: { type: string }
+
+  # ----- edge cases -----
+  - name: edge_empty_intent
+    user: "help"
+    tools: []
+
+  - name: edge_no_useful_tool
+    user: "Why is the sky blue?"
+    tools:
+      - name: get_weather
+        description: Fetch weather
+        params:
+          location: { type: string }
+
+  - name: edge_nested_params
+    user: "Find restaurants near me with vegetarian options, prefer Italian, under $40 per person."
+    tools:
+      - name: search_restaurants
+        description: Search restaurants with detailed filters
+        params:
+          location: { type: string }
+          cuisine: { enum: [italian, japanese, mexican, indian, american, other] }
+          dietary: { type: string, description: "comma-separated dietary tags" }
+          max_price_per_person: { type: integer }
+
+  - name: edge_no_tool_when_useful
+    user: "What's the current price of Bitcoin?"
+    tools: []
+
+  # ----- domain spread -----
+  - name: domain_finance_allocation
+    user: "I have $30k in savings and want to start investing. Roth IRA, taxable brokerage, or pay down a 5.5% mortgage? Walk me through it."
+    tools: []
+
+  - name: domain_biology_concept
+    user: "Explain CRISPR-Cas9 to a smart person without a biology background, including why it was a step change vs older gene editing."
+    tools: []
+
+  - name: domain_legal_summary
+    user: "I'm reviewing an NDA. The non-compete clause says 18 months and applies worldwide. Is that normal, and what should I push back on?"
+    tools: []

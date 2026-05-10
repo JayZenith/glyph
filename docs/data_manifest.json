@@ -33,17 +33,7 @@
       ],
       "produced_by": "generate.py",
       "teacher_model": "GPT-5-mini",
-      "likely_command": "python3 generate.py -m gpt-5-mini -n 1000 --no-tools-rate 0.15 --follow-up-rate 0.4 --error-rate 0.25 --min-steps 6 --max-steps 14 -o synthetic_data/data/traces_1000.jsonl",
-      "exact_flags_used": "RECOVERED FROM OFFLINE NOTES (not committed at time of run). The 1008 row count matches n=1000 plus ~8 retries, so the command above is highly likely the one actually run."
-    },
-    {
-      "stage": "2b_smaller_main_synthesis_pass",
-      "purpose": "secondary trace generation pass with shorter horizon",
-      "outputs": [],
-      "produced_by": "generate.py",
-      "teacher_model": "GPT-5-mini",
-      "likely_command": "python3 generate.py -m gpt-5-mini -n 500 --no-tools-rate 0.2 --follow-up-rate 0.35 --error-rate 0.2 --min-steps 5 --max-steps 12 -o synthetic_data/data/traces_500.jsonl",
-      "exact_flags_used": "UNVERIFIED — recovered from offline notes; no surviving file matches n=500 exactly. The 624-row bootstrap file is the closest, but row counts don't line up cleanly. Treat this command as approximate."
+      "exact_flags_used": "UNKNOWN — synthesis flags were not committed at time of run. Going forward, every trace gets a `meta` field with {teacher_model, sampling_params, prompt_id, timestamp} written at synthesis time so this stage's record is no longer ambiguous."
     },
     {
       "stage": "3_continuation",

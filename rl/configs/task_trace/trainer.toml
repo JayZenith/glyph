@@ -2,7 +2,8 @@ max_steps = 200
 
 [model]
 name = "Qwen/Qwen3-4B-Base"
-dtype = "bfloat16"
+optimization_dtype = "bfloat16"
+reduce_dtype = "bfloat16"
 
 [optim]
 lr = 1e-6

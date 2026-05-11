@@ -34,6 +34,11 @@ Practical minimum:
 
 `4 x 24GB` is enough to prove the loop works, but not a good long-run baseline.
 
+Precision:
+
+- SFT used BF16 in [sft/config.py](/home/jay-zenith/Desktop/TASK/sft/config.py:1) and [sft/train.py](/home/jay-zenith/Desktop/TASK/sft/train.py:1).
+- RL milestone 1 should run FP16 for trainer, rollout inference, and teacher/reference.
+
 ## Manual Setup
 
 ```bash
@@ -62,6 +67,14 @@ with out.open("w", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
 print(out)
 PY
+```
+
+Generate the 8-prompt review smoke set:
+
+```bash
+python3 rl/prepare_smoke_prompts.py \
+  --count 8 \
+  --output runs/rl1/smoke_prompts_8.jsonl
 ```
 
 Audit adapter load:
@@ -93,6 +106,42 @@ PYTHONPATH=$PWD /root/prime-rl-src/.venv/bin/python rl/run_api.py \
   --learning-rate 1e-6 \
   --reward-mode smoke_deterministic \
   --gpu-memory-utilization 0.75
+```
+
+Human review hook:
+
+- default dump cadence is every `20` steps
+- default file is `runs/rl1/review_step_{n}.jsonl`
+- default rejection file is `runs/rl1/review_rejections.jsonl`
+- rejected exact `(prompt, completion)` pairs get reward floor `-2`
+
+Small review-first smoke run:
+
+```bash
+PYTHONPATH=$PWD /root/prime-rl-src/.venv/bin/python rl/run_api.py \
+  --adapter JayZenith/glyph-sft-v1-adapter \
+  --teacher-model JayZenith/glyph-sft-v1 \
+  --enable-teacher-inference \
+  --teacher-tau 0.01 \
+  --data runs/rl1/smoke_prompts_8.jsonl \
+  --output runs/rl1/review_smoke \
+  --max-steps 20 \
+  --batch-size 8 \
+  --rollouts-per-example 2 \
+  --seq-len 3072 \
+  --max-model-len 3072 \
+  --max-completion-tokens 768 \
+  --learning-rate 1e-6 \
+  --reward-mode smoke_deterministic \
+  --gpu-memory-utilization 0.40 \
+  --review-every-steps 5 \
+  --review-count 8
+```
+
+After `review_step_5.jsonl` exists, create `runs/rl1/review_smoke/review_rejections.jsonl` and rerun with:
+
+```bash
+--review-rejections runs/rl1/review_smoke/review_rejections.jsonl
 ```
 
 If trainer OOMs, cut to:

@@ -66,7 +66,21 @@ uv sync --python "$PRIME_PYTHON_VERSION"
 
 install_flash_attn_wheel "$PRIME_RL_DIR/.venv/bin/python"
 
-SITE_PACKAGES_DIR="$("$PRIME_RL_DIR/.venv/bin/python" -c 'import pathlib, prime_rl; print(pathlib.Path(prime_rl.__file__).resolve().parent)')"
+SITE_PACKAGES_DIR="$("$PRIME_RL_DIR/.venv/bin/python" - <<'PY'
+import importlib.util
+import pathlib
+
+spec = importlib.util.find_spec("prime_rl")
+if spec is None:
+    raise RuntimeError("prime_rl is not importable")
+if spec.submodule_search_locations:
+    print(pathlib.Path(next(iter(spec.submodule_search_locations))).resolve())
+elif spec.origin:
+    print(pathlib.Path(spec.origin).resolve().parent)
+else:
+    raise RuntimeError("Could not resolve prime_rl package path")
+PY
+)"
 "$PRIME_RL_DIR/.venv/bin/python" "$ROOT_DIR/rl/patch_install.py" "$SITE_PACKAGES_DIR"
 
 cat <<EOF

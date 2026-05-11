@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Start a dedicated teacher inference server for reference logprobs.",
     )
+    parser.add_argument("--review-every-steps", type=int, default=20)
+    parser.add_argument("--review-count", type=int, default=8)
+    parser.add_argument("--review-dir", type=Path)
+    parser.add_argument("--review-rejections", type=Path)
+    parser.add_argument("--review-reward-floor", type=float, default=-2.0)
     parser.add_argument("--dry-run", action="store_true", help="Print config and exit without launching PRIME-RL.")
     parser.add_argument("--dump-config", type=Path, help="Optional path to write the resolved PRIME-RL config JSON.")
     return parser.parse_args()
@@ -111,6 +117,8 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict) -> dict:
                 "name": base_model,
                 "seq_len": args.seq_len,
                 "attn": "sdpa",
+                "optimization_dtype": "bfloat16",
+                "reduce_dtype": "bfloat16",
                 "lora": {
                     "rank": rank,
                     "alpha": alpha,
@@ -166,6 +174,7 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict) -> dict:
         "inference": {
             "model": {
                 "name": base_model,
+                "dtype": "float16",
                 "max_model_len": args.max_model_len,
                 "enforce_eager": True,
             },
@@ -186,6 +195,7 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict) -> dict:
         config["teacher_inference"] = {
             "model": {
                 "name": teacher_model_name,
+                "dtype": "float16",
                 "max_model_len": args.max_model_len,
                 "enforce_eager": True,
             },
@@ -215,6 +225,14 @@ def main() -> None:
     venv_bin = str(Path(sys.executable).parent)
     path = os.environ.get("PATH")
     os.environ["PATH"] = venv_bin if not path else f"{venv_bin}:{path}"
+    output_dir = Path(args.output).resolve()
+    review_dir = (args.review_dir or output_dir).resolve()
+
+    if args.review_rejections:
+        os.environ["GLYPH_REVIEW_REJECTIONS"] = str(args.review_rejections.resolve())
+    else:
+        os.environ["GLYPH_REVIEW_REJECTIONS"] = str((review_dir / "review_rejections.jsonl").resolve())
+    os.environ["GLYPH_REVIEW_REWARD_FLOOR"] = str(args.review_reward_floor)
 
     raw_config = build_config(args, adapter_cfg)
     raw_config.setdefault("metadata", {})
@@ -245,7 +263,11 @@ def main() -> None:
             elif gpu_count == 3:
                 rl_mod.get_physical_gpu_ids = lambda: [0, 1, 2]
             elif gpu_count == 2:
-                rl_mod.get_physical_gpu_ids = lambda: [0, 1, 1]
+                mem_gib = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                if mem_gib >= 70:
+                    rl_mod.get_physical_gpu_ids = lambda: [1, 0, 1]
+                else:
+                    rl_mod.get_physical_gpu_ids = lambda: [0, 1, 1]
             else:
                 raise RuntimeError(
                     "Teacher inference requires either share_single_gpu or at least 2 visible GPUs."
@@ -256,7 +278,30 @@ def main() -> None:
     validated_config = dict(raw_config)
     validated_config.pop("metadata", None)
     config = RLConfig.model_validate(validated_config)
-    rl_mod.rl(config)
+    review_proc: subprocess.Popen[str] | None = None
+    if args.review_every_steps > 0 and args.review_count > 0:
+        review_dir.mkdir(parents=True, exist_ok=True)
+        review_proc = subprocess.Popen(
+            [
+                sys.executable,
+                str(Path(__file__).with_name("review_rollouts.py")),
+                "--output-dir",
+                str(output_dir),
+                "--review-dir",
+                str(review_dir),
+                "--every-steps",
+                str(args.review_every_steps),
+                "--count",
+                str(args.review_count),
+                "--parent-pid",
+                str(os.getpid()),
+            ]
+        )
+    try:
+        rl_mod.rl(config)
+    finally:
+        if review_proc is not None and review_proc.poll() is None:
+            review_proc.terminate()
 
 
 if __name__ == "__main__":

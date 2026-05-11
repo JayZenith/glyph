@@ -1,7 +1,7 @@
 max_steps = 200
 
 [model]
-name = "Qwen/Qwen3-4B"
+name = "Qwen/Qwen3-4B-Base"
 dtype = "bfloat16"
 
 [optim]
@@ -17,4 +17,3 @@ hard_fraction = 0.2
 
 [checkpoint]
 interval = 20
-

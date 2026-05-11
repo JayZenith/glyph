@@ -32,6 +32,8 @@ def _maybe_load_initial_lora_adapter(model: nn.Module) -> None:
         new_key = key
         if new_key.startswith("base_model.model."):
             new_key = new_key[len("base_model.model.") :]
+        if ".modules_to_save.default." in new_key:
+            new_key = new_key.replace(".modules_to_save.default.", ".")
         if new_key.endswith(".weight") and (".lora_A." in new_key or ".lora_B." in new_key):
             new_key = new_key[: -len(".weight")]
         if new_key.endswith(".lora_A"):
@@ -127,11 +129,20 @@ def patch_ckpt_py(path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("site_packages", type=Path, help="Path to site-packages/prime_rl")
+    parser.add_argument("target", type=Path, help="Path to PRIME-RL repo root or installed prime_rl package dir")
     args = parser.parse_args()
 
-    model_py = args.site_packages / "trainer" / "model.py"
-    ckpt_py = args.site_packages / "trainer" / "ckpt.py"
+    target = args.target
+    candidates = [
+        (target / "trainer" / "model.py", target / "trainer" / "ckpt.py"),
+        (target / "src" / "prime_rl" / "trainer" / "model.py", target / "src" / "prime_rl" / "trainer" / "ckpt.py"),
+    ]
+    for model_py, ckpt_py in candidates:
+        if model_py.exists() and ckpt_py.exists():
+            break
+    else:
+        raise FileNotFoundError(f"Could not find PRIME-RL trainer files under {target}")
+
     patch_model_py(model_py)
     patch_ckpt_py(ckpt_py)
 

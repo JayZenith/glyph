@@ -4,16 +4,30 @@ This project now delegates all RL fine-tuning to [PRIME-RL](https://github.com/P
 
 ### Setup
 
-1. Install dependencies (this uses `uv` by default):
+1. Install local glyph-side training and audit deps:
    ```bash
-   uv pip install -r requirements-train.txt
+   pip install -r requirements-train.txt
    ```
-   This pulls the official `prime-rl` package plus the local TASK environment helper modules.
 
-2. (Optional) Generate/refresh prompts:
+2. Install PRIME-RL in its own upstream-managed environment:
+   ```bash
+   bash rl/setup_prime_rl.sh
+   ```
+   This clones upstream `prime-rl`, creates its `uv` / Python 3.12 environment, installs `peft`, installs a pinned `flash-attn` wheel for the current PRIME-RL torch/CUDA stack, and applies the local adapter-bootstrap patch needed for continuing from `JayZenith/glyph-sft-v1-adapter`.
+
+   If the PRIME-RL stack changes and the pinned wheel no longer matches, set:
+   ```bash
+   FLASH_ATTN_WHEEL_URL=...
+   bash rl/setup_prime_rl.sh
+   ```
+   The script intentionally fails fast instead of silently compiling `flash-attn` from source.
+
+3. (Optional) Generate/refresh prompts:
    ```bash
    uv run python generate_prompts.py --count 2000 --output traces.processed.jsonl
    ```
+
+Do not install PRIME-RL through `requirements-train.txt`. Its upstream dependency stack is resolved through its own `pyproject.toml` and `uv` environment, and trying to flatten that into this repo's requirements file is brittle.
 
 ### Local Environment
 
@@ -51,4 +65,3 @@ uv run rl \
 ```
 
 This is equivalent to what `rl_train.py` builds automatically.
-

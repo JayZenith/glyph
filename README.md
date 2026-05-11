@@ -65,6 +65,14 @@ python -m sft.train \
 
 Defaults match the actual run: LoRA r64/α64, batch 1, grad-accum 8, LR 2e-5, max-seq 8192, 3 epochs. Merge and gen-eval are off by default; opt in with `--enable-merge` / `--enable-gen-eval`.
 
+For RL, install PRIME-RL separately with:
+
+```bash
+bash rl/setup_prime_rl.sh
+```
+
+`requirements-train.txt` is intentionally only for glyph-local SFT / audit dependencies now; PRIME-RL uses its own upstream `uv` / Python 3.12 environment. The setup script also installs a pinned `flash-attn` wheel so it does not fall back to a long source build. If the PRIME-RL torch/CUDA stack changes, override with `FLASH_ATTN_WHEEL_URL=... bash rl/setup_prime_rl.sh`.
+
 ```bash
 # pull adapter + tokenized test_set, destroy instance
 scp -P <PORT> -r root@<HOST>:/root/glyph/runs/sft1/{final,test_set} artifacts/sft_run_v2/

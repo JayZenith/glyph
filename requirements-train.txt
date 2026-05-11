@@ -1,4 +1,7 @@
-# Training dependencies for SFT and RL
+# Training dependencies for local SFT / audit scripts.
+# PRIME-RL is installed separately via rl/setup_prime_rl.sh because its
+# upstream uv/pyproject environment is not reliably reproducible through a
+# flat pip requirements file here.
 torch>=2.2.0
 transformers>=4.47.0
 datasets>=2.18.0
@@ -9,5 +12,3 @@ pyyaml
 tensorboard
 wandb  # optional, for experiment tracking
 rich>=13.0.0  # For training dashboard TUI
-
-git+https://github.com/PrimeIntellect-ai/prime-rl.git

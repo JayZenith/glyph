@@ -114,6 +114,40 @@ Where:
 - `section_credit` comes from `rl/task_format/core.py`
 - teacher KL is driven by `--teacher-tau 0.01`
 
+## Files That Matter
+
+Needed for milestone 1:
+
+- `rl/run_api.py`
+- `rl/setup_prime_rl.sh`
+- `rl/patch_install.py`
+- `rl/audit_adapter_setup.py`
+- `rl/task_trace.py`
+- `rl/task_format/core.py`
+- `core/validator.py`
+- `rl/docs/MILESTONE1_TUTORIAL.md`
+- `rl/configs/task_trace/orchestrator.toml`
+- `rl/configs/task_trace/trainer.toml`
+- `rl/configs/task_trace/inference.toml`
+- `sft/evals/prompt_loader.py`
+- `sft/evals/prompts.yaml`
+
+HF models needed:
+
+- `JayZenith/glyph-sft-v1-adapter`
+- `JayZenith/glyph-sft-v1`
+- `Qwen/Qwen3-4B-Base`
+
+Not needed for milestone 1:
+
+- local merged checkpoints
+- local adapter copies on the instance
+- LLM judge code path
+- tool execution code path
+- human review hook
+- old GRPO trainer code
+- unrelated blog files
+
 ## What Broke
 
 In order:

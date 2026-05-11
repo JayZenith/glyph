@@ -37,7 +37,7 @@ Practical minimum:
 Precision:
 
 - SFT used BF16 in [sft/config.py](/home/jay-zenith/Desktop/TASK/sft/config.py:1) and [sft/train.py](/home/jay-zenith/Desktop/TASK/sft/train.py:1).
-- RL milestone 1 should run FP16 for trainer, rollout inference, and teacher/reference.
+- RL milestone 1 currently runs BF16 on the trainer and FP16 on rollout inference + teacher/reference.
 
 ## Manual Setup
 
@@ -104,6 +104,7 @@ PYTHONPATH=$PWD /root/prime-rl-src/.venv/bin/python rl/run_api.py \
   --max-model-len 3072 \
   --max-completion-tokens 768 \
   --learning-rate 1e-6 \
+  --checkpoint-interval 1000 \
   --reward-mode smoke_deterministic \
   --gpu-memory-utilization 0.75
 ```
@@ -132,6 +133,7 @@ PYTHONPATH=$PWD /root/prime-rl-src/.venv/bin/python rl/run_api.py \
   --max-model-len 3072 \
   --max-completion-tokens 768 \
   --learning-rate 1e-6 \
+  --checkpoint-interval 1000 \
   --reward-mode smoke_deterministic \
   --gpu-memory-utilization 0.40 \
   --review-every-steps 5 \
@@ -218,7 +220,10 @@ Fix: `enforce_eager=true` and `gpu_memory_utilization=0.75`.
 6. PRIME-RL teacher logprob path broke on OpenAI client parsing.
 Fix: patch teacher `/generate` client to parse raw JSON.
 
-7. Trainer still OOMed after step 1.
+7. Step-20 smoke run died while saving weights.
+Fix: keep `--checkpoint-interval` above `--max-steps` for smoke runs unless you explicitly want a saved checkpoint.
+
+8. Trainer still OOMed after step 1.
 Fix: shrink smoke config or use a `48GB+` trainer GPU.
 
 ## What To Check

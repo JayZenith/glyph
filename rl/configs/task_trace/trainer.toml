@@ -17,4 +17,4 @@ easy_fraction = 0.2
 hard_fraction = 0.2
 
 [checkpoint]
-interval = 20
+interval = 1000

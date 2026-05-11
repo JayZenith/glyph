@@ -38,6 +38,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-completion-tokens", type=int, default=256)
     parser.add_argument("--learning-rate", type=float, default=1e-6)
     parser.add_argument("--weight-decay", type=float, default=0.01)
+    parser.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=1000,
+        help="Checkpoint save interval. Keep this above max_steps for smoke runs to avoid heavy disk writes.",
+    )
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.2)
     parser.add_argument("--max-samples", type=int, default=512)
@@ -136,7 +142,7 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict) -> dict:
                 "type": "default",
                 "teacher_tau": args.teacher_tau,
             },
-            "ckpt": {"interval": 20},
+            "ckpt": {"interval": args.checkpoint_interval},
             "max_steps": args.max_steps,
         },
         "orchestrator": {
@@ -169,7 +175,7 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict) -> dict:
             "rollouts_per_example": args.rollouts_per_example,
             "seq_len": args.seq_len,
             "max_steps": args.max_steps,
-            "ckpt": {"interval": 20},
+            "ckpt": {"interval": args.checkpoint_interval},
         },
         "inference": {
             "model": {

@@ -7,8 +7,6 @@ Current live path:
 - [configs/task_trace](/home/jay-zenith/Desktop/TASK/rl/configs/task_trace:1): trainer/orchestrator/inference defaults
 - [rust](/home/jay-zenith/Desktop/TASK/rl/rust:1): Rust executor, reward, tool schema, case generation
 - [scripts/patch_install.py](/home/jay-zenith/Desktop/TASK/rl/scripts/patch_install.py:1): PRIME-RL install patch
-- [scripts/review_rollouts.py](/home/jay-zenith/Desktop/TASK/rl/scripts/review_rollouts.py:1): review dump sidecar
-- [scripts/review_pretty.py](/home/jay-zenith/Desktop/TASK/rl/scripts/review_pretty.py:1): local review helper
 - [setup_prime_rl.sh](/home/jay-zenith/Desktop/TASK/rl/setup_prime_rl.sh:1): PRIME-RL setup script
 
 Setup:

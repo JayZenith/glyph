@@ -4,8 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
-import sys
 import tomllib
 from copy import deepcopy
 from pathlib import Path
@@ -44,9 +42,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--teacher-port", type=int)
     parser.add_argument("--teacher-tau", type=float)
     parser.add_argument("--enable-teacher-inference", action="store_true")
-    parser.add_argument("--review-every-steps", type=int)
-    parser.add_argument("--review-count", type=int, default=8)
-    parser.add_argument("--review-dir", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--dump-config", type=Path)
     return parser.parse_args()
@@ -186,30 +181,6 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[
     return config
 
 
-def start_review_sidecar(args: argparse.Namespace, output_dir: Path) -> subprocess.Popen[str] | None:
-    if not args.review_every_steps:
-        return None
-    review_dir = (args.review_dir or output_dir).resolve()
-    review_dir.mkdir(parents=True, exist_ok=True)
-    script = Path(__file__).resolve().parent / "scripts" / "review_rollouts.py"
-    return subprocess.Popen(
-        [
-            sys.executable,
-            str(script),
-            "--output-dir",
-            str(output_dir),
-            "--review-dir",
-            str(review_dir),
-            "--every-steps",
-            str(args.review_every_steps),
-            "--count",
-            str(args.review_count),
-            "--parent-pid",
-            str(os.getpid()),
-        ]
-    )
-
-
 def patch_gpu_mapping(enable_teacher_inference: bool) -> None:
     import prime_rl.entrypoints.rl as rl_mod
     import torch
@@ -264,16 +235,7 @@ def main() -> None:
     validated_config.pop("metadata", None)
     config = RLConfig.model_validate(validated_config)
 
-    review_proc = start_review_sidecar(args, Path(raw_config["output_dir"]))
-    try:
-        rl_mod.rl_local(config)
-    finally:
-        if review_proc and review_proc.poll() is None:
-            review_proc.terminate()
-            try:
-                review_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                review_proc.kill()
+    rl_mod.rl_local(config)
 
 
 if __name__ == "__main__":

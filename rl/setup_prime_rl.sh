@@ -6,8 +6,21 @@ set -euo pipefail
 # from a PEFT adapter such as JayZenith/glyph-sft-v1-adapter.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PRIME_RL_DIR="${1:-$HOME/prime-rl}"
+PRIME_RL_DIR="${1:-${PRIME_RL_DIR:-/workspace/prime-rl-src}}"
 PRIME_PYTHON_VERSION="${PRIME_PYTHON_VERSION:-3.12}"
+WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
+DEFAULT_TMP_ROOT="$WORKSPACE_DIR/.tmp"
+if [ -d /dev/shm ] && [ -w /dev/shm ]; then
+  DEFAULT_TMP_ROOT="/dev/shm/prime-rl-tmp"
+fi
+TMP_ROOT="${TMP_ROOT:-$DEFAULT_TMP_ROOT}"
+UV_CACHE_DIR="${UV_CACHE_DIR:-$WORKSPACE_DIR/.uv-cache}"
+
+mkdir -p "$TMP_ROOT" "$UV_CACHE_DIR"
+export TMPDIR="$TMP_ROOT"
+export TEMP="$TMP_ROOT"
+export TMP="$TMP_ROOT"
+export UV_CACHE_DIR
 
 install_flash_attn_wheel() {
   local python_bin="$1"
@@ -81,7 +94,7 @@ else:
     raise RuntimeError("Could not resolve prime_rl package path")
 PY
 )"
-"$PRIME_RL_DIR/.venv/bin/python" "$ROOT_DIR/rl/patch_install.py" "$SITE_PACKAGES_DIR"
+"$PRIME_RL_DIR/.venv/bin/python" "$ROOT_DIR/rl/scripts/patch_install.py" "$SITE_PACKAGES_DIR"
 
 cat <<EOF
 PRIME-RL ready at: $PRIME_RL_DIR

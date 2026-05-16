@@ -1,147 +1,280 @@
 #!/usr/bin/env python3
-"""
-Prime-RL launcher for TASK-format environments.
-
-Configures the PRIME-RL `rl` entrypoint with the local `task-trace` verifiers
-environment and forwards common overrides (model path, dataset, batch sizing).
-"""
-
 from __future__ import annotations
 
 import argparse
-import importlib.util
+import json
 import os
-import shutil
 import subprocess
 import sys
+import tomllib
+from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
-TEMPLATE_DIR = Path("configs/prime_rl/task_trace")
-
-
-def ensure_prime_rl_installed():
-    if importlib.util.find_spec("prime_rl") is None:
-        raise RuntimeError(
-            "prime_rl is not installed. Install from git with:\n"
-            "  uv pip install \"prime-rl @ git+https://github.com/PrimeIntellect-ai/prime-rl.git\""
-        )
+from huggingface_hub import snapshot_download
 
 
-def build_command(args: argparse.Namespace) -> list[str]:
-    trainer_cfg = TEMPLATE_DIR / "trainer.toml"
-    orch_cfg = TEMPLATE_DIR / "orchestrator.toml"
-    infer_cfg = TEMPLATE_DIR / "inference.toml"
-
-    for cfg in (trainer_cfg, orch_cfg, infer_cfg):
-        if not cfg.exists():
-            raise FileNotFoundError(f"Missing PRIME-RL config template: {cfg}")
-
-    cmd = [
-        "uv",
-        "run",
-        "rl",
-        "--trainer",
-        "@",
-        str(trainer_cfg),
-        "--orchestrator",
-        "@",
-        str(orch_cfg),
-        "--inference",
-        "@",
-        str(infer_cfg),
-        "--output-dir",
-        str(args.output),
-    ]
-
-    overrides: list[tuple[str, str | int | float]] = [
-        ("--trainer.model.name", args.model),
-        ("--orchestrator.model.name", args.model),
-        ("--inference.model.name", args.model),
-        ("--orchestrator.env.0.args.data_path", args.data),
-        ("--trainer.max_steps", args.max_steps),
-        ("--orchestrator.max_steps", args.max_steps),
-        ("--trainer.buffer.batch_size", args.batch_size),
-        ("--trainer.buffer.seq_len", args.seq_len),
-        ("--orchestrator.batch_size", args.batch_size),
-        ("--orchestrator.rollouts_per_example", args.rollouts_per_example),
-        ("--orchestrator.seq_len", args.seq_len),
-        ("--trainer.optim.lr", args.learning_rate),
-        ("--trainer.optim.weight_decay", args.weight_decay),
-        ("--orchestrator.sampling.max_tokens", args.max_tokens),
-        ("--orchestrator.sampling.temperature", args.temperature),
-    ]
-
-    if args.max_samples is not None:
-        overrides.append(("--orchestrator.env.0.args.max_samples", args.max_samples))
-    if args.max_trace_chars is not None:
-        overrides.append(("--orchestrator.env.0.args.max_trace_chars", args.max_trace_chars))
-
-    for flag, value in overrides:
-        cmd.extend([flag, str(value)])
-
-    cmd.extend(args.extra_prime_rl_args)
-    return cmd
+CONFIG_DIR = Path(__file__).resolve().parent / "configs" / "task_trace"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Launch PRIME-RL on TASK data.")
-    parser.add_argument("--model", required=True, help="Path or HF id of the SFT checkpoint to RL from. Required to avoid silently RL-ing on top of an already-post-trained model.")
-    parser.add_argument("--data", default="traces.processed.jsonl", help="Prompt dataset file.")
-    parser.add_argument("--output", type=Path, default=Path("outputs"), help="Output directory for PRIME-RL artifacts.")
-    parser.add_argument("--max-steps", type=int, default=200, help="Number of trainer/orchestrator steps.")
-    parser.add_argument("--batch-size", type=int, default=128, help="Effective batch size per step.")
-    parser.add_argument("--rollouts-per-example", type=int, default=8, help="Rollouts per sampled prompt.")
-    parser.add_argument("--seq-len", type=int, default=4096, help="Maximum sequence length tokens.")
-    parser.add_argument("--max-tokens", type=int, default=4096, help="Generation cap for orchestrator sampling.")
-    parser.add_argument("--learning-rate", type=float, default=1e-6, help="Trainer learning rate.")
-    parser.add_argument("--weight-decay", type=float, default=0.01, help="Trainer weight decay.")
-    parser.add_argument("--temperature", type=float, default=0.8, help="Sampling temperature.")
-    parser.add_argument("--max-samples", type=int, help="Optional cap on dataset size.")
-    parser.add_argument(
-        "--max-trace-chars",
-        type=int,
-        default=50000,
-        help="Skip traces whose assistant output exceeds this char count (0 disables).",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print the PRIME-RL command without launching.",
-    )
-    parser.add_argument(
-        "extra_prime_rl_args",
-        nargs=argparse.REMAINDER,
-        help="Additional args forwarded verbatim to `uv run rl`.",
-    )
+    parser = argparse.ArgumentParser(description="Launch PRIME-RL from a PEFT adapter.")
+    parser.add_argument("--adapter", required=True, help="HF repo id for the PEFT adapter.")
+    parser.add_argument("--base-model", help="Override the adapter base model.")
+    parser.add_argument("--data", type=Path, help="Prompt dataset path.")
+    parser.add_argument("--output", type=Path, default=Path("outputs/prime_rl"))
+    parser.add_argument("--max-steps", type=int)
+    parser.add_argument("--batch-size", type=int)
+    parser.add_argument("--rollouts-per-example", type=int)
+    parser.add_argument("--seq-len", type=int)
+    parser.add_argument("--max-model-len", type=int)
+    parser.add_argument("--max-completion-tokens", type=int)
+    parser.add_argument("--learning-rate", type=float)
+    parser.add_argument("--weight-decay", type=float)
+    parser.add_argument("--checkpoint-interval", type=int)
+    parser.add_argument("--temperature", type=float)
+    parser.add_argument("--gpu-memory-utilization", type=float)
+    parser.add_argument("--teacher-gpu-memory-utilization", type=float)
+    parser.add_argument("--max-samples", type=int)
+    parser.add_argument("--max-trace-chars", type=int)
+    parser.add_argument("--nsjail-path")
+    parser.add_argument("--tool-timeout", type=int)
+    parser.add_argument("--port", type=int)
+    parser.add_argument("--teacher-model")
+    parser.add_argument("--teacher-port", type=int)
+    parser.add_argument("--teacher-tau", type=float)
+    parser.add_argument("--enable-teacher-inference", action="store_true")
+    parser.add_argument("--review-every-steps", type=int)
+    parser.add_argument("--review-count", type=int, default=8)
+    parser.add_argument("--review-dir", type=Path)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--dump-config", type=Path)
     return parser.parse_args()
 
 
-def main():
+def resolve_adapter_dir(adapter: str) -> Path:
+    return Path(snapshot_download(repo_id=adapter, repo_type="model"))
+
+
+def load_adapter_config(adapter_dir: Path) -> dict[str, Any]:
+    path = adapter_dir / "adapter_config.json"
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def load_toml(path: Path) -> dict[str, Any]:
+    with path.open("rb") as f:
+        return tomllib.load(f)
+
+
+def load_templates() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    return (
+        load_toml(CONFIG_DIR / "trainer.toml"),
+        load_toml(CONFIG_DIR / "orchestrator.toml"),
+        load_toml(CONFIG_DIR / "inference.toml"),
+    )
+
+
+def maybe_set(container: dict[str, Any], key: str, value: Any) -> None:
+    if value is not None:
+        container[key] = value
+
+
+def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[str, Any]:
+    trainer, orchestrator, inference = load_templates()
+
+    base_model = args.base_model or adapter_cfg["base_model_name_or_path"]
+    output_dir = args.output.resolve()
+    data_path = args.data.resolve() if args.data else None
+
+    rank = int(adapter_cfg["r"])
+    alpha = float(adapter_cfg["lora_alpha"])
+    dropout = float(adapter_cfg.get("lora_dropout", 0.0))
+    target_modules = list(adapter_cfg["target_modules"])
+    modules_to_save = list(adapter_cfg.get("modules_to_save") or [])
+    adapter_label = str(args.adapter).replace("/", "__")
+    adapter_name = f"{adapter_label}-r{rank}-a{int(alpha)}"
+
+    trainer_model = trainer.setdefault("model", {})
+    trainer_buffer = trainer.setdefault("buffer", {})
+    trainer_optim = trainer.setdefault("optim", {})
+    trainer_loss = trainer.setdefault("loss", {})
+    trainer_ckpt = trainer.setdefault("ckpt", {})
+
+    trainer_model["name"] = base_model
+    trainer_model["lora"] = {
+        "rank": rank,
+        "alpha": alpha,
+        "dropout": dropout,
+        "target_modules": target_modules,
+        "modules_to_save": modules_to_save,
+    }
+    maybe_set(trainer_model, "seq_len", args.seq_len)
+    maybe_set(trainer_buffer, "batch_size", args.batch_size)
+    maybe_set(trainer_buffer, "seq_len", args.seq_len)
+    maybe_set(trainer_optim, "lr", args.learning_rate)
+    maybe_set(trainer_optim, "weight_decay", args.weight_decay)
+    maybe_set(trainer_loss, "teacher_tau", args.teacher_tau)
+    maybe_set(trainer_ckpt, "interval", args.checkpoint_interval)
+    maybe_set(trainer, "max_steps", args.max_steps)
+
+    orch_model = orchestrator.setdefault("model", {})
+    orch_train = orchestrator.setdefault("train", {})
+    orch_sampling = orch_train.setdefault("sampling", {})
+    env_list = orch_train.setdefault("env", [{"id": "task-trace", "args": {}}])
+    env_args = env_list[0].setdefault("args", {})
+    orch_ckpt = orchestrator.setdefault("ckpt", {})
+
+    orch_model["name"] = base_model
+    orch_model["lora"] = {
+        "name": adapter_name,
+        "rank": rank,
+        "alpha": alpha,
+    }
+    maybe_set(orchestrator, "batch_size", args.batch_size)
+    maybe_set(orchestrator, "rollouts_per_example", args.rollouts_per_example)
+    maybe_set(orchestrator, "seq_len", args.seq_len)
+    maybe_set(orchestrator, "max_steps", args.max_steps)
+    maybe_set(orch_ckpt, "interval", args.checkpoint_interval)
+    maybe_set(orch_sampling, "temperature", args.temperature)
+    maybe_set(orch_sampling, "max_completion_tokens", args.max_completion_tokens)
+    if data_path is not None:
+        env_args["data_path"] = str(data_path)
+    maybe_set(env_args, "max_samples", args.max_samples)
+    maybe_set(env_args, "max_trace_chars", args.max_trace_chars)
+    maybe_set(env_args, "nsjail_path", args.nsjail_path)
+    maybe_set(env_args, "timeout", args.tool_timeout)
+
+    infer_model = inference.setdefault("model", {})
+    infer_server = inference.setdefault("server", {})
+    infer_model["name"] = base_model
+    maybe_set(infer_model, "max_model_len", args.max_model_len)
+    maybe_set(infer_server, "port", args.port)
+    maybe_set(inference, "gpu_memory_utilization", args.gpu_memory_utilization)
+
+    teacher_gpu_slots = 1 if args.enable_teacher_inference else 0
+    config: dict[str, Any] = {
+        "trainer": trainer,
+        "orchestrator": orchestrator,
+        "inference": inference,
+        "output_dir": str(output_dir),
+        "wandb": {"offline": True, "shared": False},
+        "deployment": {
+            "type": "single_node",
+            "gpus_per_node": 2 + teacher_gpu_slots,
+            "num_train_gpus": 1,
+            "num_infer_gpus": 1,
+        },
+    }
+
+    if args.enable_teacher_inference:
+        teacher_model_name = args.teacher_model or base_model
+        teacher_inference = deepcopy(inference)
+        teacher_inference.setdefault("model", {})["name"] = teacher_model_name
+        maybe_set(teacher_inference.setdefault("server", {}), "port", args.teacher_port)
+        if args.teacher_gpu_memory_utilization is not None:
+            teacher_inference["gpu_memory_utilization"] = args.teacher_gpu_memory_utilization
+        config["teacher_inference"] = teacher_inference
+        orchestrator["teacher_model"] = {
+            "model": {"name": teacher_model_name},
+            "client": {
+                "base_url": [f"http://127.0.0.1:{teacher_inference['server']['port']}/v1"],
+            },
+        }
+        config["deployment"]["num_teacher_gpus"] = 1
+
+    return config
+
+
+def start_review_sidecar(args: argparse.Namespace, output_dir: Path) -> subprocess.Popen[str] | None:
+    if not args.review_every_steps:
+        return None
+    review_dir = (args.review_dir or output_dir).resolve()
+    review_dir.mkdir(parents=True, exist_ok=True)
+    script = Path(__file__).resolve().parent / "scripts" / "review_rollouts.py"
+    return subprocess.Popen(
+        [
+            sys.executable,
+            str(script),
+            "--output-dir",
+            str(output_dir),
+            "--review-dir",
+            str(review_dir),
+            "--every-steps",
+            str(args.review_every_steps),
+            "--count",
+            str(args.review_count),
+            "--parent-pid",
+            str(os.getpid()),
+        ]
+    )
+
+
+def patch_gpu_mapping(enable_teacher_inference: bool) -> None:
+    import prime_rl.entrypoints.rl as rl_mod
+    import torch
+
+    if not enable_teacher_inference:
+        return
+
+    gpu_count = torch.cuda.device_count()
+    if gpu_count >= 4:
+        rl_mod.get_physical_gpu_ids = lambda: [0, 2, 3]
+    elif gpu_count == 3:
+        rl_mod.get_physical_gpu_ids = lambda: [0, 1, 2]
+    elif gpu_count == 2:
+        mem_gib = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        if mem_gib >= 70:
+            rl_mod.get_physical_gpu_ids = lambda: [1, 0, 0]
+        else:
+            rl_mod.get_physical_gpu_ids = lambda: [0, 1, 1]
+    else:
+        raise RuntimeError("Teacher inference requires at least 2 visible GPUs.")
+
+
+def main() -> None:
     args = parse_args()
-    if args.max_trace_chars == 0:
-        args.max_trace_chars = None
+    adapter_dir = resolve_adapter_dir(args.adapter)
+    adapter_cfg = load_adapter_config(adapter_dir)
+    raw_config = build_config(args, adapter_cfg)
+    raw_config["metadata"] = {
+        "init_adapter_source": args.adapter,
+        "init_adapter_resolved_dir": str(adapter_dir),
+    }
 
-    ensure_prime_rl_installed()
+    if args.dump_config:
+        args.dump_config.parent.mkdir(parents=True, exist_ok=True)
+        args.dump_config.write_text(json.dumps(raw_config, indent=2) + "\n", encoding="utf-8")
 
-    if shutil.which("uv") is None:
-        raise RuntimeError("uv is required to launch PRIME-RL. See https://docs.astral.sh/uv/")
-
-    args.output.mkdir(parents=True, exist_ok=True)
-
-    cmd = build_command(args)
-    print("[Prime-RL] " + " ".join(cmd))
-
+    print(json.dumps(raw_config, indent=2))
     if args.dry_run:
         return
 
-    env = os.environ.copy()
-    pythonpath = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = str(Path.cwd()) if not pythonpath else f"{Path.cwd()}:{pythonpath}"
-    subprocess.run(cmd, check=True, env=env)
+    os.environ["PRIME_RL_INIT_ADAPTER"] = str(adapter_dir)
+    cwd = str(Path.cwd())
+    pythonpath = os.environ.get("PYTHONPATH")
+    os.environ["PYTHONPATH"] = cwd if not pythonpath else f"{cwd}:{pythonpath}"
+
+    from prime_rl.configs.rl import RLConfig
+    import prime_rl.entrypoints.rl as rl_mod
+
+    patch_gpu_mapping(args.enable_teacher_inference)
+
+    validated_config = dict(raw_config)
+    validated_config.pop("metadata", None)
+    config = RLConfig.model_validate(validated_config)
+
+    review_proc = start_review_sidecar(args, Path(raw_config["output_dir"]))
+    try:
+        rl_mod.rl_local(config)
+    finally:
+        if review_proc and review_proc.poll() is None:
+            review_proc.terminate()
+            try:
+                review_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                review_proc.kill()
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        sys.exit(130)
+    main()

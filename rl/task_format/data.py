@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
 
 
 def load_prompts(
     data_path: str,
     max_samples: int | None = None,
-    max_trace_chars: Optional[int] = None,
+    max_trace_chars: int | None = None,
 ) -> tuple[list[dict], dict]:
     """Load prompts from JSONL file with optional length filtering."""
 
@@ -36,7 +35,9 @@ def load_prompts(
                     prompt = item["prompt"]
                     if not prompt.startswith("<|im_start|>"):
                         prompt = f"<|im_start|>system\n{prompt}\n<|im_end|>\n<|im_start|>assistant\n"
-                    prompts.append({"prompt": prompt})
+                    row = {k: v for k, v in item.items() if k != "prompt"}
+                    row["prompt"] = prompt
+                    prompts.append(row)
                     continue
 
                 trace = item.get("trace", "")
@@ -56,4 +57,3 @@ def load_prompts(
                 stats["skipped_malformed"] += 1
 
     return prompts, stats
-

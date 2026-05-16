@@ -10,67 +10,6 @@ import argparse
 from pathlib import Path
 
 
-HELPER = """
-def _maybe_load_initial_lora_adapter(model: nn.Module) -> None:
-    adapter_dir_env = os.environ.get("PRIME_RL_INIT_ADAPTER")
-    if not adapter_dir_env:
-        return
-
-    logger = get_logger()
-    adapter_dir = Path(adapter_dir_env)
-    if not adapter_dir.exists():
-        raise FileNotFoundError(f"Initial LoRA adapter path does not exist: {adapter_dir}")
-
-    from safetensors.torch import load_file
-
-    weights_path = adapter_dir / "adapter_model.safetensors"
-    if not weights_path.exists():
-        raise FileNotFoundError(f"Expected adapter weights at {weights_path}")
-
-    translated = {}
-    for key, value in load_file(weights_path).items():
-        new_key = key
-        if new_key.startswith("base_model.model."):
-            new_key = new_key[len("base_model.model.") :]
-        if ".modules_to_save.default." in new_key:
-            new_key = new_key.replace(".modules_to_save.default.", ".")
-        if new_key.endswith(".weight") and (".lora_A." in new_key or ".lora_B." in new_key):
-            new_key = new_key[: -len(".weight")]
-        if new_key.endswith(".lora_A"):
-            new_key += ".0"
-        elif new_key.endswith(".lora_B"):
-            new_key += ".0"
-        translated[new_key] = value
-
-    model_state = model.state_dict()
-    loaded = 0
-    missing = []
-    mismatched = []
-    with torch.no_grad():
-        for key, value in translated.items():
-            target = model_state.get(key)
-            if target is None:
-                missing.append(key)
-                continue
-            if tuple(target.shape) != tuple(value.shape):
-                mismatched.append((key, tuple(target.shape), tuple(value.shape)))
-                continue
-            target.copy_(value.to(device=target.device, dtype=target.dtype))
-            loaded += 1
-
-    if mismatched:
-        first = mismatched[0]
-        raise ValueError(
-            f"Adapter shape mismatch for {first[0]}: model={first[1]} adapter={first[2]} "
-            f"(and {len(mismatched) - 1} more)"
-        )
-
-    if missing:
-        logger.warning(f"Skipped {len(missing)} adapter tensors not found in PRIME-RL model")
-
-    logger.info(f"Loaded initial LoRA adapter from {adapter_dir} into {loaded} PRIME-RL tensors")
-""".strip()
-
 TEACHER_LOGPROB_PATCH_OLD = """import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -171,22 +110,54 @@ TEACHER_LOGPROB_BLOCK_NEW = """async def compute_teacher_logprobs(
 CALL_MARKER = "        apply_lora_to_model(model, config.lora)\n"
 CALL_INSERT = CALL_MARKER + "        _maybe_load_initial_lora_adapter(model)\n"
 
+MODEL_HELPER_ANCHOR = "\n\ndef _patch_qwen3_5_moe_conversion_mapping():\n"
+MODEL_HELPER_BLOCK = '''
 
-def patch_model_py(path: Path) -> None:
-    text = path.read_text()
-    if "_maybe_load_initial_lora_adapter" in text:
+def _maybe_load_initial_lora_adapter(model: nn.Module) -> None:
+    """Load LoRA + modules_to_save weights from PRIME_RL_INIT_ADAPTER if set."""
+    adapter_dir = os.environ.get("PRIME_RL_INIT_ADAPTER")
+    if not adapter_dir:
         return
-    if CALL_MARKER not in text:
-        raise RuntimeError("Could not find LoRA insertion point in trainer/model.py")
 
-    insert_after = "def pre_download_model(model_name: str) -> None:\n"
-    idx = text.find("\n\n", text.find(insert_after))
-    if idx == -1:
-        raise RuntimeError("Could not find insertion point for helper in trainer/model.py")
+    adapter_path = Path(adapter_dir)
+    if not adapter_path.exists():
+        raise FileNotFoundError(f"PRIME_RL_INIT_ADAPTER does not exist: {adapter_path}")
 
-    text = text[: idx + 2] + HELPER + "\n\n" + text[idx + 2 :]
-    text = text.replace(CALL_MARKER, CALL_INSERT, 1)
-    path.write_text(text)
+    weights_path = None
+    for candidate in ("adapter_model.safetensors", "adapter_model.bin"):
+        path = adapter_path / candidate
+        if path.exists():
+            weights_path = path
+            break
+    if weights_path is None:
+        raise FileNotFoundError(f"No adapter weights found under {adapter_path}")
+
+    if weights_path.suffix == ".safetensors":
+        from safetensors.torch import load_file
+
+        state_dict = load_file(str(weights_path))
+    else:
+        state_dict = torch.load(weights_path, map_location="cpu")
+
+    remapped_state_dict = {}
+    for key, value in state_dict.items():
+        new_key = key
+        if new_key.startswith("base_model.model."):
+            new_key = new_key[len("base_model.model."):]
+        new_key = new_key.replace(".modules_to_save.default", "")
+        remapped_state_dict[new_key] = value
+
+    incompatible = model.load_state_dict(remapped_state_dict, strict=False)
+    logger = get_logger()
+    logger.info(
+        "Initialized trainer LoRA weights from %s (%d tensors loaded)",
+        adapter_path,
+        len(remapped_state_dict),
+    )
+    if getattr(incompatible, "unexpected_keys", None):
+        logger.warning("Unexpected adapter keys during bootstrap: %s", incompatible.unexpected_keys)
+'''
+
 
 
 def patch_ckpt_py(path: Path) -> None:
@@ -225,7 +196,11 @@ def patch_ckpt_py(path: Path) -> None:
 
 def patch_orchestrator_utils_py(path: Path) -> None:
     text = path.read_text()
-    if "payload.get(\"prompt_logprobs\")" in text:
+    if (
+        "payload.get(\"prompt_logprobs\")" in text
+        or "GenerateResponse.model_validate_json(http_response.content)" in text
+        or 'cast_to=httpx.Response' in text
+    ):
         return
     if TEACHER_LOGPROB_PATCH_OLD not in text:
         raise RuntimeError("Could not find orchestrator imports block to patch")
@@ -234,6 +209,26 @@ def patch_orchestrator_utils_py(path: Path) -> None:
     text = text.replace(TEACHER_LOGPROB_PATCH_OLD, TEACHER_LOGPROB_PATCH_NEW, 1)
     text = text.replace(TEACHER_LOGPROB_BLOCK_OLD, TEACHER_LOGPROB_BLOCK_NEW, 1)
     path.write_text(text)
+
+
+def patch_model_py(path: Path) -> None:
+    text = path.read_text()
+    changed = False
+
+    if "_maybe_load_initial_lora_adapter(model)" not in text:
+        if CALL_MARKER not in text:
+            raise RuntimeError("Could not find apply_lora_to_model call in trainer/model.py")
+        text = text.replace(CALL_MARKER, CALL_INSERT, 1)
+        changed = True
+
+    if "def _maybe_load_initial_lora_adapter(model: nn.Module)" not in text:
+        if MODEL_HELPER_ANCHOR not in text:
+            raise RuntimeError("Could not find insertion anchor for adapter bootstrap helper in trainer/model.py")
+        text = text.replace(MODEL_HELPER_ANCHOR, MODEL_HELPER_BLOCK + MODEL_HELPER_ANCHOR, 1)
+        changed = True
+
+    if changed:
+        path.write_text(text)
 
 
 def main() -> None:

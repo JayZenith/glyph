@@ -156,6 +156,9 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     spamming additional tool calls beyond what the task needs.
     """
     text = _completion_text(completion)
+    text_len = len(text)
+    if text_len > 1400:
+        print(f"[TRUNCATION_RISK] len={text_len} chars ~{int(text_len*0.8)} tokens")
 
     calls = parse_call_blocks(text)
     if not calls:
@@ -239,6 +242,9 @@ class RustToolEnv(vf.MultiTurnEnv):
 
     async def env_response(self, messages, state, **kwargs):
         text = self._messages_text(messages)
+        msg_len = len(text)
+        if msg_len > 1200:
+            print(f"[ENV_TRUNCATION_RISK] pre-response len={msg_len} chars ~{int(msg_len*0.8)} tokens")
         pending = extract_pending_call_ids(text)
         if not pending:
             return []

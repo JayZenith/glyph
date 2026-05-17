@@ -1,0 +1,10 @@
+# Heavy run artifacts — kept locally for analysis, not pushed.
+**/launch.log
+**/logs/orchestrator.log
+**/logs/inference.log
+**/logs/envs/
+**/logs/trainer/
+**/rollouts/
+**/checkpoints/
+**/run_default/
+**/wandb/

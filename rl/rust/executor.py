@@ -47,10 +47,25 @@ class RustExecutor:
         working_dir: str | None = None,
         env: dict[str, str] | None = None,
     ) -> ExecutionResult:
+        cargo_home = os.environ.get("CARGO_HOME", os.path.expanduser("~/.cargo"))
+        rustup_home = os.environ.get("RUSTUP_HOME", os.path.expanduser("~/.rustup"))
         nsjail_env = {
             "LANG": "en_US.UTF-8",
             "HOME": "/tmp",
             "TMPDIR": "/tmp",
+            "CARGO_HOME": cargo_home,
+            "RUSTUP_HOME": rustup_home,
+            "PATH": os.pathsep.join(
+                part
+                for part in [
+                    cargo_home + "/bin",
+                    os.environ.get("PATH", ""),
+                    "/usr/local/bin",
+                    "/usr/bin",
+                    "/bin",
+                ]
+                if part
+            ),
         }
         if env:
             nsjail_env.update(env)
@@ -88,6 +103,13 @@ class RustExecutor:
                 stdout="",
                 stderr=f"command not found: {command[0]}",
                 exit_code=-1,
+            )
+        except OSError as exc:
+            return ExecutionResult(
+                success=False,
+                stdout="",
+                stderr=str(exc),
+                exit_code=getattr(exc, "errno", -1) or -1,
             )
 
     def compile_file(self, file_path: str, output_path: str | None = None) -> ExecutionResult:

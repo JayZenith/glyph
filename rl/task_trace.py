@@ -10,7 +10,6 @@ from core.validator import TaskValidator
 from rl.task_format import load_prompts
 from rl.rust.executor import ExecutionResult, RustExecutor, create_executor
 from rl.rust.results import (
-    extract_pending_call_ids,
     format_result_block,
     parse_call_blocks,
 )
@@ -25,6 +24,11 @@ RUST_TOOL_NAMES = {
 RUST_TOOL_NAMES.discard(None)
 
 DEBUG_PARSE = False
+FAKE_RESULT_REWARD_CAP = -0.25
+CLEAN_TOOL_BOUNDARY_BONUS = 1.5
+POST_CALL_VERBOSITY_ALLOWANCE_CHARS = 450
+POST_CALL_VERBOSITY_PENALTY_PER_500_CHARS = 0.25
+POST_CALL_VERBOSITY_PENALTY_CAP = 0.75
 
 
 # ---------------------------------------------------------------------------
@@ -112,14 +116,73 @@ def _completion_text(completion) -> str:
         return completion
     if isinstance(completion, list):
         # chat-mode rollout: concatenate everything past the prompt
-        parts = []
-        for m in completion:
-            if isinstance(m, dict):
-                parts.append(str(m.get("content", "")))
-            else:
-                parts.append(str(m))
-        return "\n".join(parts)
+        return "\n".join(_message_content(m) for m in completion)
     return str(completion)
+
+
+def _message_value(message, key: str, default=""):
+    if isinstance(message, dict):
+        return message.get(key, default)
+    value = getattr(message, key, default)
+    if value is default and hasattr(message, "model_dump"):
+        value = message.model_dump().get(key, default)
+    return default if value is None else value
+
+
+def _message_role(message) -> str:
+    return str(_message_value(message, "role", ""))
+
+
+def _message_content(message) -> str:
+    return str(_message_value(message, "content", ""))
+
+
+def _completion_role_text(completion, role: str) -> str:
+    if isinstance(completion, list):
+        return "\n".join(
+            _message_content(m)
+            for m in completion
+            if _message_role(m) == role
+        )
+    return "" if role == "tool" else _completion_text(completion)
+
+
+def _trajectory_generated_text(state: dict) -> str:
+    parts: list[str] = []
+    for step in state.get("trajectory") or []:
+        for message in step.get("completion") or []:
+            if _message_role(message) == "assistant":
+                parts.append(_message_content(message))
+    return "\n".join(parts)
+
+
+def _trajectory_tool_text(state: dict) -> str:
+    parts: list[str] = []
+    for step in state.get("trajectory") or []:
+        for field in ("prompt", "completion"):
+            for message in step.get(field) or []:
+                if _message_role(message) == "tool":
+                    parts.append(_message_content(message))
+    return "\n".join(parts)
+
+
+def _post_first_call_text_len(text: str) -> int:
+    match = re.search(r"act\s*\{\s*call\s*↦\s*\{.*?\}\s*\}", text, flags=re.DOTALL)
+    if not match:
+        return 0
+    tail = text[match.end():]
+    tail = re.sub(r"result\s*\{.*?\}", "", tail, flags=re.DOTALL)
+    tail = re.sub(r"result\s*//.*?(?=\n\s*(?:act|response|plan|thought|think|$))", "", tail, flags=re.DOTALL)
+    return len(re.sub(r"\s+", " ", tail).strip())
+
+
+def _has_assistant_authored_result(text: str) -> bool:
+    return bool(
+        re.search(r"\bresult\s*(?:\{|//)", text)
+        or re.search(r"结果\s*\{", text)
+        or re.search(r"data\s*↦\s*[「\"].*?[」\"]\s*🏷\s*[\w\"-]+", text, re.DOTALL)
+        or re.search(r"status\s*:\s*(?:success|failure).*?exit_code\s*:", text, re.DOTALL)
+    )
 
 
 def _find_result_for(call_id: str, text: str) -> dict | None:
@@ -155,36 +218,67 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     the first call has an expected target). A light penalty discourages
     spamming additional tool calls beyond what the task needs.
     """
+    state = kwargs.get("state") or {}
     text = _completion_text(completion)
+    assistant_text = _trajectory_generated_text(state) or _completion_role_text(
+        completion, "assistant"
+    )
+    executed_calls = state.get("executed_tool_calls") or []
+    tool_text = "\n".join(state.get("executed_result_blocks") or [])
+    if not tool_text:
+        tool_text = _trajectory_tool_text(state) or _completion_role_text(
+            completion, "tool"
+        )
     text_len = len(text)
     if text_len > 1400:
         print(f"[TRUNCATION_RISK] len={text_len} chars ~{int(text_len*0.8)} tokens")
 
-    calls = parse_call_blocks(text)
+    calls = executed_calls or parse_call_blocks(assistant_text or text)
     if not calls:
         return -1.25
 
     expected_tool = kwargs.get("expected_tool")
     expected_args = _normalize_expected_args(kwargs.get("expected_args"))
 
-    reward = _score_tool_alignment(calls[0], expected_tool, expected_args)
+    first_call = calls[0]
+    reward = _score_tool_alignment(first_call, expected_tool, expected_args)
 
+    first_result = _find_result_for(first_call["id"], tool_text)
     any_success = False
-    for call in calls:
-        result = _find_result_for(call["id"], text)
-        if result is None:
-            continue
-        reward += compute_tool_reward(
-            tool_name=call["tool"],
-            execution_result=result,
-        ).total
-        any_success = any_success or result.get("success", False)
+    if first_result is None:
+        reward -= 0.75
+    else:
+        tool_reward = compute_tool_reward(
+            tool_name=first_call["tool"],
+            execution_result=first_result,
+        )
+        reward += tool_reward.total
+        any_success = bool(first_result.get("success", False))
+        if any_success:
+            reward += 0.5
+
+    has_fake_result = bool(
+        state.get("assistant_had_fake_result")
+        or _has_assistant_authored_result(assistant_text)
+    )
+    if has_fake_result:
+        state["assistant_had_fake_result"] = True
+    elif first_result is not None:
+        reward += CLEAN_TOOL_BOUNDARY_BONUS
+
+    post_call_len = _post_first_call_text_len(assistant_text)
+    if post_call_len > POST_CALL_VERBOSITY_ALLOWANCE_CHARS:
+        over = post_call_len - POST_CALL_VERBOSITY_ALLOWANCE_CHARS
+        reward -= min(
+            (over / 500.0) * POST_CALL_VERBOSITY_PENALTY_PER_500_CHARS,
+            POST_CALL_VERBOSITY_PENALTY_CAP,
+        )
 
     # Light penalty for extra calls beyond the first — RLVR rewards correct
     # multi-step workflows (build → test → execute), so don't penalize too hard,
     # just discourage fishing.
     if len(calls) > 1:
-        reward -= 0.05 * (len(calls) - 1)
+        reward -= min(0.05 * (len(calls) - 1), 0.25)
 
     if "response「" in text:
         reward += 0.1
@@ -193,6 +287,9 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     if validator and any_success:
         struct_result = validator.validate(text)
         reward += 0.2 if struct_result.valid else 0.0
+
+    if has_fake_result:
+        reward = min(reward, FAKE_RESULT_REWARD_CAP)
 
     return reward
 
@@ -214,7 +311,7 @@ class RustToolEnv(vf.MultiTurnEnv):
         self,
         *args,
         executor: RustExecutor,
-        max_tool_rounds: int = 4,
+        max_tool_rounds: int = 2,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -226,9 +323,7 @@ class RustToolEnv(vf.MultiTurnEnv):
         if isinstance(messages, str):
             return messages
         if isinstance(messages, list):
-            return "\n".join(
-                str(m.get("content", "") if isinstance(m, dict) else m) for m in messages
-            )
+            return "\n".join(_message_content(m) for m in messages)
         return str(messages)
 
     async def is_completed(self, state, **kwargs) -> bool:
@@ -238,36 +333,43 @@ class RustToolEnv(vf.MultiTurnEnv):
         if state.get("rounds_used", 0) >= self.max_tool_rounds:
             return True
         text = self._messages_text(trajectory[-1]["completion"])
-        return not extract_pending_call_ids(text)
+        executed = set(state.get("executed_call_ids") or [])
+        calls = parse_call_blocks(text)
+        return not any(call["id"] not in executed for call in calls)
 
     async def env_response(self, messages, state, **kwargs):
         text = self._messages_text(messages)
         msg_len = len(text)
         if msg_len > 1200:
             print(f"[ENV_TRUNCATION_RISK] pre-response len={msg_len} chars ~{int(msg_len*0.8)} tokens")
-        pending = extract_pending_call_ids(text)
-        if not pending:
+        executed = set(state.get("executed_call_ids") or [])
+        calls = [call for call in parse_call_blocks(text) if call["id"] not in executed]
+        if not calls:
             return []
 
-        by_id = {c["id"]: c for c in parse_call_blocks(text)}
         responses: list[dict[str, str]] = []
-        for cid in pending:
-            call = by_id.get(cid)
-            if call is None:
-                er = ExecutionResult(False, "", f"unknown call id: {cid}", -1)
-            elif call["tool"] not in RUST_TOOL_NAMES:
+        for call in calls:
+            cid = call["id"]
+            if call["tool"] not in RUST_TOOL_NAMES:
                 er = ExecutionResult(False, "", f"unknown tool: {call['tool']}", -1)
             else:
                 er = _execute(self.executor, call["tool"], call["params"])
+            executed.add(cid)
+            result_block = format_result_block(cid, er)
+            state.setdefault("executed_tool_calls", []).append(call)
+            state.setdefault("executed_result_blocks", []).append(result_block)
+            if _has_assistant_authored_result(text):
+                state["assistant_had_fake_result"] = True
             responses.append(
                 {
                     "role": "tool",
                     "tool_call_id": cid,
-                    "content": format_result_block(cid, er),
+                    "content": result_block,
                 }
             )
 
         state["rounds_used"] = state.get("rounds_used", 0) + 1
+        state["executed_call_ids"] = sorted(executed)
         return responses
 
 
@@ -282,7 +384,7 @@ def load_environment(
     env_id: str = "task-trace",
     nsjail_path: str | None = None,
     timeout: int = 30,
-    max_tool_rounds: int = 4,
+    max_tool_rounds: int = 2,
 ) -> vf.Environment:
     """Load the Rust tool RL environment with real multi-round tool execution."""
 

@@ -10,6 +10,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from transformers import AutoConfig, AutoTokenizer
 from huggingface_hub import snapshot_download
 import tomli_w
 
@@ -29,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seq-len", type=int)
     parser.add_argument("--max-model-len", type=int)
     parser.add_argument("--max-completion-tokens", type=int)
+    parser.add_argument("--stop-on-result", action="store_true")
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--weight-decay", type=float)
     parser.add_argument("--checkpoint-interval", type=int)
@@ -37,6 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--teacher-gpu-memory-utilization", type=float)
     parser.add_argument("--max-samples", type=int)
     parser.add_argument("--max-trace-chars", type=int)
+    parser.add_argument("--max-tool-rounds", type=int)
     parser.add_argument("--nsjail-path")
     parser.add_argument("--tool-timeout", type=int)
     parser.add_argument("--port", type=int)
@@ -76,6 +79,20 @@ def load_templates() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 def maybe_set(container: dict[str, Any], key: str, value: Any) -> None:
     if value is not None:
         container[key] = value
+
+
+def add_invalid_token_logit_bias(sampling: dict[str, Any], model_name: str) -> None:
+    cfg = AutoConfig.from_pretrained(model_name)
+    tok = AutoTokenizer.from_pretrained(model_name)
+    tokenizer_len = len(tok)
+    model_vocab = int(getattr(cfg, "vocab_size", tokenizer_len))
+    if model_vocab <= tokenizer_len:
+        return
+
+    extra_body = sampling.setdefault("extra_body", {})
+    logit_bias = extra_body.setdefault("logit_bias", {})
+    for token_id in range(tokenizer_len, model_vocab):
+        logit_bias[token_id] = -100.0
 
 
 def build_teacher_inference_config(
@@ -154,10 +171,22 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[
     maybe_set(orch_ckpt, "interval", args.checkpoint_interval)
     maybe_set(orch_sampling, "temperature", args.temperature)
     maybe_set(orch_sampling, "max_completion_tokens", args.max_completion_tokens)
+    add_invalid_token_logit_bias(orch_sampling, rollout_model)
+    if args.stop_on_result:
+        extra_body = orch_sampling.setdefault("extra_body", {})
+        extra_body["stop"] = [
+            "result {",
+            "result //",
+            "结果 {",
+            "\nresult",
+            "assistant\nresult",
+            "assistantresult",
+        ]
     if data_path is not None:
         env_args["data_path"] = str(data_path)
     maybe_set(env_args, "max_samples", args.max_samples)
     maybe_set(env_args, "max_trace_chars", args.max_trace_chars)
+    maybe_set(env_args, "max_tool_rounds", args.max_tool_rounds)
     maybe_set(env_args, "nsjail_path", args.nsjail_path)
     maybe_set(env_args, "timeout", args.tool_timeout)
 

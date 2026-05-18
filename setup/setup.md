@@ -15,6 +15,7 @@ bash setup/install_prime_rl.sh
 
 This:
 - installs `uv`, Python 3.12, clones `prime-rl` at `/workspace/prime-rl-src`, syncs submodules
+- installs a minimal stable Rust toolchain via `rustup`
 - installs flash-attn (pinned wheel for torch 2.11 / cu128 / cp312 / abi=TRUE)
 - runs `setup/patch_install.py` against the installed `prime_rl` package and the installed `vllm` package
 
@@ -46,6 +47,37 @@ Logs land in `$OUTPUT_DIR/logs/{orchestrator,trainer,inference}.log`.
 - `Step 0` / `Step 1` SUCCESS in orchestrator + trainer logs
 - `Orchestrator resumed: checkpoint 1 ready` (inference hot-reload survived)
 - Successive `checkpoint 2 ready`, `checkpoint 3 ready`, ... show stable reload
+
+## Verified repro
+
+Verified from a clean remote state on May 17, 2026 with:
+
+```bash
+rm -rf /workspace/prime-rl-src /workspace/glyph/outputs/task_trace_rl_run_repro /workspace/glyph/outputs/smoke_2xa100
+cd /workspace/glyph
+bash setup/install_prime_rl.sh
+bash setup/smoke_test_2xa100.sh
+OUTPUT_DIR=/workspace/glyph/outputs/task_trace_rl_run_repro bash setup/run_task_trace_2xa100.sh
+```
+
+Observed:
+- smoke test passed
+- `Step 0` SUCCESS
+- `Step 1` SUCCESS
+- `Orchestrator resumed: checkpoint 1 ready`
+- `Step 2` SUCCESS
+- `Starting orchestrator step 3`
+
+## 4096 ablation
+
+The wrapper is env-var driven. Use:
+
+```bash
+OUTPUT_DIR=/workspace/glyph/rl_ablations/seqLen4096 \
+SEQ_LEN=4096 \
+MAX_MODEL_LEN=4096 \
+bash setup/run_task_trace_2xa100.sh
+```
 
 ## Known benign noise
 - vLLM `VLLMValidationError: The prompt is 2049 tokens, ... maximum context length of 2048` lines in `inference.log` are per-request rejections; they don't kill the engine. If they become a quality issue, raise `MAX_MODEL_LEN` (e.g. `MAX_MODEL_LEN=2560`) and keep `SEQ_LEN=2048`.

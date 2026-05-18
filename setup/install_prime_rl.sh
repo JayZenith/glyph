@@ -68,11 +68,28 @@ PY
   uv pip install --python "$python_bin" "$wheel_url"
 }
 
+install_rust_toolchain() {
+  export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+  export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+  export PATH="$CARGO_HOME/bin:$PATH"
+
+  if ! command -v cargo >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --profile minimal --default-toolchain stable
+  fi
+
+  rustup default stable
+  cargo --version
+  rustc --version
+}
+
 if ! command -v uv >/dev/null 2>&1; then
   python3 -m pip install uv
 fi
 
 export PATH="$HOME/.local/bin:$PATH"
+
+install_rust_toolchain
 
 uv python install "$PRIME_PYTHON_VERSION"
 

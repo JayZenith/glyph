@@ -79,7 +79,7 @@ def _truncate(text: str, max_chars: int) -> str:
     return f"{text[:head]}\n…[truncated]…\n{text[-tail:]}"
 
 
-def format_result_block(call_id: str, result: ExecutionResult, max_chars: int = 500) -> str:
+def format_result_block(call_id: str, result: ExecutionResult, max_chars: int = 200) -> str:
     """Render an ExecutionResult as a trace-format `result {…}` block.
 
     Single-`data` shape matches 98% of training-data result blocks. Status and
@@ -92,10 +92,11 @@ def format_result_block(call_id: str, result: ExecutionResult, max_chars: int = 
     parts = [f"status: {status}", f"exit_code: {result.exit_code}"]
     if result.timed_out:
         parts.append("timed_out: true")
-    if stdout:
-        parts.append(f"stdout:\n{stdout}")
-    if stderr:
-        parts.append(f"stderr:\n{stderr}")
+    if not result.success:
+        if stdout:
+            parts.append(f"stdout:\n{stdout}")
+        if stderr:
+            parts.append(f"stderr:\n{stderr}")
     body = _truncate("\n".join(parts), max_chars)
     return (
         "result {\n"

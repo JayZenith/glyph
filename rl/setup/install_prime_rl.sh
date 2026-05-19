@@ -10,13 +10,18 @@ PRIME_RL_DIR="${1:-${PRIME_RL_DIR:-/workspace/prime-rl-src}}"
 PRIME_PYTHON_VERSION="${PRIME_PYTHON_VERSION:-3.12}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 DEFAULT_TMP_ROOT="$WORKSPACE_DIR/.tmp"
-if [ -d /dev/shm ] && [ -w /dev/shm ]; then
+if [ -d /dev/shm ] && [ -w /dev/shm ] && [ -x /dev/shm ]; then
   DEFAULT_TMP_ROOT="/dev/shm/prime-rl-tmp"
 fi
 TMP_ROOT="${TMP_ROOT:-$DEFAULT_TMP_ROOT}"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$WORKSPACE_DIR/.uv-cache}"
 
 mkdir -p "$TMP_ROOT" "$UV_CACHE_DIR"
+if ! (printf '#!/usr/bin/env sh\nexit 0\n' > "$TMP_ROOT/.exec-test" && chmod +x "$TMP_ROOT/.exec-test" && "$TMP_ROOT/.exec-test"); then
+  TMP_ROOT="$WORKSPACE_DIR/.tmp"
+  mkdir -p "$TMP_ROOT"
+fi
+rm -f "$TMP_ROOT/.exec-test"
 export TMPDIR="$TMP_ROOT"
 export TEMP="$TMP_ROOT"
 export TMP="$TMP_ROOT"

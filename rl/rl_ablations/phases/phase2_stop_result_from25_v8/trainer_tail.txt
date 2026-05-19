@@ -1,0 +1,80 @@
+[trainer0]:/workspace/prime-rl-src/.venv/lib/python3.12/site-packages/torch/nn/modules/module.py:2589: UserWarning: for lm_head.weight: copying from a non-meta parameter in the checkpoint to a meta parameter in the current model, which is a no-op. (Did you mean to pass `assign=True` to assign items in the state dictionary to their corresponding key in the module instead of copying them in place?)
+[trainer0]:  module._load_from_state_dict(
+[trainer0]:[2m06:48:11[0m [1m   INFO[0m [1m[22mLoRA: 0 fully trainable parameters[0m[0m
+[trainer0]:[2m06:48:11[0m [1m   INFO[0m [1m[22mLoRA: 3,633,315,840 adapted or fully trainable out of 4,154,588,672 parameters[0m[0m
+[trainer0]:[2m06:48:11[0m [1m   INFO[0m [1m[22mInitialized trainer LoRA weights from %s (%d tensors loaded)[0m[0m
+[trainer0]:[2m06:48:11[0m [33m[1mWARNING[0m [33m[1m[22mUnexpected adapter keys during bootstrap: %s[0m[0m
+[trainer0]:[2m06:48:11[0m [1m   INFO[0m [1m[22mBuilding 1-D device mesh with ['dp_shard'], [1][0m[0m
+[trainer0]:[2m06:48:12[0m [33m[1mWARNING[0m [33m[1m[22mModel uses tied word embeddings, so skipping the last-layer no-reshard optimization.[0m[0m
+[trainer0]:[2m06:48:12[0m [33m[1mWARNING[0m [33m[1m[22mSkipping loading weights. Initializing an empty model on device, loading from checkpoint later.[0m[0m
+[trainer0]:[2m06:48:12[0m [1m   INFO[0m [1m[22mInitializing tokenizer (name='Qwen/Qwen3-4B-Base' trust_remote_code=False chat_template=None)[0m[0m
+[trainer0]:[2m06:48:13[0m [1m   INFO[0m [1m[22mSetting up loss function (type='default' dppo_mask_low=0.2 dppo_mask_high=0.2 adv_tau=1.0 teacher_tau=0.0 kl_tau=0.001)[0m[0m
+[trainer0]:[2m06:48:13[0m [1m   INFO[0m [1m[22mInitializing optimizer (lr=1e-06 weight_decay=0.01 max_norm=1.0 type='adamw' betas1=0.9 betas2=0.999)[0m[0m
+[trainer0]:[2m06:48:13[0m [1m   INFO[0m [1m[22mWaiting for run 0 to be created multi_run_manager.id_2_idx={'run_default': 0}[0m[0m
+[trainer0]:[2m06:48:14[0m [1m   INFO[0m [1m[22mUsing `constant` scheduler (type='constant')[0m[0m
+[trainer0]:[2m06:48:14[0m [1m   INFO[0m [1m[22mInitializing weight broadcast (type='filesystem' save_sharded=True save_format='safetensors')[0m[0m
+[trainer0]:[2m06:48:25[0m [1m   INFO[0m [1m[22mResuming training from checkpoint step 25[0m[0m
+[trainer0]:[2m06:48:25[0m [1m   INFO[0m [1m[22mStarting from step 25 (total_tokens=1100510, total_samples=277)[0m[0m
+[trainer0]:[2m06:48:25[0m [1m   INFO[0m [1m[22mInitializing data loader (fake=None)[0m[0m
+[trainer0]:[2m06:48:25[0m [1m   INFO[0m [1m[22m[GC] collection took 0.00s[0m[0m
+[trainer0]:[2m06:48:25[0m [1m   INFO[0m [1m[22mStarting training loop (max_steps=50)[0m[0m
+[trainer0]:[2m06:49:42[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 25 | Time: 69.73s | Loss: 0.0022 | Entropy: 0.7422 | Mismatch KL: 0.6307 | Grad. Norm: 0.6484 | LR: 1.00e-06 | Throughput: 2100 tokens/s | MFU: 14.4% | Peak Mem.: 53.2 GiB[0m[0m
+[trainer0]:[2m06:50:28[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 26 | Time: 17.75s | Loss: 0.0071 | Entropy: 0.7453 | Mismatch KL: 0.6476 | Grad. Norm: 0.9922 | LR: 1.00e-06 | Throughput: 2284 tokens/s | MFU: 15.7% | Peak Mem.: 54.3 GiB[0m[0m
+[trainer0]:[2m06:51:12[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 27 | Time: 17.29s | Loss: -0.0084 | Entropy: 0.7151 | Mismatch KL: 0.6486 | Grad. Norm: 1.5469 | LR: 1.00e-06 | Throughput: 2283 tokens/s | MFU: 15.7% | Peak Mem.: 54.3 GiB[0m[0m
+[trainer0]:[2m06:51:53[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 28 | Time: 17.42s | Loss: -0.0159 | Entropy: 0.7330 | Mismatch KL: 0.6389 | Grad. Norm: 0.4297 | LR: 1.00e-06 | Throughput: 2605 tokens/s | MFU: 17.9% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m06:52:33[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 29 | Time: 18.25s | Loss: 0.0078 | Entropy: 0.7219 | Mismatch KL: 0.6026 | Grad. Norm: 2.3750 | LR: 1.00e-06 | Throughput: 2453 tokens/s | MFU: 16.8% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m06:53:12[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 30 | Time: 17.83s | Loss: 0.0039 | Entropy: 0.7458 | Mismatch KL: 0.6009 | Grad. Norm: 0.3652 | LR: 1.00e-06 | Throughput: 2550 tokens/s | MFU: 17.5% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m06:53:52[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 31 | Time: 17.52s | Loss: 0.0106 | Entropy: 0.7464 | Mismatch KL: 0.6111 | Grad. Norm: 0.6797 | LR: 1.00e-06 | Throughput: 2282 tokens/s | MFU: 15.7% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m06:54:31[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 32 | Time: 17.46s | Loss: -0.0170 | Entropy: 0.7151 | Mismatch KL: 0.6420 | Grad. Norm: 0.5156 | LR: 1.00e-06 | Throughput: 2499 tokens/s | MFU: 17.2% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m06:55:12[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 33 | Time: 19.09s | Loss: -0.0005 | Entropy: 0.7226 | Mismatch KL: 0.5988 | Grad. Norm: 0.4434 | LR: 1.00e-06 | Throughput: 2610 tokens/s | MFU: 17.9% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m06:55:52[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 34 | Time: 17.25s | Loss: 0.0202 | Entropy: 0.7268 | Mismatch KL: 0.6413 | Grad. Norm: 3.1406 | LR: 1.00e-06 | Throughput: 2647 tokens/s | MFU: 18.2% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m06:56:33[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 35 | Time: 19.52s | Loss: 0.0202 | Entropy: 0.7018 | Mismatch KL: 0.5664 | Grad. Norm: 0.5625 | LR: 1.00e-06 | Throughput: 2546 tokens/s | MFU: 17.5% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m06:57:14[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 36 | Time: 18.88s | Loss: 0.0251 | Entropy: 0.6735 | Mismatch KL: 0.7389 | Grad. Norm: 2.4375 | LR: 1.00e-06 | Throughput: 2639 tokens/s | MFU: 18.1% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m06:57:55[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 37 | Time: 18.56s | Loss: -0.0035 | Entropy: 0.7079 | Mismatch KL: 0.5863 | Grad. Norm: 0.4219 | LR: 1.00e-06 | Throughput: 2633 tokens/s | MFU: 18.1% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m06:58:36[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 38 | Time: 18.24s | Loss: 0.0085 | Entropy: 0.6762 | Mismatch KL: 0.6167 | Grad. Norm: 0.7461 | LR: 1.00e-06 | Throughput: 2361 tokens/s | MFU: 16.2% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m06:59:15[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 39 | Time: 18.03s | Loss: 0.0200 | Entropy: 0.6959 | Mismatch KL: 0.6467 | Grad. Norm: 0.9648 | LR: 1.00e-06 | Throughput: 2443 tokens/s | MFU: 16.8% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m06:59:54[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 40 | Time: 16.82s | Loss: -0.0080 | Entropy: 0.7135 | Mismatch KL: 0.6782 | Grad. Norm: 1.3516 | LR: 1.00e-06 | Throughput: 2468 tokens/s | MFU: 16.9% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m07:00:36[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 41 | Time: 19.03s | Loss: -0.0033 | Entropy: 0.7658 | Mismatch KL: 0.6440 | Grad. Norm: 0.2754 | LR: 1.00e-06 | Throughput: 2609 tokens/s | MFU: 17.9% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m07:01:16[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 42 | Time: 17.67s | Loss: 0.0107 | Entropy: 0.7521 | Mismatch KL: 0.6054 | Grad. Norm: 0.5352 | LR: 1.00e-06 | Throughput: 2463 tokens/s | MFU: 16.9% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m07:01:56[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 43 | Time: 17.96s | Loss: -0.0041 | Entropy: 0.7061 | Mismatch KL: 0.5974 | Grad. Norm: 0.4941 | LR: 1.00e-06 | Throughput: 2544 tokens/s | MFU: 17.5% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m07:02:36[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 44 | Time: 17.10s | Loss: -0.0001 | Entropy: 0.7124 | Mismatch KL: 0.6214 | Grad. Norm: 0.7930 | LR: 1.00e-06 | Throughput: 2332 tokens/s | MFU: 16.0% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m07:03:15[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 45 | Time: 17.33s | Loss: -0.0027 | Entropy: 0.7272 | Mismatch KL: 0.6212 | Grad. Norm: 0.2490 | LR: 1.00e-06 | Throughput: 2449 tokens/s | MFU: 16.8% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m07:03:55[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 46 | Time: 18.20s | Loss: -0.0116 | Entropy: 0.7359 | Mismatch KL: 0.6024 | Grad. Norm: 0.3887 | LR: 1.00e-06 | Throughput: 2507 tokens/s | MFU: 17.2% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m07:04:36[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 47 | Time: 17.90s | Loss: 0.0052 | Entropy: 0.7049 | Mismatch KL: 0.5675 | Grad. Norm: 0.4414 | LR: 1.00e-06 | Throughput: 2363 tokens/s | MFU: 16.2% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m07:05:15[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 48 | Time: 17.08s | Loss: 0.0189 | Entropy: 0.7302 | Mismatch KL: 0.6528 | Grad. Norm: 11.2500 | LR: 1.00e-06 | Throughput: 2315 tokens/s | MFU: 15.9% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m07:05:55[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 49 | Time: 17.09s | Loss: 0.0064 | Entropy: 0.7096 | Mismatch KL: 0.5902 | Grad. Norm: 0.3594 | LR: 1.00e-06 | Throughput: 2675 tokens/s | MFU: 18.4% | Peak Mem.: 54.9 GiB[0m[0m
+[trainer0]:[2m07:05:55[0m [1m   INFO[0m [1m[22m[GC] collection took 0.22s[0m[0m
+[trainer0]:[2m07:06:16[0m [1m   INFO[0m [1m[22mWriting final checkpoint[0m[0m
+[trainer0]:[2m07:06:38[0m [1m   INFO[0m [1m[22mWriting final weight checkpoint[0m[0m
+[trainer0]:[2m07:06:48[0m [1m   INFO[0m [1m[22mPeak memory: 54.9 GiB[0m[0m
+[trainer0]:[2m07:06:48[0m [32m[1mSUCCESS[0m [32m[1m[22mRL trainer finished![0m[0m
+[trainer0]:wandb: 
+[trainer0]:wandb: Run history:
+[trainer0]:wandb:        entropy/mean ▆▆▄▆▅▆▇▄▅▅▃▁▄▁▃▄█▇▃▄▅▆▃▅▄
+[trainer0]:wandb:       is_masked/max ▁▁▂▂▂▂▂▂▁▁▂▁▁█▁▁▂▂▂▂▃▃▂▁▁
+[trainer0]:wandb:      is_masked/mean ▂▁▅▄▄▇▆▄▅▁▆▁▆█▆▂▂▆▅▂█▄▄▃▅
+[trainer0]:wandb:  is_masked_high/max ▂▃▂▂▆▃▇▁▃▄▂▅▄▆▅▆▆▄▇▅▂▄▄▁█
+[trainer0]:wandb: is_masked_high/mean ▅▆▄▅▄▂▃▃▅▆▁▇▅▄▃▇█▄▅█▃▆▃▃▄
+[trainer0]:wandb:   is_masked_low/max ▁▁▂▂▂▂▂▂▁▁▁▁▁█▁▁▂▂▂▂▃▃▂▁▁
+[trainer0]:wandb:  is_masked_low/mean ▅▂█▅▅▅▃██▂▁▄▆▇▃▃▅▆█▄█▇▅▄▆
+[trainer0]:wandb:   kl_ent_ratio/mean ▂▃▃▃▂▁▁▃▂▃▁█▂▄▄▄▂▁▂▃▂▁▁▃▂
+[trainer0]:wandb:            loss/max ▂▂▅▂▆▃▄▄▅█▆▇▁▃▆▃▂▃▄▅▃▂▃▅▄
+[trainer0]:wandb:           loss/mean ▄▅▂▁▅▄▆▁▄▇▇█▃▅▇▂▃▆▃▄▃▂▅▇▅
+[trainer0]:wandb:                 +31 ...
+[trainer0]:wandb: 
+[trainer0]:wandb: Run summary:
+[trainer0]:wandb:        entropy/mean 0.70964
+[trainer0]:wandb:       is_masked/max 0.24444
+[trainer0]:wandb:      is_masked/mean 0.10755
+[trainer0]:wandb:  is_masked_high/max 0.07389
+[trainer0]:wandb: is_masked_high/mean 0.01729
+[trainer0]:wandb:   is_masked_low/max 0.24444
+[trainer0]:wandb:  is_masked_low/mean 0.07568
+[trainer0]:wandb:   kl_ent_ratio/mean 0.83166
+[trainer0]:wandb:            loss/max 0.1712
+[trainer0]:wandb:           loss/mean 0.00636
+[trainer0]:wandb:                 +31 ...
+[trainer0]:wandb: 
+[trainer0]:wandb: You can sync this run to the cloud by running:
+[trainer0]:wandb: wandb sync /workspace/glyph/outputs/task_trace_rl_phase2_no_stop_from25_v8/wandb/offline-run-20260518_064807-gdn9vyqg
+[trainer0]:wandb: Find logs at: ./outputs/task_trace_rl_phase2_no_stop_from25_v8/wandb/offline-run-20260518_064807-gdn9vyqg/logs

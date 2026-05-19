@@ -34,6 +34,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--weight-decay", type=float)
     parser.add_argument("--checkpoint-interval", type=int)
+    parser.add_argument("--resume-step", type=int)
+    parser.add_argument("--disable-orchestrator-lora", action="store_true")
+    parser.add_argument("--served-model-name", action="append")
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--gpu-memory-utilization", type=float)
     parser.add_argument("--teacher-gpu-memory-utilization", type=float)
@@ -128,6 +131,12 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[
     modules_to_save = list(adapter_cfg.get("modules_to_save") or [])
     adapter_label = str(args.adapter).replace("/", "__")
     adapter_name = f"{adapter_label}-r{rank}-a{int(alpha)}"
+    # PRIME-RL's auto_setup_lora validator regenerates orchestrator.model.lora.name
+    # as f"r{rank}-a{alpha}" (alpha is a float, so e.g. "r64-a64.0") whenever the
+    # trainer has LoRA enabled, overriding the adapter_name above. On resume the
+    # scheduler routes rollouts to this name, so vLLM must serve it as an alias
+    # or every /inference/v1/generate request 404s.
+    auto_lora_name = f"r{rank}-a{float(alpha)}"
     rollout_model = args.rollout_init_model or base_model
     teacher_model_name = args.teacher_model or rollout_model
 
@@ -149,6 +158,7 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[
     maybe_set(trainer_optim, "weight_decay", args.weight_decay)
     maybe_set(trainer_loss, "teacher_tau", args.teacher_tau)
     maybe_set(trainer_ckpt, "interval", args.checkpoint_interval)
+    maybe_set(trainer_ckpt, "resume_step", args.resume_step)
     maybe_set(trainer, "max_steps", args.max_steps)
 
     orch_model = orchestrator.setdefault("model", {})
@@ -159,16 +169,18 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[
     orch_ckpt = orchestrator.setdefault("ckpt", {})
 
     orch_model["name"] = rollout_model
-    orch_model["lora"] = {
-        "name": adapter_name,
-        "rank": rank,
-        "alpha": alpha,
-    }
+    if not args.disable_orchestrator_lora:
+        orch_model["lora"] = {
+            "name": adapter_name,
+            "rank": rank,
+            "alpha": alpha,
+        }
     maybe_set(orchestrator, "batch_size", args.batch_size)
     maybe_set(orchestrator, "rollouts_per_example", args.rollouts_per_example)
     maybe_set(orchestrator, "seq_len", args.seq_len)
     maybe_set(orchestrator, "max_steps", args.max_steps)
     maybe_set(orch_ckpt, "interval", args.checkpoint_interval)
+    maybe_set(orch_ckpt, "resume_step", args.resume_step)
     maybe_set(orch_sampling, "temperature", args.temperature)
     maybe_set(orch_sampling, "max_completion_tokens", args.max_completion_tokens)
     add_invalid_token_logit_bias(orch_sampling, rollout_model)
@@ -196,6 +208,17 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[
     maybe_set(infer_model, "max_model_len", args.max_model_len)
     maybe_set(infer_server, "port", args.port)
     maybe_set(inference, "gpu_memory_utilization", args.gpu_memory_utilization)
+    served_aliases: list[str] = []
+    for name in (
+        rollout_model,
+        base_model,
+        adapter_name,
+        auto_lora_name,
+        *(args.served_model_name or []),
+    ):
+        if name and name not in served_aliases:
+            served_aliases.append(name)
+    inference.setdefault("vllm_extra", {})["served_model_name"] = served_aliases
 
     config: dict[str, Any] = {
         "trainer": trainer,
@@ -210,6 +233,10 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[
             "num_infer_gpus": 1,
         },
     }
+    if args.resume_step is not None:
+        config["ckpt"] = {"resume_step": args.resume_step}
+        if args.checkpoint_interval is not None:
+            config["ckpt"]["interval"] = args.checkpoint_interval
 
     if args.enable_teacher_inference:
         orchestrator["teacher_model"] = {

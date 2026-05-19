@@ -1,0 +1,80 @@
+[ENV_TRUNCATION_RISK] pre-response len=2290 chars ~1832 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2359 chars ~1887 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2325 chars ~1860 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2322 chars ~1857 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2348 chars ~1878 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2397 chars ~1917 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2432 chars ~1945 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2333 chars ~1866 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2408 chars ~1926 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2438 chars ~1950 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2404 chars ~1923 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2396 chars ~1916 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2417 chars ~1933 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2434 chars ~1947 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2404 chars ~1923 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2406 chars ~1924 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2471 chars ~1976 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2467 chars ~1973 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2534 chars ~2027 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2474 chars ~1979 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2524 chars ~2019 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2516 chars ~2012 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2569 chars ~2055 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2544 chars ~2035 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2542 chars ~2033 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2577 chars ~2061 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2640 chars ~2112 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2561 chars ~2048 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2604 chars ~2083 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2629 chars ~2103 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2606 chars ~2084 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2679 chars ~2143 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2682 chars ~2145 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2655 chars ~2124 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2691 chars ~2152 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2042 chars ~1633 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2835 chars ~2268 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2847 chars ~2277 tokens
+Generating rollouts (train):  92%|█████████▏| 44/48 [00:17<00:01,  2.47it/s][ENV_TRUNCATION_RISK] pre-response len=2851 chars ~2280 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2992 chars ~2393 tokens
+[ENV_TRUNCATION_RISK] pre-response len=2927 chars ~2341 tokens
+Generating rollouts (train): 100%|██████████| 48/48 [00:19<00:00,  2.51it/s]Generating rollouts (train): 100%|██████████| 48/48 [00:19<00:00,  2.49it/s]
+[2m07:05:18[0m [1m   INFO[0m [1m[22mDetected 4/48 rollouts (zero_advantage=4)[0m[0m
+[2m07:05:18[0m [32m[1mSUCCESS[0m [32m[1m[22mStep 49 | Time: 56.77s | Reward: 1.6451 | Seq. Length: 835.2 tokens/sample | Max. Off-Policy Level: 1[0m[0m
+[ENV_TRUNCATION_RISK] pre-response len=2252 chars ~1801 tokens
+[2m07:05:18[0m [1m   INFO[0m [1m[22mSaving checkpoint at step 50[0m[0m
+[2m07:05:18[0m [1m   INFO[0m [1m[22mSaving final summary to file[0m[0m
+[2m07:05:18[0m [1m   INFO[0m [1m[22mWriting final checkpoint[0m[0m
+[2m07:05:18[0m [1m   INFO[0m [1m[22mShutting down 1 env server(s), waiting for sandbox cleanup...[0m[0m
+[2m07:05:21[0m [32m[1mSUCCESS[0m [32m[1m[22mOrchestrator finished.[0m[0m
+wandb: 
+wandb: Run history:
+wandb:                batch/task-trace ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:              decode_len/all/max ▃▄▁▁▃▆▃▅▆▄▆▇▆▆▆▄▂▆▅▄▄█▇▃▄
+wandb:             decode_len/all/mean ▁▄▂▃▄▅▃▄▆▄▇▇▇▆▇▃▅▅▅▃▂▇█▁▃
+wandb:              decode_len/all/min ▄▅▇▆▇▆▄▃▄▅▃▅█▅▆▆█▇▅▅▁▆█▃▂
+wandb:       decode_len/task-trace/max ▃▄▁▁▃▆▃▅▆▄▆▇▆▆▆▄▂▆▅▄▄█▇▃▄
+wandb:      decode_len/task-trace/mean ▁▄▂▃▄▅▃▄▆▄▇▇▇▆▇▃▅▅▅▃▂▇█▁▃
+wandb:       decode_len/task-trace/min ▄▅▇▆▇▆▄▃▄▅▃▅█▅▆▆█▇▅▅▁▆█▃▂
+wandb:              dropped_groups/all ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:        effective_batch_size/all ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb: effective_batch_size/task-trace ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                            +145 ...
+wandb: 
+wandb: Run summary:
+wandb:                batch/task-trace 1
+wandb:              decode_len/all/max 404.25
+wandb:             decode_len/all/mean 323.25
+wandb:              decode_len/all/min 224
+wandb:       decode_len/task-trace/max 404.25
+wandb:      decode_len/task-trace/mean 323.25
+wandb:       decode_len/task-trace/min 224
+wandb:              dropped_groups/all 0
+wandb:        effective_batch_size/all 1
+wandb: effective_batch_size/task-trace 1
+wandb:                            +145 ...
+wandb: 
+wandb: You can sync this run to the cloud by running:
+wandb: wandb sync /workspace/glyph/outputs/task_trace_rl_phase2_no_stop_from25_v8/run_default/wandb/offline-run-20260518_064807-nngpwq02
+wandb: Find logs at: ./outputs/task_trace_rl_phase2_no_stop_from25_v8/run_default/wandb/offline-run-20260518_064807-nngpwq02/logs

@@ -24,7 +24,7 @@ RUST_TOOL_NAMES = {
 RUST_TOOL_NAMES.discard(None)
 
 DEBUG_PARSE = False
-FAKE_RESULT_REWARD_CAP = -0.25
+FAKE_RESULT_REWARD = -2.0
 CLEAN_TOOL_BOUNDARY_BONUS = 1.5
 POST_CALL_VERBOSITY_ALLOWANCE_CHARS = 450
 POST_CALL_VERBOSITY_PENALTY_PER_500_CHARS = 0.25
@@ -263,6 +263,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     )
     if has_fake_result:
         state["assistant_had_fake_result"] = True
+        return FAKE_RESULT_REWARD
     elif first_result is not None:
         reward += CLEAN_TOOL_BOUNDARY_BONUS
 
@@ -287,9 +288,6 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     if validator and any_success:
         struct_result = validator.validate(text)
         reward += 0.2 if struct_result.valid else 0.0
-
-    if has_fake_result:
-        reward = min(reward, FAKE_RESULT_REWARD_CAP)
 
     return reward
 

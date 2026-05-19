@@ -15,6 +15,7 @@ python -m sft.train --model Qwen/Qwen3-4B-Base --data synthetic_data/glyph_datas
 ```
 
 The setup script creates a project-local `.venv`, prefers `python3.11`, auto-installs a managed `python3.11` via `uv` when the image only has `python3.12`, installs a pinned `torch` build, installs the pinned SFT Python deps, and installs `flash-attn` as a prebuilt wheel only.
+If `synthetic_data/glyph_dataset.jsonl` is absent on the instance, training will pull `glyph_dataset.jsonl` from `JayZenith/glyph-sft-v1-data` after `hf auth login`.
 
 On Vast.ai, use a CUDA 12.4 image unless you plan to override:
 

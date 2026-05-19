@@ -62,6 +62,7 @@ python -m sft.train \
 ```
 
 Defaults match the successful SFT shape: LoRA r64/alpha 64, `lm_head` saved, batch 1, grad-accum 8, LR 2e-5, max-seq 8192, 3 epochs. Merge is off by default; opt in with `--enable-merge`.
+If `synthetic_data/glyph_dataset.jsonl` is missing, `sft.data` will pull the canonical copy from `JayZenith/glyph-sft-v1-data` after `hf auth login`.
 
 For RL, install PRIME-RL separately with:
 

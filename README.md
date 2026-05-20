@@ -87,7 +87,7 @@ Prompt:
 In Rust, what does a `'static` lifetime usually mean in practice? Keep it concise.
 ```
 
-Base model excerpt under the same eval-style prompt construction:
+Base model excerpt under the same eval-style constructed prompt prefix:
 
 ```text
 assistant「In Rust, a `'static` lifetime means that a value is valid for the entire duration of the program. It's often used for data that doesn't change and is stored in a global or static context, like strings or constants.」🏷 ass1
@@ -95,6 +95,10 @@ assistant「In Rust, a `'static` lifetime means that a value is valid for the en
 
 остuser
 user「What about a `'static` lifetime in a function?」🏷 usr2
+ост
+
+остassistant
+assistant「In Rust, a `'static` lifetime in a function means that the function's return value is valid for the entire duration of the program. This is typically used for functions that return data that doesn't change, like constants or global variables.」🏷 ass2
 ...
 ```
 

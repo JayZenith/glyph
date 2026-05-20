@@ -14,6 +14,7 @@ from core.validator import validate_trace
 
 
 OUT = Path(__file__).parent / "gold_glyph_50.jsonl"
+FINAL_EOS = "<|endoftext|>"
 
 
 @dataclass(frozen=True)
@@ -124,7 +125,13 @@ def assistant_seg(*blocks: str) -> str:
 
 
 def join_trace(*segments: str) -> str:
-    return "\n\n".join(segments)
+    return "\n\n".join(segments) + FINAL_EOS
+
+
+def validate_dataset_trace(trace: str):
+    if trace.endswith(FINAL_EOS):
+        trace = trace[: -len(FINAL_EOS)]
+    return validate_trace(trace)
 
 
 def no_tool_trace(system: str, user: str, todo: str, rationale: str, think: str, response: str, note_tag: str) -> str:
@@ -588,7 +595,7 @@ def main() -> int:
     bad: list[tuple[int, list[str]]] = []
     with OUT.open("w") as f:
         for i, trace in enumerate(traces, start=1):
-            res = validate_trace(trace)
+            res = validate_dataset_trace(trace)
             if not res.valid:
                 bad.append((i, res.errors))
             f.write(json.dumps({"trace": trace}, ensure_ascii=False) + "\n")

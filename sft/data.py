@@ -71,8 +71,11 @@ def create_dataset(
     """
     if masking_mode not in ("assistant_only", "full_trace"):
         raise ValueError(f"masking_mode must be 'assistant_only' or 'full_trace', got {masking_mode!r}")
+    trace_fingerprint = hashlib.md5(
+        "".join(trace["text"] for trace in traces).encode("utf-8")
+    ).hexdigest()[:12]
     cache_key = hashlib.md5(
-        f"v3_{masking_mode}_{len(traces)}_{tokenizer.name_or_path}_{max_seq_length}".encode()
+        f"v4_{masking_mode}_{len(traces)}_{trace_fingerprint}_{tokenizer.name_or_path}_{max_seq_length}".encode()
     ).hexdigest()[:12]
     cache_path = Path(cache_dir) / f"tokenized_{cache_key}"
 
@@ -101,6 +104,7 @@ def create_dataset(
 
     asst_header_ids = tokenizer.encode("<|im_start|>assistant\n", add_special_tokens=False)
     im_end_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
+    eos_id = tokenizer.eos_token_id
     H = len(asst_header_ids)
 
     def make_labels(ids):
@@ -114,6 +118,8 @@ def create_dataset(
                     j += 1
                 if j < len(ids):
                     labels[j] = ids[j]
+                    if eos_id is not None and j + 1 < len(ids) and ids[j + 1] == eos_id:
+                        labels[j + 1] = ids[j + 1]
                     i = j + 1
                 else:
                     break

@@ -32,9 +32,7 @@ Reproduction notes for the successful `GLYPH_SFT_OFFICIAL_V1` supervised fine-tu
 ## Train
 
 ```bash
-cd /workspace/glyph
-git pull --ff-only
-source .venv/bin/activate
+cd /glyph
 python -m sft.train \
   --model Qwen/Qwen3-4B-Base \
   --data synthetic_data/gold_glyph_2500.jsonl \
@@ -43,7 +41,7 @@ python -m sft.train \
   --no-use-lora \
   --lr 1e-5 \
   --lm-head-lr 1.5e-5 \
-  --save-steps 100 2>&1 | tee runs/sft_toolturn_v1_fullft1.log
+  --save-steps 100
 ```
 
 ## Eval
@@ -51,8 +49,7 @@ python -m sft.train \
 Held-out test loss:
 
 ```bash
-cd /workspace/glyph
-source .venv/bin/activate
+cd /glyph
 python -m sft.eval_test_loss \
   --base Qwen/Qwen3-4B-Base \
   --sft runs/sft_toolturn_v1_fullft1/checkpoint-250 \

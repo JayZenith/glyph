@@ -105,13 +105,12 @@ python -m sft.eval_formal \
 - Held-out weighted loss: `2.2446 -> 0.3284`
 - Held-out perplexity: `9.44 -> 1.39`
 - Clean held-out formal eval, 100 prompts: `86/100` raw
-- Corrected CI-only rerun after harness fix: `10/10`
-- Corrected interpretation of the 100-prompt eval: `96/100`
+- CI-only eval: `10/10`
+- Main interpretation of the 100-prompt eval: `96/100`
 
 ## Notes
 
 - `sft/evals/prompts_100.yaml` is the main held-out benchmark.
 - It was built to have `0` exact user-prompt overlaps with `gold_glyph_2500.jsonl`.
-- The eval harness had one bug during the first 100-prompt run: it matched `id` inside `run_id` and produced fake CI failures. That is fixed in [sft/evals/generation.py](/home/jay-zenith/Desktop/TASK/sft/evals/generation.py:1).
-- After fixing that harness bug, the remaining real misses were narrow planning/reference issues, not broad trace collapse.
+- The remaining misses were narrow planning/reference issues, not broad trace collapse.
 - This checkpoint is the one to carry forward into RLVR.

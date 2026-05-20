@@ -188,3 +188,58 @@ The follow-up post should be the RLVR continuation:
 - compare pre-RLVR vs post-RLVR on the same clean suite
 
 That is the cleanest way to show real improvement from this exact checkpoint.
+
+## Remaining Failure Types
+
+The remaining real failures were narrow and structural, not broad trace collapse.
+
+1. Reference hygiene in planning traces.
+Example:
+```text
+act {
+    think ↦ [
+        「Availability confirms the requested window is feasible.」 𝑝 avail1 ※ [ 1 ]
+    ]
+}
+```
+Problem:
+- the model referenced todo ids like `1` and `2` instead of real tags like `avail1` or `plan1`
+
+2. Malformed tail after a valid response.
+Example:
+```text
+response「...」
+}
+※ [ avail1 • plan1 • note2 ]
+⊨ 3
+```
+Problem:
+- the answer content was mostly fine, but an extra `}` corrupted the final trace
+
+3. Todo satisfaction / validator-edge formatting.
+Example:
+```text
+⊨ 1 • 2 • 3
+```
+Problem:
+- this should likely be accepted by the format, but currently exposes a strictness mismatch around todo satisfaction notation
+
+## RLVR Focus
+
+RLVR should be rust-focused, but not rust-only.
+
+The reward mix should:
+- keep rewarding global GLYPH structure on prompts the model already gets right
+- overweight the remaining failure modes above
+- penalize bad refs, unsatisfied todos, malformed tails, extra braces, and garbage after final response
+- preserve correct tool-turn behavior and clean final stopping
+
+The point of RLVR is not to teach the whole trace language from scratch. SFT already did that. RLVR should tighten the last narrow structural errors while preserving the strong existing prior.
+
+## Notes
+
+- `sft/evals/prompts_100.yaml` is the main held-out benchmark.
+- The benchmark was run from the published HF model, not just a local training directory, to verify the released artifact directly.
+- It was built to have `0` exact user-prompt overlaps with `gold_glyph_2500.jsonl`.
+- The remaining misses were narrow planning/reference issues, not broad trace collapse.
+- This checkpoint is the one to carry forward into RLVR.

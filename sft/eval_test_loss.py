@@ -8,22 +8,30 @@ import json
 import math
 from pathlib import Path
 
+from peft import PeftModel
 import torch
 from datasets import load_from_disk
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-def load_model(path: str):
-    tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
+def _is_adapter_dir(path: str) -> bool:
+    p = Path(path)
+    return p.is_dir() and (p / "adapter_config.json").exists()
+
+
+def load_model(path: str, base_model: str | None = None):
+    model_source = base_model or path
+    tok = AutoTokenizer.from_pretrained(model_source, trust_remote_code=True)
     try:
-        model = AutoModelForCausalLM.from_pretrained(
-            path, trust_remote_code=True, torch_dtype=torch.bfloat16,
+        base = AutoModelForCausalLM.from_pretrained(
+            model_source, trust_remote_code=True, torch_dtype=torch.bfloat16,
             device_map="auto", attn_implementation="sdpa",
         )
     except Exception:
-        model = AutoModelForCausalLM.from_pretrained(
-            path, trust_remote_code=True, torch_dtype=torch.bfloat16, device_map="auto",
+        base = AutoModelForCausalLM.from_pretrained(
+            model_source, trust_remote_code=True, torch_dtype=torch.bfloat16, device_map="auto",
         )
+    model = PeftModel.from_pretrained(base, path) if _is_adapter_dir(path) else base
     model.eval()
     return model, tok
 
@@ -40,9 +48,10 @@ def loss_for(model, ids, labels, attn) -> tuple[float, int]:
     return float(out.loss.item()), n_tokens
 
 
-def eval_model(model_path: str, dataset, name: str) -> dict:
-    print(f"Loading {name}: {model_path}")
-    model, _ = load_model(model_path)
+def eval_model(model_path: str, dataset, name: str, base_model: str | None = None) -> dict:
+    load_desc = f"{model_path} (base={base_model})" if base_model else model_path
+    print(f"Loading {name}: {load_desc}")
+    model, _ = load_model(model_path, base_model=base_model)
     losses = []
     token_counts = []
     for i, row in enumerate(dataset):
@@ -71,6 +80,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", required=True)
     ap.add_argument("--sft", required=True)
+    ap.add_argument("--sft-base-model", default=None,
+                    help="Base model to apply when --sft points to a PEFT adapter dir")
     ap.add_argument("--test-set", required=True, help="Path to dataset saved with save_to_disk")
     ap.add_argument("--output", required=True)
     args = ap.parse_args()
@@ -79,13 +90,14 @@ def main() -> int:
     print(f"Test set: {len(ds)} rows, cols: {ds.column_names}")
 
     base_r = eval_model(args.base, ds, "base")
-    sft_r = eval_model(args.sft, ds, "sft")
+    sft_r = eval_model(args.sft, ds, "sft", base_model=args.sft_base_model)
 
     deltas = [b - s for b, s in zip(base_r["per_example_losses"], sft_r["per_example_losses"])]
     summary = {
         "base": {k: v for k, v in base_r.items() if k != "per_example_losses"},
         "sft": {k: v for k, v in sft_r.items() if k != "per_example_losses"},
         "delta_token_weighted_loss": base_r["mean_loss_token_weighted"] - sft_r["mean_loss_token_weighted"],
+        "delta_mean_loss_unweighted": base_r["mean_loss_unweighted"] - sft_r["mean_loss_unweighted"],
         "perplexity_ratio_base_over_sft": base_r["perplexity"] / sft_r["perplexity"],
         "n_examples_sft_better": sum(1 for d in deltas if d > 0),
     }

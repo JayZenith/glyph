@@ -80,14 +80,15 @@ def setup_model_and_tokenizer(config: TrainConfig):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="Qwen/Qwen3-4B-Base")
-    parser.add_argument("--data", type=str, default="synthetic_data/glyph_dataset.jsonl")
+    parser.add_argument("--data", type=str, default="synthetic_data/glyph_gold50/gold_glyph_2500.jsonl")
     parser.add_argument("--output", type=str, default="runs/sft1")
     parser.add_argument("--tokenizer", type=str, help="Tokenizer name/path; defaults to --model")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--grad-accum", type=int, default=8)
     parser.add_argument("--lr", type=float, default=2e-5)
-    parser.add_argument("--max-seq-length", type=int, default=8192)
+    parser.add_argument("--lm-head-lr", type=float, default=3e-5)
+    parser.add_argument("--max-seq-length", type=int, default=1024)
     parser.add_argument("--use-lora", action=argparse.BooleanOptionalAction, default=True,
                         help="Use LoRA (default True). Disable with --no-use-lora for full fine-tune.")
     parser.add_argument("--lora-r", type=int, default=64)
@@ -114,6 +115,7 @@ def main():
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
+        lm_head_lr=args.lm_head_lr,
         max_seq_length=args.max_seq_length,
         masking_mode=args.masking_mode,
         use_lora=args.use_lora,

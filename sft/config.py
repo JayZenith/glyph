@@ -10,8 +10,8 @@ class TrainConfig:
     tokenizer_name: Optional[str] = None
 
     # Data
-    data_path: str = "synthetic_data/glyph_dataset.jsonl"
-    max_seq_length: int = 8192
+    data_path: str = "synthetic_data/glyph_gold50/gold_glyph_2500.jsonl"
+    max_seq_length: int = 1024
     masking_mode: str = "assistant_only"  # "assistant_only" | "full_trace"
 
     # Training
@@ -37,9 +37,9 @@ class TrainConfig:
     # termination/repetition fixes. Qwen3-4B-Base has tied embeddings, so
     # training lm_head also updates embed_tokens.
     lora_modules_to_save: list = field(default_factory=lambda: ["lm_head"])
-    # Separate LR for lm_head. Bumped to match trunk LR after 5e-6 didn't move
-    # the vocab prior enough to teach termination.
-    lm_head_lr: float = 2e-5
+    # Separate LR for lm_head. Keep it slightly above trunk LR so the model
+    # learns stop/closure tokens a bit faster on the strict glyph traces.
+    lm_head_lr: float = 3e-5
 
     # Optimization
     bf16: bool = True

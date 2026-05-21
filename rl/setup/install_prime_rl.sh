@@ -12,6 +12,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PRIME_RL_DIR="${1:-${PRIME_RL_DIR:-/workspace/prime-rl-src}}"
 PRIME_PYTHON_VERSION="${PRIME_PYTHON_VERSION:-3.12}"
+# Pin to the last commit before the student/teacher inference-pool refactor
+# (d25184e06). Our patcher targets the older flat `inference_pool` layout.
+PRIME_RL_COMMIT="${PRIME_RL_COMMIT:-97872d3e0}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 DEFAULT_TMP_ROOT="$WORKSPACE_DIR/.tmp"
 if [ -d /dev/shm ] && [ -w /dev/shm ] && [ -x /dev/shm ]; then
@@ -108,7 +111,8 @@ if [ ! -d "$PRIME_RL_DIR/.git" ]; then
 fi
 
 cd "$PRIME_RL_DIR"
-git pull --ff-only
+git fetch --quiet
+git checkout --quiet "$PRIME_RL_COMMIT"
 init_prime_rl_submodules
 uv sync --python "$PRIME_PYTHON_VERSION"
 

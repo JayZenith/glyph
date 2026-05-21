@@ -35,11 +35,20 @@ export TMP="$TMP_ROOT"
 export UV_CACHE_DIR
 
 init_prime_rl_submodules() {
-  git -C "$PRIME_RL_DIR" submodule set-url deps/verifiers https://github.com/PrimeIntellect-ai/verifiers.git
-  git -C "$PRIME_RL_DIR" submodule set-url deps/renderers https://github.com/PrimeIntellect-ai/renderers.git
-  git -C "$PRIME_RL_DIR" submodule set-url deps/research-environments https://github.com/PrimeIntellect-ai/research-environments.git
-  git -C "$PRIME_RL_DIR" submodule set-url deps/pydantic-config https://github.com/PrimeIntellect-ai/pydantic-config
-  git -C "$PRIME_RL_DIR" submodule update --init deps/verifiers deps/renderers deps/research-environments deps/pydantic-config
+  # Only init submodules that exist at the pinned commit. pydantic-config
+  # became a workspace submodule after our pin; pre-pin it's pulled directly
+  # from samsja/pydantic_config via tool.uv.sources git.
+  local declared
+  declared="$(git -C "$PRIME_RL_DIR" config -f .gitmodules --name-only --get-regexp 'submodule\..*\.path' | sed 's/^submodule\.\(.*\)\.path$/\1/')"
+  for name in $declared; do
+    local path
+    path="$(git -C "$PRIME_RL_DIR" config -f .gitmodules --get "submodule.${name}.path")"
+    case "$path" in
+      deps/verifiers|deps/renderers|deps/research-environments|deps/pydantic-config)
+        git -C "$PRIME_RL_DIR" submodule update --init "$path"
+        ;;
+    esac
+  done
 }
 
 install_flash_attn_wheel() {

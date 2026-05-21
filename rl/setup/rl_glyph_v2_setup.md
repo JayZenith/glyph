@@ -70,11 +70,10 @@ OUTPUT_DIR=/workspace/glyph/outputs/rlvr1_run1 \
 
 Defaults (override via env):
 - `MODEL=JayZenith/GLYPH-SFT-V2`
-- `SEQ_LEN=4096`, `MAX_MODEL_LEN=4096`, `MAX_COMPLETION_TOKENS=1536`
-  - At 2× A100 80GB this peaks at ~73 GB on the trainer GPU (~7 GB
-    headroom). Going to 8192 OOMs the trainer; smaller seq_len causes
-    vLLM 4xx prompt-too-long rejections on the longer bug-fix rollouts.
-- `MAX_TOOL_ROUNDS=3`
+- `HW_PROFILE=auto` — auto-detects from `nvidia-smi`. Picks one of:
+  - `a100-80gb` (also used for H100): `SEQ_LEN=5120`, `MAX_COMPLETION_TOKENS=1024`, `MAX_TOOL_ROUNDS=4`. Trainer peaks ~78 GiB.
+  - `blackwell-96gb` (RTX PRO 6000 SE / H200 / B200): `SEQ_LEN=6144`, `MAX_COMPLETION_TOKENS=1024`, `MAX_TOOL_ROUNDS=5`. Trainer peaks ~88-90 GiB.
+  - Any individual knob (`SEQ_LEN=...`, `MAX_TOOL_ROUNDS=...`) overrides the preset.
 - Rollout port `8000`, GPUs `0,1`.
 - `TEACHER_ANCHOR=0` by default. The pinned prime-rl version forbids
   `orchestrator.teacher` in `training_mode='rl'`; teacher anchor requires

@@ -1,25 +1,19 @@
 #!/usr/bin/env python3
+"""Per-step rollout quality summary for a task-trace RL run.
+
+Reads `run_default/rollouts/step_*/train_rollouts.jsonl` and prints
+mean/min/max reward, count of positive-reward rollouts, count of
+rollouts with no `act { call ... }`, total tool turns, zero-advantage
+filtered rollouts, and average assistant text length.
+"""
 from __future__ import annotations
 
 import argparse
 import glob
 import json
 import os
-import re
 import statistics
 from pathlib import Path
-
-
-FAKE_RESULT_PATTERNS = [
-    re.compile(r"\bresult\s*(?:\{|//)"),
-    re.compile(r"结果\s*\{"),
-    re.compile(r"data\s*↦\s*[「\"].*?[」\"]\s*🏷\s*[\w\"-]+", re.DOTALL),
-    re.compile(r"status\s*:\s*(?:success|failure).*?exit_code\s*:", re.DOTALL),
-]
-
-
-def has_fake_result(text: str) -> bool:
-    return any(pattern.search(text) for pattern in FAKE_RESULT_PATTERNS)
 
 
 def rollout_paths(run_dir: Path) -> list[str]:
@@ -35,7 +29,7 @@ def rollout_paths(run_dir: Path) -> list[str]:
 
 def summarize(path: str) -> tuple:
     rewards: list[float] = []
-    fake = tools = no_call = zeros = pos = posfake = 0
+    tools = no_call = zeros = pos = 0
     lengths: list[int] = []
 
     with open(path, encoding="utf-8") as handle:
@@ -50,9 +44,6 @@ def summarize(path: str) -> tuple:
                 for message in row.get("completion", [])
                 if isinstance(message, dict) and message.get("role") == "assistant"
             )
-            fake_result = has_fake_result(assistant)
-            fake += fake_result
-            posfake += fake_result and reward > 0
             no_call += "act {" not in assistant
             tools += sum(
                 1
@@ -69,9 +60,7 @@ def summarize(path: str) -> tuple:
         min(rewards),
         max(rewards),
         pos,
-        posfake,
         no_call,
-        fake,
         tools,
         zeros,
         round(statistics.mean(lengths)),
@@ -83,7 +72,7 @@ def main() -> None:
     parser.add_argument(
         "run_dir",
         nargs="?",
-        default="rl_ablations/bootstrap_v2_comp512",
+        default="outputs/rlvr1",
         type=Path,
         help="Run directory containing run_default/rollouts.",
     )
@@ -91,7 +80,7 @@ def main() -> None:
     args = parser.parse_args()
 
     rows = [summarize(path) for path in rollout_paths(args.run_dir)]
-    print("step avg min max pos posfake no_call fake tools zero len")
+    print("step avg min max pos no_call tools zero len")
     for row in rows[-args.tail :]:
         print(row[0], round(row[1], 4), round(row[2], 2), round(row[3], 2), *row[4:])
     if rows:
@@ -103,13 +92,11 @@ def main() -> None:
             "avg_pos",
             round(statistics.mean(row[4] for row in latest), 2),
             "avg_no_call",
-            round(statistics.mean(row[6] for row in latest), 2),
-            "avg_fake",
-            round(statistics.mean(row[7] for row in latest), 2),
+            round(statistics.mean(row[5] for row in latest), 2),
             "avg_tools",
-            round(statistics.mean(row[8] for row in latest), 2),
+            round(statistics.mean(row[6] for row in latest), 2),
             "avg_len",
-            round(statistics.mean(row[10] for row in latest)),
+            round(statistics.mean(row[8] for row in latest)),
         )
 
 

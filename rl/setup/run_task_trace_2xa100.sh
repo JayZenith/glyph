@@ -16,7 +16,6 @@ SEQ_LEN="${SEQ_LEN:-2048}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-2048}"
 MAX_COMPLETION_TOKENS="${MAX_COMPLETION_TOKENS:-768}"
 MAX_TOOL_ROUNDS="${MAX_TOOL_ROUNDS:-3}"
-STOP_ON_RESULT="${STOP_ON_RESULT:-0}"
 
 source "$PRIME_RL_DIR/.venv/bin/activate"
 
@@ -26,24 +25,16 @@ export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
 export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
 export PATH="$CARGO_HOME/bin:$PATH"
 
-ARGS=(
-  python3 "$ROOT_DIR/rl/train.py"
-  --model "$MODEL"
-  --teacher-model "$TEACHER_MODEL"
-  --teacher-tau "$TEACHER_TAU"
-  --teacher-port "$TEACHER_PORT"
-  --port "$PORT"
-  --data "$DATA_PATH"
-  --output "$OUTPUT_DIR"
-  --gpu-memory-utilization 0.7
-  --seq-len "$SEQ_LEN"
-  --max-model-len "$MAX_MODEL_LEN"
-  --max-completion-tokens "$MAX_COMPLETION_TOKENS"
+exec python3 "$ROOT_DIR/rl/train.py" \
+  --model "$MODEL" \
+  --teacher-model "$TEACHER_MODEL" \
+  --teacher-tau "$TEACHER_TAU" \
+  --teacher-port "$TEACHER_PORT" \
+  --port "$PORT" \
+  --data "$DATA_PATH" \
+  --output "$OUTPUT_DIR" \
+  --gpu-memory-utilization 0.7 \
+  --seq-len "$SEQ_LEN" \
+  --max-model-len "$MAX_MODEL_LEN" \
+  --max-completion-tokens "$MAX_COMPLETION_TOKENS" \
   --max-tool-rounds "$MAX_TOOL_ROUNDS"
-)
-
-if [[ "$STOP_ON_RESULT" == "1" ]]; then
-  ARGS+=(--stop-on-result)
-fi
-
-exec "${ARGS[@]}"

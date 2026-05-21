@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -118,8 +119,8 @@ class RustExecutor:
             cmd.extend(["-o", output_path])
         return self.execute(cmd)
 
-    def run_binary(self, binary_path: str) -> ExecutionResult:
-        return self.execute([binary_path])
+    def cargo_run(self, project_path: str) -> ExecutionResult:
+        return self.execute(["cargo", "run", "--quiet"], working_dir=project_path)
 
     def cargo_check(self, project_path: str) -> ExecutionResult:
         return self.execute(["cargo", "check"], working_dir=project_path)
@@ -135,6 +136,24 @@ class RustExecutor:
         if release:
             cmd.append("--release")
         return self.execute(cmd, working_dir=project_path)
+
+    def apply_patch(self, file_path: str, find: str, replace: str) -> ExecutionResult:
+        """Find-and-replace edit on a single file. `find` must occur exactly once.
+        Pure in-process; no subprocess sandboxing (text edit, not arbitrary code)."""
+        try:
+            p = Path(file_path)
+            if not p.exists():
+                return ExecutionResult(False, "", f"file not found: {file_path}", -1)
+            text = p.read_text(encoding="utf-8")
+            count = text.count(find)
+            if count == 0:
+                return ExecutionResult(False, "", "find snippet not found in file", -1)
+            if count > 1:
+                return ExecutionResult(False, "", f"find snippet occurs {count} times; must be unique", -1)
+            p.write_text(text.replace(find, replace, 1), encoding="utf-8")
+            return ExecutionResult(True, "patch applied", "", 0)
+        except OSError as exc:
+            return ExecutionResult(False, "", f"OSError: {exc}", -1)
 
 
 def create_executor(

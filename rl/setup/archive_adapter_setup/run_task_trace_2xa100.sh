@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
-# Full-finetune RLVR launcher for 2x A100 80GB.
-# Trainer on GPU 1, rollout vLLM + teacher anchor vLLM on GPU 0.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PRIME_RL_DIR="${PRIME_RL_DIR:-/workspace/prime-rl-src}"
-MODEL="${MODEL:-JayZenith/GLYPH-SFT-V2}"
-TEACHER_MODEL="${TEACHER_MODEL:-$MODEL}"
-TEACHER_TAU="${TEACHER_TAU:-0.05}"
-DATA_PATH="${DATA_PATH:-$ROOT_DIR/runs/rlvr1/prompts.jsonl}"
-OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/outputs/rlvr1}"
+ADAPTER="${ADAPTER:-JayZenith/glyph-sft-v1-adapter}"
+ROLLOUT_MODEL="${ROLLOUT_MODEL:-JayZenith/glyph-sft-v1}"
+DATA_PATH="${DATA_PATH:-$ROOT_DIR/runs/rl1/rust_tool_prompts_8.jsonl}"
+OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/outputs/task_trace_rl}"
 PORT="${PORT:-8000}"
-TEACHER_PORT="${TEACHER_PORT:-8001}"
 SEQ_LEN="${SEQ_LEN:-2048}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-2048}"
-MAX_COMPLETION_TOKENS="${MAX_COMPLETION_TOKENS:-768}"
-MAX_TOOL_ROUNDS="${MAX_TOOL_ROUNDS:-3}"
+MAX_COMPLETION_TOKENS="${MAX_COMPLETION_TOKENS:-512}"
+MAX_TOOL_ROUNDS="${MAX_TOOL_ROUNDS:-2}"
 STOP_ON_RESULT="${STOP_ON_RESULT:-0}"
 
 source "$PRIME_RL_DIR/.venv/bin/activate"
@@ -28,10 +24,8 @@ export PATH="$CARGO_HOME/bin:$PATH"
 
 ARGS=(
   python3 "$ROOT_DIR/rl/train.py"
-  --model "$MODEL"
-  --teacher-model "$TEACHER_MODEL"
-  --teacher-tau "$TEACHER_TAU"
-  --teacher-port "$TEACHER_PORT"
+  --adapter "$ADAPTER"
+  --rollout-init-model "$ROLLOUT_MODEL"
   --port "$PORT"
   --data "$DATA_PATH"
   --output "$OUTPUT_DIR"

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import uuid
 from pathlib import Path
 
 from datasets import Dataset
@@ -24,11 +26,39 @@ RUST_TOOL_NAMES = {
 RUST_TOOL_NAMES.discard(None)
 
 DEBUG_PARSE = False
-FAKE_RESULT_REWARD = -2.0
 CLEAN_TOOL_BOUNDARY_BONUS = 1.5
 POST_CALL_VERBOSITY_ALLOWANCE_CHARS = 450
 POST_CALL_VERBOSITY_PENALTY_PER_500_CHARS = 0.25
 POST_CALL_VERBOSITY_PENALTY_CAP = 0.75
+
+# Structure-reward weights (per-rollout, applied to BOTH Rust and non-Rust prompts).
+STRUCTURE_VALID_BONUS = 1.0
+STRUCTURE_PENALTIES = {
+    "Unbalanced braces": -0.5,
+    "Unbalanced brackets": -0.5,
+    "Unbalanced special quotes": -0.5,
+    "Garbage after final response": -0.5,
+    "Final response block is unclosed": -0.5,
+    "References to undefined tags": -0.4,
+    "Unsatisfied todo items": -0.5,
+    "Detected repetition": -1.0,
+    "Tool calls without matching result": -0.3,
+}
+
+
+def _structure_reward(trace_text: str, validator) -> float:
+    """Always-on reward term from TaskValidator. Targets the V2 eval failure modes:
+    malformed tail / extra braces, reference hygiene, todo satisfaction."""
+    if validator is None:
+        return 0.0
+    v = validator.validate(trace_text)
+    score = STRUCTURE_VALID_BONUS if v.valid else 0.0
+    for err in v.errors:
+        for prefix, penalty in STRUCTURE_PENALTIES.items():
+            if err.startswith(prefix):
+                score += penalty
+                break
+    return score
 
 
 # ---------------------------------------------------------------------------
@@ -48,12 +78,30 @@ def _execute(executor: RustExecutor, tool_name: str, params: dict) -> ExecutionR
         return executor.cargo_build(params.get("project_path", "."), release)
     if tool_name == "cargo_test":
         return executor.cargo_test(params.get("project_path", "."), params.get("test_name"))
-    if tool_name == "execute":
-        binary_path = params.get("binary_path")
-        if not binary_path:
-            return ExecutionResult(False, "", "missing binary_path", -1)
-        return executor.run_binary(binary_path)
+    if tool_name == "cargo_run":
+        return executor.cargo_run(params.get("project_path", "."))
+    if tool_name == "apply_patch":
+        file_path = params.get("file_path")
+        find = params.get("find")
+        replace = params.get("replace")
+        if not file_path or find is None or replace is None:
+            return ExecutionResult(False, "", "apply_patch needs file_path, find, replace", -1)
+        return executor.apply_patch(file_path, find, replace)
     return ExecutionResult(False, "", f"unknown tool: {tool_name}", -1)
+
+
+# Per-rollout sandboxing for code-edit cases. Each rollout gets its own copy
+# of the blueprint project so concurrent rollouts cannot stomp on each other.
+
+def _rewrite_path(value: str, blueprint: str, sandbox: str) -> str:
+    if isinstance(value, str) and value.startswith(blueprint):
+        return sandbox + value[len(blueprint):]
+    return value
+
+
+def _rewrite_params(params: dict, blueprint: str, sandbox: str) -> dict:
+    return {k: _rewrite_path(v, blueprint, sandbox) if isinstance(v, str) else v
+            for k, v in params.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -176,15 +224,6 @@ def _post_first_call_text_len(text: str) -> int:
     return len(re.sub(r"\s+", " ", tail).strip())
 
 
-def _has_assistant_authored_result(text: str) -> bool:
-    return bool(
-        re.search(r"\bresult\s*(?:\{|//)", text)
-        or re.search(r"结果\s*\{", text)
-        or re.search(r"data\s*↦\s*[「\"].*?[」\"]\s*🏷\s*[\w\"-]+", text, re.DOTALL)
-        or re.search(r"status\s*:\s*(?:success|failure).*?exit_code\s*:", text, re.DOTALL)
-    )
-
-
 def _find_result_for(call_id: str, text: str) -> dict | None:
     """Locate the env-emitted result block for a given call id; pull status fields."""
     m = re.search(
@@ -233,39 +272,48 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     if text_len > 1400:
         print(f"[TRUNCATION_RISK] len={text_len} chars ~{int(text_len*0.8)} tokens")
 
-    calls = executed_calls or parse_call_blocks(assistant_text or text)
-    if not calls:
-        return -1.25
-
     expected_tool = kwargs.get("expected_tool")
     expected_args = _normalize_expected_args(kwargs.get("expected_args"))
+    validator: TaskValidator = kwargs.get("validator")
+    structure = _structure_reward(text, validator)
+
+    # Non-Rust prompt: structure enforcement only. Env still mocks tool results
+    # if the model emits a call, but we don't score Rust execution.
+    if not expected_tool:
+        return structure
+
+    calls = executed_calls or parse_call_blocks(assistant_text or text)
+    if not calls:
+        return -1.25 + structure
 
     first_call = calls[0]
     reward = _score_tool_alignment(first_call, expected_tool, expected_args)
 
-    first_result = _find_result_for(first_call["id"], tool_text)
+    # Sum compute_tool_reward across every executed call. Multi-step workflows
+    # (apply_patch → cargo_test, apply_patch → cargo_run) are credited per call.
+    expected_output = kwargs.get("expected_output")
     any_success = False
-    if first_result is None:
-        reward -= 0.75
-    else:
-        tool_reward = compute_tool_reward(
-            tool_name=first_call["tool"],
-            execution_result=first_result,
+    real_results_seen = 0
+    for call in calls:
+        res = _find_result_for(call["id"], tool_text)
+        if res is None:
+            continue
+        real_results_seen += 1
+        tr = compute_tool_reward(
+            tool_name=call["tool"],
+            execution_result=res,
+            expected_output=expected_output if call["tool"] == "cargo_run" else None,
         )
-        reward += tool_reward.total
-        any_success = bool(first_result.get("success", False))
-        if any_success:
-            reward += 0.5
+        reward += tr.total
+        if bool(res.get("success", False)):
+            any_success = True
 
-    has_fake_result = bool(
-        state.get("assistant_had_fake_result")
-        or _has_assistant_authored_result(assistant_text)
-    )
-    if has_fake_result:
-        state["assistant_had_fake_result"] = True
-        return FAKE_RESULT_REWARD
-    elif first_result is not None:
+    if any_success:
+        reward += 0.5
+    if real_results_seen > 0:
         reward += CLEAN_TOOL_BOUNDARY_BONUS
+    else:
+        reward -= 0.75
 
     post_call_len = _post_first_call_text_len(assistant_text)
     if post_call_len > POST_CALL_VERBOSITY_ALLOWANCE_CHARS:
@@ -275,21 +323,10 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
             POST_CALL_VERBOSITY_PENALTY_CAP,
         )
 
-    # Light penalty for extra calls beyond the first — RLVR rewards correct
-    # multi-step workflows (build → test → execute), so don't penalize too hard,
-    # just discourage fishing.
-    if len(calls) > 1:
-        reward -= min(0.05 * (len(calls) - 1), 0.25)
-
     if "response「" in text:
         reward += 0.1
 
-    validator: TaskValidator = kwargs.get("validator")
-    if validator and any_success:
-        struct_result = validator.validate(text)
-        reward += 0.2 if struct_result.valid else 0.0
-
-    return reward
+    return reward + structure
 
 
 # ---------------------------------------------------------------------------
@@ -310,11 +347,31 @@ class RustToolEnv(vf.MultiTurnEnv):
         *args,
         executor: RustExecutor,
         max_tool_rounds: int = 2,
+        sandbox_root: Path | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.executor = executor
         self.max_tool_rounds = max_tool_rounds
+        self.sandbox_root = Path(sandbox_root) if sandbox_root else Path("runs/rlvr1/sandboxes")
+
+    def _ensure_sandbox(self, state: dict, blueprint_root: str) -> str:
+        """Per-rollout copy of a blueprint project. Idempotent within a rollout."""
+        if state.get("sandbox_path"):
+            return state["sandbox_path"]
+        rollout_id = state.get("rollout_id") or uuid.uuid4().hex[:12]
+        blueprint = Path(blueprint_root)
+        sandbox = self.sandbox_root / rollout_id / blueprint.name
+        sandbox.parent.mkdir(parents=True, exist_ok=True)
+        if blueprint.is_dir():
+            shutil.copytree(blueprint, sandbox, dirs_exist_ok=True)
+        else:
+            sandbox.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(blueprint, sandbox)
+        state["rollout_id"] = rollout_id
+        state["sandbox_path"] = str(sandbox)
+        state["blueprint_root"] = str(blueprint)
+        return state["sandbox_path"]
 
     @staticmethod
     def _messages_text(messages) -> str:
@@ -345,19 +402,28 @@ class RustToolEnv(vf.MultiTurnEnv):
         if not calls:
             return []
 
+        is_rust_prompt = bool(kwargs.get("expected_tool"))
+        blueprint_root = kwargs.get("blueprint_root")
+        sandbox_path = self._ensure_sandbox(state, blueprint_root) if blueprint_root else None
+
         responses: list[dict[str, str]] = []
         for call in calls:
             cid = call["id"]
-            if call["tool"] not in RUST_TOOL_NAMES:
+            params = call["params"]
+            if blueprint_root and sandbox_path:
+                params = _rewrite_params(params, blueprint_root, sandbox_path)
+            if not is_rust_prompt:
+                # Non-Rust prompt: mock the tool result so the assistant→tool
+                # boundary structure stays intact for the structure reward.
+                er = ExecutionResult(True, f"Mocked tool result for {cid}.", "", 0)
+            elif call["tool"] not in RUST_TOOL_NAMES:
                 er = ExecutionResult(False, "", f"unknown tool: {call['tool']}", -1)
             else:
-                er = _execute(self.executor, call["tool"], call["params"])
+                er = _execute(self.executor, call["tool"], params)
             executed.add(cid)
             result_block = format_result_block(cid, er)
             state.setdefault("executed_tool_calls", []).append(call)
             state.setdefault("executed_result_blocks", []).append(result_block)
-            if _has_assistant_authored_result(text):
-                state["assistant_had_fake_result"] = True
             responses.append(
                 {
                     "role": "tool",

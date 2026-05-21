@@ -67,12 +67,30 @@ RUST_TOOLS = [
         },
     ),
     Tool(
-        name="execute",
-        description="Executes a compiled binary and returns its output",
+        name="cargo_run",
+        description="Builds and runs the binary of a Cargo project, returning its stdout",
         params={
-            "binary_path": {
+            "project_path": {
                 "type": "string",
-                "description": "Path to the compiled binary to execute",
+                "description": "Path to the Cargo project directory",
+            },
+        },
+    ),
+    Tool(
+        name="apply_patch",
+        description="Applies a textual find/replace edit to a single file. The 'find' text must occur exactly once.",
+        params={
+            "file_path": {
+                "type": "string",
+                "description": "Path to the file to edit",
+            },
+            "find": {
+                "type": "string",
+                "description": "Exact text snippet to locate (must occur exactly once in the file)",
+            },
+            "replace": {
+                "type": "string",
+                "description": "Replacement text",
             },
         },
     ),

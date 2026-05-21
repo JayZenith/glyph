@@ -64,27 +64,34 @@ def compute_tool_reward(
 
     elif tool_name == "cargo_test":
         if success:
-            components["test_pass"] = 1.0
-
-            if "test result: ok" in stdout.lower():
-                components["all_tests_pass"] = 0.5
-
+            stdout_lower = stdout.lower()
             test_count = stdout.count("test result:")
             if test_count > 0:
                 details["test_runs"] = test_count
-
-            if "FAILED" in stdout or "failed" in stdout:
+            # Key off the explicit summary line, not loose substrings like
+            # "failed" (cargo always prints "0 failed" on green runs).
+            if "test result: failed" in stdout_lower:
                 components["test_pass"] = -0.5
                 components["all_tests_pass"] = -0.3
+            else:
+                components["test_pass"] = 1.0
+                if "test result: ok" in stdout_lower:
+                    components["all_tests_pass"] = 0.5
         else:
             components["test_pass"] = -1.0
             details["error_snippet"] = stderr[:500] if stderr else "unknown error"
 
-    elif tool_name == "execute":
+    elif tool_name == "apply_patch":
         if success:
-            components["execution_success"] = 1.0
-            details["exit_code"] = exit_code
+            components["patch_applied"] = 0.5
+        else:
+            components["patch_applied"] = -0.5
+            details["error_snippet"] = stderr[:200] if stderr else "unknown"
 
+    elif tool_name == "cargo_run":
+        if success:
+            components["run_success"] = 1.0
+            details["exit_code"] = exit_code
             if expected_output is not None:
                 if stdout.strip() == expected_output.strip():
                     components["output_match"] = 1.0
@@ -93,7 +100,7 @@ def compute_tool_reward(
                     details["expected"] = expected_output[:200]
                     details["actual"] = stdout[:200]
         else:
-            components["execution_success"] = -1.0
+            components["run_success"] = -1.0
             details["error_snippet"] = stderr[:500] if stderr else "unknown error"
 
     else:

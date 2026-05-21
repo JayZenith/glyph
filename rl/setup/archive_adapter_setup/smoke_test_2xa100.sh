@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Dry-run config validator for the full-finetune RLVR launcher.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PRIME_RL_DIR="${PRIME_RL_DIR:-/workspace/prime-rl-src}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/outputs/smoke_2xa100}"
-DATA_PATH="${DATA_PATH:-$ROOT_DIR/runs/rlvr1/prompts.jsonl}"
-CASES_ROOT="${CASES_ROOT:-$ROOT_DIR/runs/rlvr1/rust_cases}"
-MODEL="${MODEL:-JayZenith/GLYPH-SFT-V2}"
+DATA_PATH="${DATA_PATH:-$ROOT_DIR/runs/rl1/rust_tool_prompts_8.jsonl}"
+CASES_ROOT="${CASES_ROOT:-$ROOT_DIR/runs/rl1/rust_tool_cases}"
+ADAPTER="${ADAPTER:-JayZenith/glyph-sft-v1-adapter}"
+ROLLOUT_MODEL="${ROLLOUT_MODEL:-JayZenith/glyph-sft-v1}"
 
 source "$PRIME_RL_DIR/.venv/bin/activate"
 
@@ -25,11 +25,12 @@ print(f"visible_gpus={count}")
 PY
 
 if [ ! -f "$DATA_PATH" ]; then
-  python3 -m rl.rust.prepare_cases --root "$CASES_ROOT" --output "$DATA_PATH" --phrasings 3 --gold-count 30
+  python3 "$ROOT_DIR/rl/rust/prepare_cases.py" --root "$CASES_ROOT" --output "$DATA_PATH"
 fi
 
 python3 "$ROOT_DIR/rl/train.py" \
-  --model "$MODEL" \
+  --adapter "$ADAPTER" \
+  --rollout-init-model "$ROLLOUT_MODEL" \
   --data "$DATA_PATH" \
   --output "$OUT_DIR" \
   --seq-len 1536 \
@@ -46,11 +47,11 @@ cfg = json.load(open(sys.argv[1]))
 assert cfg["deployment"]["gpus_per_node"] == 2
 assert cfg["deployment"]["num_train_gpus"] == 1
 assert cfg["deployment"]["num_infer_gpus"] == 1
-# Full-finetune mode: no LoRA section in trainer.model; init model = MODEL.
-assert "lora" not in cfg["trainer"]["model"], "trainer should not carry LoRA in full-FT mode"
-assert cfg["trainer"]["model"]["name"] == "JayZenith/GLYPH-SFT-V2"
-assert cfg["inference"]["model"]["name"] == "JayZenith/GLYPH-SFT-V2"
-assert "teacher_model" in cfg["orchestrator"], "teacher anchor should be on by default"
+assert cfg["trainer"]["model"]["name"] == "Qwen/Qwen3-4B-Base"
+assert cfg["orchestrator"]["model"]["name"] == "JayZenith/glyph-sft-v1"
+assert cfg["inference"]["model"]["name"] == "JayZenith/glyph-sft-v1"
+mods = cfg["trainer"]["model"]["lora"]["modules_to_save"]
+assert "lm_head" in mods
 print("smoke_ok=1")
 PY
 

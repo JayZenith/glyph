@@ -19,9 +19,12 @@ CONFIG_DIR = Path(__file__).resolve().parent / "configs" / "task_trace"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Launch PRIME-RL from a PEFT adapter.")
-    parser.add_argument("--adapter", required=True, help="HF repo id for the PEFT adapter.")
-    parser.add_argument("--base-model", help="Override the adapter base model.")
+    parser = argparse.ArgumentParser(description="Launch PRIME-RL. Default mode is full-finetune.")
+    parser.add_argument("--model", default="JayZenith/GLYPH-SFT-V2",
+                        help="HF repo id for full-finetune init (default mode).")
+    parser.add_argument("--adapter", default=None,
+                        help="HF repo id for a PEFT adapter (LoRA mode). Disables full-FT default.")
+    parser.add_argument("--base-model", help="Override the adapter base model (LoRA mode only).")
     parser.add_argument("--data", type=Path, help="Prompt dataset path.")
     parser.add_argument("--output", type=Path, default=Path("outputs/prime_rl"))
     parser.add_argument("--max-steps", type=int)
@@ -47,10 +50,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tool-timeout", type=int)
     parser.add_argument("--port", type=int)
     parser.add_argument("--rollout-init-model", help="HF repo id for the rollout runtime model.")
-    parser.add_argument("--teacher-model")
-    parser.add_argument("--teacher-port", type=int)
-    parser.add_argument("--teacher-tau", type=float)
-    parser.add_argument("--enable-teacher-inference", action="store_true")
+    parser.add_argument("--teacher-model", default="JayZenith/GLYPH-SFT-V2")
+    parser.add_argument("--teacher-port", type=int, default=8001)
+    parser.add_argument("--teacher-tau", type=float, default=0.05)
+    parser.add_argument("--teacher-anchor", action=argparse.BooleanOptionalAction, default=True,
+                        help="Run a frozen teacher inference server and add KL anchor to its logprobs.")
+    parser.add_argument("--enable-teacher-inference", action="store_true",
+                        help=argparse.SUPPRESS)  # back-compat; honored if set
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--dump-config", type=Path)
     return parser.parse_args()
@@ -116,27 +122,28 @@ def build_teacher_inference_config(
     return teacher_inference
 
 
-def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[str, Any]:
+def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -> dict[str, Any]:
     trainer, orchestrator, inference = load_templates()
     trainer.pop("buffer", None)
 
-    base_model = args.base_model or adapter_cfg["base_model_name_or_path"]
+    use_lora = adapter_cfg is not None
     output_dir = args.output.resolve()
     data_path = args.data.resolve() if args.data else None
 
-    rank = int(adapter_cfg["r"])
-    alpha = float(adapter_cfg["lora_alpha"])
-    dropout = float(adapter_cfg.get("lora_dropout", 0.0))
-    target_modules = list(adapter_cfg["target_modules"])
-    modules_to_save = list(adapter_cfg.get("modules_to_save") or [])
-    adapter_label = str(args.adapter).replace("/", "__")
-    adapter_name = f"{adapter_label}-r{rank}-a{int(alpha)}"
-    # PRIME-RL's auto_setup_lora validator regenerates orchestrator.model.lora.name
-    # as f"r{rank}-a{alpha}" (alpha is a float, so e.g. "r64-a64.0") whenever the
-    # trainer has LoRA enabled, overriding the adapter_name above. On resume the
-    # scheduler routes rollouts to this name, so vLLM must serve it as an alias
-    # or every /inference/v1/generate request 404s.
-    auto_lora_name = f"r{rank}-a{float(alpha)}"
+    if use_lora:
+        base_model = args.base_model or adapter_cfg["base_model_name_or_path"]
+        rank = int(adapter_cfg["r"])
+        alpha = float(adapter_cfg["lora_alpha"])
+        dropout = float(adapter_cfg.get("lora_dropout", 0.0))
+        target_modules = list(adapter_cfg["target_modules"])
+        modules_to_save = list(adapter_cfg.get("modules_to_save") or [])
+        adapter_label = str(args.adapter).replace("/", "__")
+        adapter_name = f"{adapter_label}-r{rank}-a{int(alpha)}"
+        auto_lora_name = f"r{rank}-a{float(alpha)}"
+    else:
+        base_model = args.base_model or args.model
+        adapter_name = None
+        auto_lora_name = None
     rollout_model = args.rollout_init_model or base_model
     teacher_model_name = args.teacher_model or rollout_model
 
@@ -146,13 +153,14 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[
     trainer_ckpt = trainer.setdefault("ckpt", {})
 
     trainer_model["name"] = base_model
-    trainer_model["lora"] = {
-        "rank": rank,
-        "alpha": alpha,
-        "dropout": dropout,
-        "target_modules": target_modules,
-        "modules_to_save": modules_to_save,
-    }
+    if use_lora:
+        trainer_model["lora"] = {
+            "rank": rank,
+            "alpha": alpha,
+            "dropout": dropout,
+            "target_modules": target_modules,
+            "modules_to_save": modules_to_save,
+        }
     maybe_set(trainer_model, "seq_len", args.seq_len)
     maybe_set(trainer_optim, "lr", args.learning_rate)
     maybe_set(trainer_optim, "weight_decay", args.weight_decay)
@@ -169,7 +177,7 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[
     orch_ckpt = orchestrator.setdefault("ckpt", {})
 
     orch_model["name"] = rollout_model
-    if not args.disable_orchestrator_lora:
+    if use_lora and not args.disable_orchestrator_lora:
         orch_model["lora"] = {
             "name": adapter_name,
             "rank": rank,
@@ -209,13 +217,11 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[
     maybe_set(infer_server, "port", args.port)
     maybe_set(inference, "gpu_memory_utilization", args.gpu_memory_utilization)
     served_aliases: list[str] = []
-    for name in (
-        rollout_model,
-        base_model,
-        adapter_name,
-        auto_lora_name,
-        *(args.served_model_name or []),
-    ):
+    candidates = [rollout_model, base_model]
+    if use_lora:
+        candidates += [adapter_name, auto_lora_name]
+    candidates += list(args.served_model_name or [])
+    for name in candidates:
         if name and name not in served_aliases:
             served_aliases.append(name)
     inference.setdefault("vllm_extra", {})["served_model_name"] = served_aliases
@@ -238,7 +244,8 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any]) -> dict[
         if args.checkpoint_interval is not None:
             config["ckpt"]["interval"] = args.checkpoint_interval
 
-    if args.enable_teacher_inference:
+    teacher_on = bool(args.teacher_anchor or args.enable_teacher_inference)
+    if teacher_on:
         orchestrator["teacher_model"] = {
             "model": {"name": teacher_model_name},
             "client": {
@@ -288,13 +295,19 @@ def launch_teacher_inference(raw_config: dict[str, Any], args: argparse.Namespac
 
 def main() -> None:
     args = parse_args()
-    adapter_dir = resolve_adapter_dir(args.adapter)
-    adapter_cfg = load_adapter_config(adapter_dir)
+    if args.adapter:
+        adapter_dir = resolve_adapter_dir(args.adapter)
+        adapter_cfg = load_adapter_config(adapter_dir)
+    else:
+        adapter_dir = None
+        adapter_cfg = None
     raw_config = build_config(args, adapter_cfg)
     raw_config["metadata"] = {
-        "init_adapter_source": args.adapter,
-        "init_adapter_resolved_dir": str(adapter_dir),
+        "mode": "lora" if adapter_cfg else "full_finetune",
+        "init_model": args.adapter or args.model,
     }
+    if adapter_dir is not None:
+        raw_config["metadata"]["init_adapter_resolved_dir"] = str(adapter_dir)
     if args.rollout_init_model:
         raw_config["metadata"]["rollout_init_model_source"] = args.rollout_init_model
 
@@ -306,7 +319,8 @@ def main() -> None:
     if args.dry_run:
         return
 
-    os.environ["PRIME_RL_INIT_ADAPTER"] = str(adapter_dir)
+    if adapter_dir is not None:
+        os.environ["PRIME_RL_INIT_ADAPTER"] = str(adapter_dir)
     os.environ["PRIME_RL_INFERENCE_FULL_WEIGHTS"] = "1"
     cwd = str(Path.cwd())
     rl_dir = str(Path.cwd() / "rl")
@@ -319,9 +333,10 @@ def main() -> None:
     from prime_rl.configs.rl import RLConfig
     import prime_rl.entrypoints.rl as rl_mod
 
-    patch_gpu_mapping(args.enable_teacher_inference)
+    teacher_on = bool(args.teacher_anchor or args.enable_teacher_inference)
+    patch_gpu_mapping(teacher_on)
     teacher_process: subprocess.Popen[str] | None = None
-    if args.enable_teacher_inference:
+    if teacher_on:
         teacher_process = launch_teacher_inference(raw_config, args)
 
     validated_config = dict(raw_config)

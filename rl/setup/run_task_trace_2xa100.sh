@@ -7,7 +7,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PRIME_RL_DIR="${PRIME_RL_DIR:-/workspace/prime-rl-src}"
 MODEL="${MODEL:-JayZenith/GLYPH-SFT-V2}"
 TEACHER_MODEL="${TEACHER_MODEL:-$MODEL}"
-TEACHER_TAU="${TEACHER_TAU:-0.05}"
+TEACHER_TAU="${TEACHER_TAU:-0.0}"
+TEACHER_ANCHOR="${TEACHER_ANCHOR:-0}"
 DATA_PATH="${DATA_PATH:-$ROOT_DIR/runs/rlvr1/prompts.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/outputs/rlvr1}"
 PORT="${PORT:-8000}"
@@ -25,16 +26,21 @@ export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
 export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
 export PATH="$CARGO_HOME/bin:$PATH"
 
-exec python3 "$ROOT_DIR/rl/train.py" \
-  --model "$MODEL" \
-  --teacher-model "$TEACHER_MODEL" \
-  --teacher-tau "$TEACHER_TAU" \
-  --teacher-port "$TEACHER_PORT" \
-  --port "$PORT" \
-  --data "$DATA_PATH" \
-  --output "$OUTPUT_DIR" \
-  --gpu-memory-utilization 0.7 \
-  --seq-len "$SEQ_LEN" \
-  --max-model-len "$MAX_MODEL_LEN" \
-  --max-completion-tokens "$MAX_COMPLETION_TOKENS" \
+ARGS=(
+  python3 "$ROOT_DIR/rl/train.py"
+  --model "$MODEL"
+  --port "$PORT"
+  --data "$DATA_PATH"
+  --output "$OUTPUT_DIR"
+  --gpu-memory-utilization 0.7
+  --seq-len "$SEQ_LEN"
+  --max-model-len "$MAX_MODEL_LEN"
+  --max-completion-tokens "$MAX_COMPLETION_TOKENS"
   --max-tool-rounds "$MAX_TOOL_ROUNDS"
+)
+
+if [[ "$TEACHER_ANCHOR" == "1" ]]; then
+  ARGS+=(--teacher-anchor --teacher-model "$TEACHER_MODEL" --teacher-tau "$TEACHER_TAU" --teacher-port "$TEACHER_PORT")
+fi
+
+exec "${ARGS[@]}"

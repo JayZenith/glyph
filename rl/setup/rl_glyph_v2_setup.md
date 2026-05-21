@@ -70,10 +70,13 @@ OUTPUT_DIR=/workspace/glyph/outputs/rlvr1_run1 \
 
 Defaults (override via env):
 - `MODEL=JayZenith/GLYPH-SFT-V2`
-- `TEACHER_MODEL=$MODEL`, `TEACHER_TAU=0.05`, `TEACHER_PORT=8001`
 - `SEQ_LEN=2048`, `MAX_MODEL_LEN=2048`, `MAX_COMPLETION_TOKENS=768`
 - `MAX_TOOL_ROUNDS=3`
 - Rollout port `8000`, GPUs `0,1`.
+- `TEACHER_ANCHOR=0` by default. The pinned prime-rl version forbids
+  `orchestrator.teacher` in `training_mode='rl'`; teacher anchor requires
+  switching to `'opd'` (online policy distillation) mode, which is a TODO
+  for this launcher.
 
 Logs land in `$OUTPUT_DIR/logs/{orchestrator,trainer,inference}.log`. The teacher inference server's output goes to the launching shell's stdout.
 

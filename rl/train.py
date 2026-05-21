@@ -51,9 +51,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rollout-init-model", help="HF repo id for the rollout runtime model.")
     parser.add_argument("--teacher-model", default="JayZenith/GLYPH-SFT-V2")
     parser.add_argument("--teacher-port", type=int, default=8001)
-    parser.add_argument("--teacher-tau", type=float, default=0.05)
-    parser.add_argument("--teacher-anchor", action=argparse.BooleanOptionalAction, default=True,
-                        help="Run a frozen teacher inference server and add KL anchor to its logprobs.")
+    parser.add_argument("--teacher-tau", type=float, default=0.0)
+    # NOTE: At our pinned prime-rl commit, teacher anchor requires
+    # training_mode='opd' (online policy distillation). Pure RL mode forbids
+    # orchestrator.teacher. Default OFF until opd wiring is added.
+    parser.add_argument("--teacher-anchor", action=argparse.BooleanOptionalAction, default=False,
+                        help="Run a frozen teacher inference server (requires opd mode; off by default).")
     parser.add_argument("--enable-teacher-inference", action="store_true",
                         help=argparse.SUPPRESS)  # back-compat; honored if set
     parser.add_argument("--dry-run", action="store_true")

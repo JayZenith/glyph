@@ -1,9 +1,9 @@
-"""Load eval prompts from evals/prompts.yaml and render them to TASK format."""
+"""Load eval prompts from evals/prompts_125.yaml and render them to TASK format."""
 from pathlib import Path
 
 import yaml
 
-_PROMPTS_FILE = Path(__file__).parent / "prompts.yaml"
+_PROMPTS_FILE = Path(__file__).parent / "prompts_125.yaml"
 
 
 def load_prompts(section: str, prompt_file: str | None = None) -> list[dict]:

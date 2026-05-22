@@ -26,7 +26,7 @@ def main() -> int:
     parser.add_argument("--sft-model", default="JayZenith/GLYPH_SFT")
     parser.add_argument("--prompt-section", default="formal_eval")
     parser.add_argument("--prompt-file", default=None,
-                        help="Optional yaml file to load prompts from instead of sft/evals/prompts.yaml")
+                        help="Optional yaml file to load prompts from instead of sft/evals/prompts_125.yaml")
     parser.add_argument("--output", required=True)
     parser.add_argument("--max-new-tokens", type=int, default=6000)
     parser.add_argument("--max-tool-rounds", type=int, default=8,

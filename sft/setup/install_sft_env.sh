@@ -11,6 +11,46 @@ TORCH_VERSION="${TORCH_VERSION:-2.5.1}"
 CUDA_WHL_TAG="${CUDA_WHL_TAG:-cu124}"
 TORCH_INDEX_URL="${TORCH_INDEX_URL:-https://download.pytorch.org/whl/${CUDA_WHL_TAG}}"
 FLASH_ATTN_VERSION="${FLASH_ATTN_VERSION:-2.8.3}"
+BLACKWELL_FLASH_ATTN_WHEEL_URL="${BLACKWELL_FLASH_ATTN_WHEEL_URL:-https://github.com/lesj0610/flash-attention/releases/download/v2.8.3-cu12-torch2.11/flash_attn-2.8.3%2Bcu12torch2.11cxx11abiTRUE-cp312-cp312-linux_x86_64.whl}"
+
+detect_gpu_name() {
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    return 1
+  fi
+  nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1
+}
+
+is_blackwell_gpu() {
+  local gpu_name
+  gpu_name="$(detect_gpu_name || true)"
+  case "$gpu_name" in
+    *"RTX PRO 6000"*|*"RTX 6000 Pro"*|*"B200"*|*"GB200"*|*"Blackwell"*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+using_default_sft_stack() {
+  [ "${TORCH_VERSION}" = "2.5.1" ] \
+    && [ "${CUDA_WHL_TAG}" = "cu124" ] \
+    && [ "${TORCH_INDEX_URL}" = "https://download.pytorch.org/whl/cu124" ] \
+    && [ -z "${FLASH_ATTN_WHEEL_URL:-}" ] \
+    && [ -z "${PYTHON_BIN:-}" ]
+}
+
+if using_default_sft_stack && is_blackwell_gpu; then
+  TORCH_VERSION="2.11.0"
+  CUDA_WHL_TAG="cu128"
+  TORCH_INDEX_URL="https://download.pytorch.org/whl/${CUDA_WHL_TAG}"
+  FLASH_ATTN_WHEEL_URL="$BLACKWELL_FLASH_ATTN_WHEEL_URL"
+  SFT_PYTHON_TARGET="3.12"
+  echo "Detected Blackwell-class GPU; using fallback stack: python=${SFT_PYTHON_TARGET}, torch=${TORCH_VERSION}, cuda=${CUDA_WHL_TAG}" >&2
+else
+  SFT_PYTHON_TARGET="3.11"
+fi
 
 if ! command -v uv >/dev/null 2>&1; then
   python3 -m pip install --user uv
@@ -20,7 +60,9 @@ export PATH="$HOME/.local/bin:$PATH"
 
 if [ -n "${PYTHON_BIN:-}" ]; then
   SELECTED_PYTHON="$PYTHON_BIN"
-elif command -v python3.11 >/dev/null 2>&1; then
+elif [ "$SFT_PYTHON_TARGET" = "3.12" ] && command -v python3.12 >/dev/null 2>&1; then
+  SELECTED_PYTHON="$(command -v python3.12)"
+elif [ "$SFT_PYTHON_TARGET" = "3.11" ] && command -v python3.11 >/dev/null 2>&1; then
   SELECTED_PYTHON="$(command -v python3.11)"
 elif command -v python3 >/dev/null 2>&1; then
   SELECTED_PYTHON="$(command -v python3)"
@@ -35,29 +77,55 @@ print(f"{sys.version_info.major}.{sys.version_info.minor}")
 PYINFO
 )"
 
-case "$PY_MINOR" in
-  3.9|3.10|3.11) ;;
-  *)
-    uv python install 3.11
-    SELECTED_PYTHON="$(uv python find --managed-python 3.11)"
-    PY_MINOR="$("$SELECTED_PYTHON" - <<'PYINFO'
+if [ "$SFT_PYTHON_TARGET" = "3.12" ]; then
+  case "$PY_MINOR" in
+    3.12) ;;
+    *)
+      uv python install "$SFT_PYTHON_TARGET"
+      SELECTED_PYTHON="$(uv python find --managed-python "$SFT_PYTHON_TARGET")"
+      PY_MINOR="$("$SELECTED_PYTHON" - <<'PYINFO'
 import sys
 print(f"{sys.version_info.major}.{sys.version_info.minor}")
 PYINFO
 )"
-    case "$PY_MINOR" in
-      3.11) ;;
-      *)
-        cat >&2 <<EOF
-Failed to provision a managed Python 3.11 with uv.
+      case "$PY_MINOR" in
+        "$SFT_PYTHON_TARGET") ;;
+        *)
+          cat >&2 <<EOF
+Failed to provision a managed Python ${SFT_PYTHON_TARGET} with uv.
 Set PYTHON_BIN explicitly and rerun:
-  PYTHON_BIN=/path/to/python3.11 bash sft/setup/install_sft_env.sh
+  PYTHON_BIN=/path/to/python${SFT_PYTHON_TARGET} bash sft/setup/install_sft_env.sh
 EOF
-        exit 1
-        ;;
-    esac
-    ;;
-esac
+          exit 1
+          ;;
+      esac
+      ;;
+  esac
+else
+  case "$PY_MINOR" in
+    3.9|3.10|3.11) ;;
+    *)
+      uv python install "$SFT_PYTHON_TARGET"
+      SELECTED_PYTHON="$(uv python find --managed-python "$SFT_PYTHON_TARGET")"
+      PY_MINOR="$("$SELECTED_PYTHON" - <<'PYINFO'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PYINFO
+)"
+      case "$PY_MINOR" in
+        "$SFT_PYTHON_TARGET") ;;
+        *)
+          cat >&2 <<EOF
+Failed to provision a managed Python ${SFT_PYTHON_TARGET} with uv.
+Set PYTHON_BIN explicitly and rerun:
+  PYTHON_BIN=/path/to/python${SFT_PYTHON_TARGET} bash sft/setup/install_sft_env.sh
+EOF
+          exit 1
+          ;;
+      esac
+      ;;
+  esac
+fi
 
 uv venv --clear --python "$SELECTED_PYTHON" "$VENV_DIR"
 

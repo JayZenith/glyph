@@ -6,7 +6,7 @@ Each Rust case is materialized as a Cargo project (or .rs file) under --root,
 and emitted as one or more prompt JSONL rows carrying `expected_tool` and
 `expected_args`. The reward path with those fields hits real `compute_tool_reward`.
 
-Structure-only rows come from gold_glyph_2500.jsonl with no `expected_tool` and
+Structure-only rows come from gold_glyph_3000.jsonl with no `expected_tool` and
 are scored by the validator term only. They are NEVER from prompts_100.yaml.
 """
 from __future__ import annotations
@@ -407,7 +407,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("runs/rlvr1/prompts.jsonl"))
     parser.add_argument("--phrasings", type=int, default=2,
                         help="Surface-form variants per Rust case (1-3).")
-    parser.add_argument("--gold-jsonl", type=Path, default=Path("synthetic_data/gold_glyph_2500.jsonl"),
+    parser.add_argument("--gold-jsonl", type=Path, default=Path("synthetic_data/gold_glyph_3000.jsonl"),
                         help="SFT pool for structure-only rows.")
     parser.add_argument("--gold-count", type=int, default=50,
                         help="Number of structure-only rows to include (0 to skip).")

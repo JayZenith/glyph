@@ -23,13 +23,13 @@ It is synthetic data generated from a fixed structural specification.
   - builds the small seed set
 - `build_gold300.py`
   - expands the dataset into a broader gold set
-- `build_gold2500.py`
+- `build_gold3000.py`
   - expands further into the final training file used for `GLYPH_SFT_OFFICIAL_V1`
 
 Datasets:
 - `gold_glyph_50.jsonl`
 - `gold_glyph_300.jsonl`
-- `gold_glyph_2500.jsonl`
+- `gold_glyph_3000.jsonl`
 
 ## How Generation Worked
 

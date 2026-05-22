@@ -14,7 +14,7 @@ from core.validator import validate_trace
 import build_gold300 as g300
 
 
-OUT = Path(__file__).parent / "gold_glyph_2500.jsonl"
+OUT = Path(__file__).parent / "gold_glyph_3000.jsonl"
 SYSTEM_RE = re.compile(r"(<\|im_start\|>system\n)system「(.*?)」", re.DOTALL)
 USER_RE = re.compile(r"(<\|im_start\|>user\n)user「(.*?)」🏷 usr1", re.DOTALL)
 

@@ -5,7 +5,7 @@ Reproduction notes for the reproduced `GLYPH-SFT-V2` supervised fine-tune. The G
 ## Outcome
 
 - Base model: `Qwen/Qwen3-4B-Base`
-- Dataset: `synthetic_data/gold_glyph_2500.jsonl`
+- Dataset: `synthetic_data/gold_glyph_3000.jsonl`
 - Split: `2000 / 250 / 250`
 - Final usable checkpoint: `runs/sft_toolturn_v1_fullft1/checkpoint-250`
 - HF model: `JayZenith/GLYPH-SFT-V2`
@@ -35,7 +35,7 @@ Reproduction notes for the reproduced `GLYPH-SFT-V2` supervised fine-tune. The G
 cd /glyph
 python -m sft.train \
   --model Qwen/Qwen3-4B-Base \
-  --data synthetic_data/gold_glyph_2500.jsonl \
+  --data synthetic_data/gold_glyph_3000.jsonl \
   --output runs/sft_toolturn_v1_fullft1 \
   --epochs 1 \
   --no-use-lora \

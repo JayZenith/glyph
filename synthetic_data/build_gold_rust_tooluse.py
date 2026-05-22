@@ -7,7 +7,7 @@ Adds gold examples of:
   read_file → apply_patch → cargo_run → response (bin bug fix)
   cargo_check / cargo_build / cargo_test / cargo_run / rustc — single-tool
 
-The output appends to gold_glyph_2500.jsonl so the next SFT run sees the
+The output appends to gold_glyph_3000.jsonl so the next SFT run sees the
 correct schema for tools the original SFT pool didn't cover (`apply_patch`,
 `read_file`, `cargo_build`, `cargo_run`, `rustc`). Format follows the
 build_gold50 helpers strictly so docs/glyph.md invariants hold.
@@ -1062,7 +1062,7 @@ def main() -> int:
     if invalid:
         print(f"\n{invalid}/{len(traces)} traces failed validation; aborting append.")
         return 1
-    out = Path(__file__).parent / "gold_glyph_2500.jsonl"
+    out = Path(__file__).parent / "gold_glyph_3000.jsonl"
     existing = out.read_text(encoding="utf-8").count("\n") if out.exists() else 0
     with out.open("a", encoding="utf-8") as f:
         for t in traces:

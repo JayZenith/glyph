@@ -28,7 +28,7 @@ That is the real unit of work. The interesting part is not “I fine-tuned a mod
 ## Final Outcome
 
 - Base model: `Qwen/Qwen3-4B-Base`
-- Training dataset: `synthetic_data/gold_glyph_2500.jsonl`
+- Training dataset: `synthetic_data/gold_glyph_3000.jsonl`
 - Split: `2000 / 250 / 250`
 - Final checkpoint: `runs/sft_toolturn_v1_fullft1/checkpoint-250`
 - Published model: `JayZenith/GLYPH-SFT-V2`
@@ -92,7 +92,7 @@ git pull --ff-only
 source .venv/bin/activate
 python -m sft.train \
   --model Qwen/Qwen3-4B-Base \
-  --data synthetic_data/gold_glyph_2500.jsonl \
+  --data synthetic_data/gold_glyph_3000.jsonl \
   --output runs/sft_toolturn_v1_fullft1 \
   --epochs 1 \
   --no-use-lora \
@@ -276,6 +276,6 @@ The point of RLVR is not to teach the whole trace language from scratch. SFT alr
 
 - `sft/evals/prompts_100.yaml` is the main held-out benchmark.
 - The benchmark was run from the published HF model, not just a local training directory, to verify the released artifact directly.
-- It was built to have `0` exact user-prompt overlaps with `gold_glyph_2500.jsonl`.
+- It was built to have `0` exact user-prompt overlaps with `gold_glyph_3000.jsonl`.
 - The remaining misses were narrow planning/reference issues, not broad trace collapse.
 - This checkpoint is the one to carry forward into RLVR.

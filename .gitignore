@@ -53,3 +53,4 @@ old_results/
 # Secrets
 .env
 *.key
+remote_artifacts/

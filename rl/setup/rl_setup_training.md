@@ -13,6 +13,8 @@ cd glyph
 
 ```bash
 bash rl/setup/install_prime_rl.sh
+source /workspace/prime-rl-src/.venv/bin/activate
+
 ```
 
 ## 3. Generate Dataset 

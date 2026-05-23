@@ -67,12 +67,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rollout-init-model", help="HF repo id for the rollout runtime model.")
     parser.add_argument("--teacher-model", default="JayZenith/GLYPH_SFT")
     parser.add_argument("--teacher-port", type=int, default=8001)
-    parser.add_argument("--teacher-tau", type=float, default=0.0)
-    # NOTE: At our pinned prime-rl commit, teacher anchor requires
-    # training_mode='opd' (online policy distillation). Pure RL mode forbids
-    # orchestrator.teacher. Default OFF until opd wiring is added.
+    parser.add_argument("--teacher-tau", type=float, default=0.01)
+    parser.add_argument("--training-mode", choices=("rl", "opd", "sft"))
     parser.add_argument("--teacher-anchor", action=argparse.BooleanOptionalAction, default=False,
-                        help="Run a frozen teacher inference server (requires opd mode; off by default).")
+                        help="Run a frozen teacher inference server with KL anchoring.")
     parser.add_argument("--enable-teacher-inference", action="store_true",
                         help=argparse.SUPPRESS)  # back-compat; honored if set
     parser.add_argument("--dry-run", action="store_true")
@@ -254,11 +252,15 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -
             served_aliases.append(name)
     inference.setdefault("vllm_extra", {})["served_model_name"] = served_aliases
 
+    teacher_on = bool(args.teacher_anchor or args.enable_teacher_inference)
+    training_mode = args.training_mode or ("opd" if teacher_on else "rl")
+
     config: dict[str, Any] = {
         "trainer": trainer,
         "orchestrator": orchestrator,
         "inference": inference,
         "output_dir": str(output_dir),
+        "training_mode": training_mode,
         "wandb": {"offline": True, "shared": False},
         "deployment": {
             "type": "single_node",
@@ -272,9 +274,8 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -
         if args.checkpoint_interval is not None:
             config["ckpt"]["interval"] = args.checkpoint_interval
 
-    teacher_on = bool(args.teacher_anchor or args.enable_teacher_inference)
     if teacher_on:
-        orchestrator["teacher_model"] = {
+        orchestrator["teacher"] = {
             "model": {"name": teacher_model_name},
             "client": {
                 "base_url": [f"http://127.0.0.1:{args.teacher_port}/v1"],

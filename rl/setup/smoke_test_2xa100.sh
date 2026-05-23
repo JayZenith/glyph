@@ -50,8 +50,9 @@ assert cfg["deployment"]["num_infer_gpus"] == 1
 assert "lora" not in cfg["trainer"]["model"], "trainer should not carry LoRA in full-FT mode"
 assert cfg["trainer"]["model"]["name"] == "JayZenith/GLYPH_SFT"
 assert cfg["inference"]["model"]["name"] == "JayZenith/GLYPH_SFT"
-# Teacher anchor is opt-in at this prime-rl pin (requires opd mode).
-assert "teacher_model" not in cfg["orchestrator"], "teacher should be off by default"
+# Teacher anchor is opt-in; default dry-run should stay pure RL.
+assert cfg["training_mode"] == "rl"
+assert "teacher" not in cfg["orchestrator"], "teacher should be off by default"
 print("smoke_ok=1")
 PY
 

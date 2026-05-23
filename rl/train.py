@@ -131,9 +131,9 @@ def build_teacher_inference_config(
     if args.teacher_gpu_memory_utilization is not None:
         teacher_inference["gpu_memory_utilization"] = args.teacher_gpu_memory_utilization
     else:
-        teacher_inference["gpu_memory_utilization"] = min(
-            float(teacher_inference.get("gpu_memory_utilization", 0.7)),
-            0.12,
+        teacher_inference["gpu_memory_utilization"] = max(
+            0.2,
+            min(float(teacher_inference.get("gpu_memory_utilization", 0.7)), 0.25),
         )
     return teacher_inference
 
@@ -308,17 +308,29 @@ def launch_teacher_inference(raw_config: dict[str, Any], args: argparse.Namespac
     teacher_model_name = args.teacher_model or raw_config["trainer"]["model"]["name"]
     teacher_inference = build_teacher_inference_config(raw_config["inference"], teacher_model_name, args)
     config_dir = Path(raw_config["output_dir"]) / "configs"
+    log_dir = Path(raw_config["output_dir"]) / "logs"
     config_dir.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
     teacher_path = config_dir / "teacher_inference.toml"
+    teacher_log_path = log_dir / "teacher_inference.log"
     with teacher_path.open("wb") as f:
         tomli_w.dump(teacher_inference, f)
 
+    prime_rl_dir = Path(os.environ.get("PRIME_RL_DIR", "/workspace/prime-rl-src"))
+    inference_bin = prime_rl_dir / ".venv/bin/inference"
+    if not inference_bin.exists():
+        inference_bin = Path("inference")
+
+    teacher_log = teacher_log_path.open("a", encoding="utf-8")
     return subprocess.Popen(
-        ["inference", "@", str(teacher_path)],
+        [str(inference_bin), "@", str(teacher_path)],
         env={
             **os.environ,
             "CUDA_VISIBLE_DEVICES": "0",
         },
+        stdout=teacher_log,
+        stderr=subprocess.STDOUT,
+        text=True,
     )
 
 

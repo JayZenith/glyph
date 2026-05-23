@@ -1,6 +1,6 @@
-# RLVR on GLYPH-SFT-V2 (full fine-tune) — manual repro
+# RLVR on GLYPH_SFT (full fine-tune) — manual repro
 
-Reproducible bring-up for code-edit RLVR on top of `JayZenith/GLYPH-SFT-V2`.
+Reproducible bring-up for code-edit RLVR on top of `JayZenith/GLYPH_SFT`.
 Target: 2× A100 80GB (or 2× H100 80GB / 2× H200). Trainer on GPU 1, rollout
 vLLM + frozen teacher vLLM on GPU 0.
 
@@ -31,22 +31,22 @@ What it does:
   - ckpt save tolerant of missing `revert_weight_conversion`.
   - The LoRA-bootstrap patch is a no-op (it gates on `PRIME_RL_INIT_ADAPTER`, which the full-FT launcher never sets).
 
-## 3. Fetch GLYPH-SFT-V2
+## 3. Fetch GLYPH_SFT
 
 ```bash
 source /workspace/prime-rl-src/.venv/bin/activate
 export HF_HOME=/workspace/.hf_home
-python -c "from huggingface_hub import snapshot_download; print(snapshot_download('JayZenith/GLYPH-SFT-V2'))"
+python -c "from huggingface_hub import snapshot_download; print(snapshot_download('JayZenith/GLYPH_SFT'))"
 ```
 
 ## 4. Build the RL prompt set
 
 ```bash
 cd /workspace/glyph
-python -m rl.rust.prepare_cases --phrasings 3 --gold-count 30
+python -m rl.rust.prepare_cases --phrasings 3 --gold-count 12
 ```
 
-Writes `runs/rlvr1/prompts.jsonl` (~113 rows: 60% bug-fix / 13% coverage / 27% structure) and materializes the Cargo project blueprints under `runs/rlvr1/rust_cases/`. The dataset is gitignored; regenerate on each fresh box.
+Writes `runs/rlvr1/prompts.jsonl` (~95 rows by default: 83 Rust execution / 12 targeted structure) and materializes the Cargo project blueprints under `runs/rlvr1/rust_cases/`. The structure slice is mined from the final SFT dataset and targets the known failure modes: response-tail hygiene, todo closure, and patch-then-verify completion.
 
 ## 5. Smoke test (config dry-run)
 
@@ -54,7 +54,7 @@ Writes `runs/rlvr1/prompts.jsonl` (~113 rows: 60% bug-fix / 13% coverage / 27% s
 bash rl/setup/smoke_test_2xa100.sh
 ```
 
-Validates: full-FT trainer config (no LoRA section), init model `JayZenith/GLYPH-SFT-V2`, teacher anchor enabled, 2-GPU layout. Exits non-zero on mismatch.
+Validates: full-FT trainer config (no LoRA section), init model `JayZenith/GLYPH_SFT`, teacher anchor enabled, 2-GPU layout. Exits non-zero on mismatch.
 
 ## 6. Run RL
 
@@ -69,10 +69,10 @@ OUTPUT_DIR=/workspace/glyph/outputs/rlvr1_run1 \
 ```
 
 Defaults (override via env):
-- `MODEL=JayZenith/GLYPH-SFT-V2`
+- `MODEL=JayZenith/GLYPH_SFT`
 - `HW_PROFILE=auto` — auto-detects from `nvidia-smi`. Picks one of:
-  - `a100-80gb` (also used for H100): `SEQ_LEN=5120`, `MAX_COMPLETION_TOKENS=1024`, `MAX_TOOL_ROUNDS=4`. Trainer peaks ~78 GiB.
-  - `blackwell-96gb` (RTX PRO 6000 SE / H200 / B200): `SEQ_LEN=6144`, `MAX_COMPLETION_TOKENS=1024`, `MAX_TOOL_ROUNDS=5`. Trainer peaks ~88-90 GiB.
+  - `a100-80gb` (also used for H100): `SEQ_LEN=5120`, `MAX_COMPLETION_TOKENS=1536`, `MAX_TOOL_ROUNDS=5`. Trainer peaks ~78 GiB.
+  - `blackwell-96gb` (RTX PRO 6000 SE / H200 / B200): `SEQ_LEN=6144`, `MAX_COMPLETION_TOKENS=1536`, `MAX_TOOL_ROUNDS=5`. Trainer peaks ~88-90 GiB.
   - Any individual knob (`SEQ_LEN=...`, `MAX_TOOL_ROUNDS=...`) overrides the preset.
 - Rollout port `8000`, GPUs `0,1`.
 - `TEACHER_ANCHOR=0` by default. The pinned prime-rl version forbids

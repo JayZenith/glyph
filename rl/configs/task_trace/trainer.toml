@@ -1,15 +1,15 @@
 max_steps = 200
 
 [model]
-name = "Qwen/Qwen3-4B-Base"
-seq_len = 1536
+name = "JayZenith/GLYPH_SFT"
+seq_len = 5120
 attn = "sdpa"
 optimization_dtype = "bfloat16"
 reduce_dtype = "bfloat16"
 
 [buffer]
 batch_size = 12
-seq_len = 1536
+seq_len = 5120
 
 [optim]
 type = "adamw"

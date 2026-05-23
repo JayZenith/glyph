@@ -1,18 +1,18 @@
 batch_size = 48
 rollouts_per_example = 4
-seq_len = 1536
+seq_len = 5120
 max_steps = 200
 
 [model]
-name = "Qwen/Qwen3-4B-Base"
+name = "JayZenith/GLYPH_SFT"
 
 [train.sampling]
 temperature = 0.8
-max_completion_tokens = 384
+max_completion_tokens = 1536
 
 [[train.env]]
 id = "task-trace"
-args = { data_path = "traces.processed.jsonl", max_samples = 512, max_trace_chars = 50000, timeout = 30 }
+args = { data_path = "traces.processed.jsonl", max_trace_chars = 50000, timeout = 30, max_tool_rounds = 5 }
 
 [[filters]]
 type = "gibberish"

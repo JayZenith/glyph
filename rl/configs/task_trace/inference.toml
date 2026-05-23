@@ -1,9 +1,9 @@
-gpu_memory_utilization = 0.7
+gpu_memory_utilization = 0.85
 
 [model]
-name = "Qwen/Qwen3-4B-Base"
+name = "JayZenith/GLYPH_SFT"
 dtype = "float16"
-max_model_len = 1536
+max_model_len = 5120
 enforce_eager = true
 
 [server]

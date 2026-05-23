@@ -7,7 +7,7 @@ PRIME_RL_DIR="${PRIME_RL_DIR:-/workspace/prime-rl-src}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/outputs/smoke_2xa100}"
 DATA_PATH="${DATA_PATH:-$ROOT_DIR/runs/rlvr1/prompts.jsonl}"
 CASES_ROOT="${CASES_ROOT:-$ROOT_DIR/runs/rlvr1/rust_cases}"
-MODEL="${MODEL:-JayZenith/GLYPH-SFT-V2}"
+MODEL="${MODEL:-JayZenith/GLYPH_SFT}"
 
 source "$PRIME_RL_DIR/.venv/bin/activate"
 
@@ -25,7 +25,7 @@ print(f"visible_gpus={count}")
 PY
 
 if [ ! -f "$DATA_PATH" ]; then
-  python3 -m rl.rust.prepare_cases --root "$CASES_ROOT" --output "$DATA_PATH" --phrasings 3 --gold-count 30
+  python3 -m rl.rust.prepare_cases --root "$CASES_ROOT" --output "$DATA_PATH" --phrasings 3 --gold-count 12
 fi
 
 python3 "$ROOT_DIR/rl/train.py" \
@@ -48,8 +48,8 @@ assert cfg["deployment"]["num_train_gpus"] == 1
 assert cfg["deployment"]["num_infer_gpus"] == 1
 # Full-finetune mode: no LoRA section in trainer.model; init model = MODEL.
 assert "lora" not in cfg["trainer"]["model"], "trainer should not carry LoRA in full-FT mode"
-assert cfg["trainer"]["model"]["name"] == "JayZenith/GLYPH-SFT-V2"
-assert cfg["inference"]["model"]["name"] == "JayZenith/GLYPH-SFT-V2"
+assert cfg["trainer"]["model"]["name"] == "JayZenith/GLYPH_SFT"
+assert cfg["inference"]["model"]["name"] == "JayZenith/GLYPH_SFT"
 # Teacher anchor is opt-in at this prime-rl pin (requires opd mode).
 assert "teacher_model" not in cfg["orchestrator"], "teacher should be off by default"
 print("smoke_ok=1")

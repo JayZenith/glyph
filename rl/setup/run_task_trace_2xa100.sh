@@ -7,7 +7,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PRIME_RL_DIR="${PRIME_RL_DIR:-/workspace/prime-rl-src}"
-MODEL="${MODEL:-JayZenith/GLYPH-SFT-V2}"
+MODEL="${MODEL:-JayZenith/GLYPH_SFT}"
 TEACHER_MODEL="${TEACHER_MODEL:-$MODEL}"
 TEACHER_TAU="${TEACHER_TAU:-0.0}"
 TEACHER_ANCHOR="${TEACHER_ANCHOR:-0}"
@@ -32,12 +32,12 @@ fi
 case "$HW_PROFILE" in
   a100-80gb)
     DEFAULT_SEQ_LEN=5120
-    DEFAULT_MAX_COMPLETION_TOKENS=1024
-    DEFAULT_MAX_TOOL_ROUNDS=4
+    DEFAULT_MAX_COMPLETION_TOKENS=1536
+    DEFAULT_MAX_TOOL_ROUNDS=5
     ;;
   blackwell-96gb)
     DEFAULT_SEQ_LEN=6144
-    DEFAULT_MAX_COMPLETION_TOKENS=1024
+    DEFAULT_MAX_COMPLETION_TOKENS=1536
     DEFAULT_MAX_TOOL_ROUNDS=5
     ;;
   *)
@@ -67,7 +67,7 @@ ARGS=(
   --port "$PORT"
   --data "$DATA_PATH"
   --output "$OUTPUT_DIR"
-  --gpu-memory-utilization 0.7
+  --gpu-memory-utilization 0.85
   --seq-len "$SEQ_LEN"
   --max-model-len "$MAX_MODEL_LEN"
   --max-completion-tokens "$MAX_COMPLETION_TOKENS"

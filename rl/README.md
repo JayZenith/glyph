@@ -15,7 +15,7 @@ pip install -r requirements-train.txt
 bash setup/install_prime_rl.sh
 ```
 
-Prepare Rust tool-use cases (writes 8 sample Cargo projects + a prompt JSONL):
+Prepare Rust tool-use cases (writes Rust verifier cases + a prompt JSONL):
 
 ```bash
 python3 -m rl.rust.prepare_cases \
@@ -31,8 +31,8 @@ Train:
 
 ```bash
 python3 rl/train.py \
-  --adapter JayZenith/glyph-sft-v1-adapter \
-  --teacher-model JayZenith/glyph-sft-v1 \
+  --model JayZenith/GLYPH_SFT \
+  --teacher-model JayZenith/GLYPH_SFT \
   --enable-teacher-inference \
   --data runs/rl1/rust_tool_prompts_8.jsonl \
   --output runs/rl1/rust_tool_run
@@ -40,5 +40,5 @@ python3 rl/train.py \
 
 Multi-turn execution: `RustToolEnv` in `task_trace.py` parses each `act { call ↦ … }`
 the model emits, runs the real tool via `rl/rust/executor.py`, and injects a
-`result {…}` block back into the rollout (up to `max_tool_rounds`, default 4).
+`result {…}` block back into the rollout (up to `max_tool_rounds`, default 5).
 RLVR reward sums `compute_tool_reward` across every call's verifiable outcome.

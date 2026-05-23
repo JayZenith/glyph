@@ -27,9 +27,6 @@ RUST_TOOL_NAMES.discard(None)
 
 DEBUG_PARSE = False
 CLEAN_TOOL_BOUNDARY_BONUS = 1.5
-POST_CALL_VERBOSITY_ALLOWANCE_CHARS = 450
-POST_CALL_VERBOSITY_PENALTY_PER_500_CHARS = 0.25
-POST_CALL_VERBOSITY_PENALTY_CAP = 0.75
 
 # Structure-reward weights (per-rollout, applied to BOTH Rust and non-Rust prompts).
 STRUCTURE_VALID_BONUS = 1.0
@@ -37,12 +34,13 @@ STRUCTURE_PENALTIES = {
     "Unbalanced braces": -0.5,
     "Unbalanced brackets": -0.5,
     "Unbalanced special quotes": -0.5,
-    "Garbage after final response": -0.5,
-    "Final response block is unclosed": -0.5,
+    "Garbage after final response": -1.0,
+    "Final response block is unclosed": -0.75,
+    "Missing response": -1.0,
     "References to undefined tags": -0.4,
-    "Unsatisfied todo items": -0.5,
+    "Unsatisfied todo items": -1.0,
     "Detected repetition": -1.0,
-    "Tool calls without matching result": -0.3,
+    "Tool calls without matching result": -0.75,
 }
 
 
@@ -219,16 +217,6 @@ def _trajectory_tool_text(state: dict) -> str:
     return "\n".join(parts)
 
 
-def _post_first_call_text_len(text: str) -> int:
-    match = re.search(r"act\s*\{\s*call\s*↦\s*\{.*?\}\s*\}", text, flags=re.DOTALL)
-    if not match:
-        return 0
-    tail = text[match.end():]
-    tail = re.sub(r"result\s*\{.*?\}", "", tail, flags=re.DOTALL)
-    tail = re.sub(r"result\s*//.*?(?=\n\s*(?:act|response|plan|thought|think|$))", "", tail, flags=re.DOTALL)
-    return len(re.sub(r"\s+", " ", tail).strip())
-
-
 def _find_result_for(call_id: str, text: str) -> dict | None:
     """Locate the env-emitted result block for a given call id; pull status fields."""
     m = re.search(
@@ -317,14 +305,6 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     else:
         reward -= 0.75
 
-    post_call_len = _post_first_call_text_len(assistant_text)
-    if post_call_len > POST_CALL_VERBOSITY_ALLOWANCE_CHARS:
-        over = post_call_len - POST_CALL_VERBOSITY_ALLOWANCE_CHARS
-        reward -= min(
-            (over / 500.0) * POST_CALL_VERBOSITY_PENALTY_PER_500_CHARS,
-            POST_CALL_VERBOSITY_PENALTY_CAP,
-        )
-
     if "response「" in text:
         reward += 0.1
 
@@ -348,7 +328,7 @@ class RustToolEnv(vf.MultiTurnEnv):
         self,
         *args,
         executor: RustExecutor,
-        max_tool_rounds: int = 2,
+        max_tool_rounds: int = 5,
         sandbox_root: Path | None = None,
         **kwargs,
     ):
@@ -448,7 +428,7 @@ def load_environment(
     env_id: str = "task-trace",
     nsjail_path: str | None = None,
     timeout: int = 30,
-    max_tool_rounds: int = 2,
+    max_tool_rounds: int = 5,
 ) -> vf.Environment:
     """Load the Rust tool RL environment with real multi-round tool execution."""
 

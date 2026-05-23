@@ -20,7 +20,7 @@ CONFIG_DIR = Path(__file__).resolve().parent / "configs" / "task_trace"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch PRIME-RL. Default mode is full-finetune.")
-    parser.add_argument("--model", default="JayZenith/GLYPH-SFT-V2",
+    parser.add_argument("--model", default="JayZenith/GLYPH_SFT",
                         help="HF repo id for full-finetune init (default mode).")
     parser.add_argument("--adapter", default=None,
                         help="HF repo id for a PEFT adapter (LoRA mode). Disables full-FT default.")
@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tool-timeout", type=int)
     parser.add_argument("--port", type=int)
     parser.add_argument("--rollout-init-model", help="HF repo id for the rollout runtime model.")
-    parser.add_argument("--teacher-model", default="JayZenith/GLYPH-SFT-V2")
+    parser.add_argument("--teacher-model", default="JayZenith/GLYPH_SFT")
     parser.add_argument("--teacher-port", type=int, default=8001)
     parser.add_argument("--teacher-tau", type=float, default=0.0)
     # NOTE: At our pinned prime-rl commit, teacher anchor requires

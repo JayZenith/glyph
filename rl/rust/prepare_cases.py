@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Generate Rust tool-use RL cases (real cargo/rustc execution) + optional
-structure-only prompts from the SFT gold pool.
+targeted structure-only prompts from the SFT gold pool.
 
 Each Rust case is materialized as a Cargo project (or .rs file) under --root,
 and emitted as one or more prompt JSONL rows carrying `expected_tool` and
 `expected_args`. The reward path with those fields hits real `compute_tool_reward`.
 
-Structure-only rows come from gold_glyph_3000.jsonl with no `expected_tool` and
-are scored by the validator term only. They are NEVER from prompts_125.yaml.
+Structure-only rows come from the SFT dataset with no `expected_tool` and are
+scored by the validator term only. They are NEVER from prompts_125.yaml.
+They are targeted at the known SFT failure classes:
+- clean final response ending
+- correct todo satisfaction
+- patch-then-verify completion
 """
 from __future__ import annotations
 
@@ -346,12 +350,94 @@ def prompt_for(task: str) -> str:
 # ---------------------------------------------------------------------------
 
 USER_RE = re.compile(r"user「(.*?)」", re.DOTALL)
+ASSISTANT_SPLIT = "<|im_start|>assistant"
+VALID_RESPONSE_RE = re.compile(
+    r"response「.*?」\s*※\s*\[.*?\]\s*⊨\s*\d+\s*<\|im_end\|>",
+    re.DOTALL,
+)
+
+
+def trace_prefix(trace: str) -> str | None:
+    split = trace.split(ASSISTANT_SPLIT, 1)
+    if len(split) != 2:
+        return None
+    return split[0] + ASSISTANT_SPLIT + "\n"
+
+
+def clean_response_ending(trace: str) -> bool:
+    return bool(VALID_RESPONSE_RE.search(trace))
+
+
+def structure_bucket(trace: str) -> str | None:
+    if not clean_response_ending(trace):
+        return None
+    lower = trace.lower()
+    if "tool ↦ apply_patch" in trace and (
+        "tool ↦ cargo_run" in trace
+        or "tool ↦ cargo_test" in trace
+        or "tool ↦ rustc" in trace
+    ):
+        return "patch_verify"
+    if "focused rust compiler assistant" in lower and "cargo_check" in trace:
+        return "todo_closure"
+    if "planning assistant" in lower:
+        return "response_tail"
+    return None
+
+
+def load_targeted_structure_prefixes(
+    gold_jsonl: Path,
+    exclude_users: set[str],
+    limit: int,
+) -> list[str]:
+    """Extract targeted prompt prefixes from the SFT dataset, focusing on
+    the known RL seed weaknesses: response-tail hygiene, todo closure, and
+    patch-then-verify completion."""
+    buckets: dict[str, list[str]] = {
+        "response_tail": [],
+        "todo_closure": [],
+        "patch_verify": [],
+    }
+    seen_prefixes: set[str] = set()
+    with gold_jsonl.open(encoding="utf-8") as f:
+        for line in f:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            trace = row.get("trace", "")
+            m = USER_RE.search(trace)
+            if not m:
+                continue
+            user_str = m.group(1).strip()
+            if user_str in exclude_users:
+                continue
+            bucket = structure_bucket(trace)
+            if bucket is None:
+                continue
+            prefix = trace_prefix(trace)
+            if prefix is None or prefix in seen_prefixes:
+                continue
+            seen_prefixes.add(prefix)
+            buckets[bucket].append(prefix)
+
+    ordered: list[str] = []
+    bucket_order = ("response_tail", "todo_closure", "patch_verify")
+    while len(ordered) < limit:
+        added = False
+        for bucket in bucket_order:
+            if buckets[bucket]:
+                ordered.append(buckets[bucket].pop(0))
+                added = True
+                if len(ordered) >= limit:
+                    break
+        if not added:
+            break
+    return ordered
 
 
 def load_gold_prefixes(gold_jsonl: Path, exclude_users: set[str], limit: int) -> list[str]:
-    """Extract prompt prefixes (system+tools+user, up to assistant header) from
-    a full-trace SFT JSONL, skipping any whose user string appears in
-    `exclude_users` (the held-out eval prompts)."""
+    """Backfill helper if the targeted pool is ever exhausted."""
     out: list[str] = []
     with gold_jsonl.open(encoding="utf-8") as f:
         for line in f:
@@ -366,10 +452,9 @@ def load_gold_prefixes(gold_jsonl: Path, exclude_users: set[str], limit: int) ->
             user_str = m.group(1).strip()
             if user_str in exclude_users:
                 continue
-            split = trace.split("<|im_start|>assistant", 1)
-            if len(split) != 2:
+            prefix = trace_prefix(trace)
+            if prefix is None:
                 continue
-            prefix = split[0] + "<|im_start|>assistant\n"
             out.append(prefix)
             if len(out) >= limit:
                 break
@@ -407,10 +492,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("runs/rlvr1/prompts.jsonl"))
     parser.add_argument("--phrasings", type=int, default=2,
                         help="Surface-form variants per Rust case (1-3).")
-    parser.add_argument("--gold-jsonl", type=Path, default=Path("synthetic_data/gold_glyph_3000.jsonl"),
-                        help="SFT pool for structure-only rows.")
-    parser.add_argument("--gold-count", type=int, default=50,
-                        help="Number of structure-only rows to include (0 to skip).")
+    parser.add_argument("--gold-jsonl", type=Path, default=Path("synthetic_data/final_glyph_sft_dataset.jsonl"),
+                        help="SFT pool for targeted structure-only rows.")
+    parser.add_argument("--gold-count", type=int, default=12,
+                        help="Number of targeted structure-only rows to include (0 to skip).")
     parser.add_argument("--eval-yaml", type=Path, default=Path("sft/evals/prompts_125.yaml"),
                         help="Held-out eval prompts to EXCLUDE from gold extraction.")
     parser.add_argument("--seed", type=int, default=0)
@@ -442,7 +527,14 @@ def main() -> None:
     structure_rows: list[dict] = []
     if args.gold_count > 0 and args.gold_jsonl.exists():
         exclude = load_eval_user_strings(args.eval_yaml) if args.eval_yaml.exists() else set()
-        prefixes = load_gold_prefixes(args.gold_jsonl, exclude, args.gold_count * 4)
+        prefixes = load_targeted_structure_prefixes(args.gold_jsonl, exclude, args.gold_count)
+        if len(prefixes) < args.gold_count:
+            fallback = load_gold_prefixes(args.gold_jsonl, exclude, args.gold_count * 4)
+            for prefix in fallback:
+                if prefix not in prefixes:
+                    prefixes.append(prefix)
+                if len(prefixes) >= args.gold_count:
+                    break
         rng.shuffle(prefixes)
         for prefix in prefixes[: args.gold_count]:
             structure_rows.append({"prompt": prefix})

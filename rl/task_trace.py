@@ -26,22 +26,45 @@ RUST_TOOL_NAMES = {
 RUST_TOOL_NAMES.discard(None)
 
 DEBUG_PARSE = False
-CLEAN_TOOL_BOUNDARY_BONUS = 1.5
-
-# Structure-reward weights (per-rollout, applied to BOTH Rust and non-Rust prompts).
-STRUCTURE_VALID_BONUS = 1.0
-STRUCTURE_PENALTIES = {
-    "Unbalanced braces": -0.5,
-    "Unbalanced brackets": -0.5,
-    "Unbalanced special quotes": -0.5,
-    "Garbage after final response": -1.0,
-    "Final response block is unclosed": -0.75,
-    "Missing response": -1.0,
-    "References to undefined tags": -0.4,
-    "Unsatisfied todo items": -1.0,
-    "Detected repetition": -1.0,
-    "Tool calls without matching result": -0.75,
+DEFAULT_REWARD_CONFIG = {
+    "clean_tool_boundary_bonus": 1.5,
+    "structure_valid_bonus": 1.0,
+    "penalty_unbalanced_braces": -0.5,
+    "penalty_unbalanced_brackets": -0.5,
+    "penalty_unbalanced_special_quotes": -0.5,
+    "penalty_garbage_after_final_response": -1.0,
+    "penalty_final_response_unclosed": -0.75,
+    "penalty_missing_response": -1.0,
+    "penalty_undefined_tags": -0.4,
+    "penalty_unsatisfied_todos": -1.0,
+    "penalty_repetition": -1.0,
+    "penalty_tool_calls_without_matching_result": -0.75,
+    "no_call_penalty": -1.25,
+    "any_success_bonus": 0.5,
+    "missing_results_penalty": -0.75,
+    "response_presence_bonus": 0.1,
 }
+
+REWARD_CONFIG = DEFAULT_REWARD_CONFIG.copy()
+
+STRUCTURE_PENALTY_KEYS = {
+    "Unbalanced braces": "penalty_unbalanced_braces",
+    "Unbalanced brackets": "penalty_unbalanced_brackets",
+    "Unbalanced special quotes": "penalty_unbalanced_special_quotes",
+    "Garbage after final response": "penalty_garbage_after_final_response",
+    "Final response block is unclosed": "penalty_final_response_unclosed",
+    "Missing response": "penalty_missing_response",
+    "References to undefined tags": "penalty_undefined_tags",
+    "Unsatisfied todo items": "penalty_unsatisfied_todos",
+    "Detected repetition": "penalty_repetition",
+    "Tool calls without matching result": "penalty_tool_calls_without_matching_result",
+}
+
+
+def _set_reward_config(overrides: dict[str, float]) -> None:
+    REWARD_CONFIG.clear()
+    REWARD_CONFIG.update(DEFAULT_REWARD_CONFIG)
+    REWARD_CONFIG.update({k: v for k, v in overrides.items() if v is not None})
 
 
 def _structure_reward(trace_text: str, validator) -> float:
@@ -50,11 +73,11 @@ def _structure_reward(trace_text: str, validator) -> float:
     if validator is None:
         return 0.0
     v = validator.validate(trace_text)
-    score = STRUCTURE_VALID_BONUS if v.valid else 0.0
+    score = REWARD_CONFIG["structure_valid_bonus"] if v.valid else 0.0
     for err in v.errors:
-        for prefix, penalty in STRUCTURE_PENALTIES.items():
+        for prefix, penalty_key in STRUCTURE_PENALTY_KEYS.items():
             if err.startswith(prefix):
-                score += penalty
+                score += REWARD_CONFIG[penalty_key]
                 break
     return score
 
@@ -274,7 +297,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
 
     calls = executed_calls or parse_call_blocks(assistant_text or text)
     if not calls:
-        return -1.25 + structure
+        return REWARD_CONFIG["no_call_penalty"] + structure
 
     first_call = calls[0]
     reward = _score_tool_alignment(first_call, expected_tool, expected_args)
@@ -299,14 +322,14 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
             any_success = True
 
     if any_success:
-        reward += 0.5
+        reward += REWARD_CONFIG["any_success_bonus"]
     if real_results_seen > 0:
-        reward += CLEAN_TOOL_BOUNDARY_BONUS
+        reward += REWARD_CONFIG["clean_tool_boundary_bonus"]
     else:
-        reward -= 0.75
+        reward += REWARD_CONFIG["missing_results_penalty"]
 
     if "response「" in text:
-        reward += 0.1
+        reward += REWARD_CONFIG["response_presence_bonus"]
 
     return reward + structure
 
@@ -429,8 +452,44 @@ def load_environment(
     nsjail_path: str | None = None,
     timeout: int = 30,
     max_tool_rounds: int = 5,
+    clean_tool_boundary_bonus: float | None = None,
+    structure_valid_bonus: float | None = None,
+    penalty_unbalanced_braces: float | None = None,
+    penalty_unbalanced_brackets: float | None = None,
+    penalty_unbalanced_special_quotes: float | None = None,
+    penalty_garbage_after_final_response: float | None = None,
+    penalty_final_response_unclosed: float | None = None,
+    penalty_missing_response: float | None = None,
+    penalty_undefined_tags: float | None = None,
+    penalty_unsatisfied_todos: float | None = None,
+    penalty_repetition: float | None = None,
+    penalty_tool_calls_without_matching_result: float | None = None,
+    no_call_penalty: float | None = None,
+    any_success_bonus: float | None = None,
+    missing_results_penalty: float | None = None,
+    response_presence_bonus: float | None = None,
 ) -> vf.Environment:
     """Load the Rust tool RL environment with real multi-round tool execution."""
+    _set_reward_config(
+        {
+            "clean_tool_boundary_bonus": clean_tool_boundary_bonus,
+            "structure_valid_bonus": structure_valid_bonus,
+            "penalty_unbalanced_braces": penalty_unbalanced_braces,
+            "penalty_unbalanced_brackets": penalty_unbalanced_brackets,
+            "penalty_unbalanced_special_quotes": penalty_unbalanced_special_quotes,
+            "penalty_garbage_after_final_response": penalty_garbage_after_final_response,
+            "penalty_final_response_unclosed": penalty_final_response_unclosed,
+            "penalty_missing_response": penalty_missing_response,
+            "penalty_undefined_tags": penalty_undefined_tags,
+            "penalty_unsatisfied_todos": penalty_unsatisfied_todos,
+            "penalty_repetition": penalty_repetition,
+            "penalty_tool_calls_without_matching_result": penalty_tool_calls_without_matching_result,
+            "no_call_penalty": no_call_penalty,
+            "any_success_bonus": any_success_bonus,
+            "missing_results_penalty": missing_results_penalty,
+            "response_presence_bonus": response_presence_bonus,
+        }
+    )
 
     prompts, _ = load_prompts(
         data_path=data_path,

@@ -32,17 +32,19 @@ DEFAULT_REWARD_CONFIG = {
     "penalty_unbalanced_braces": -0.5,
     "penalty_unbalanced_brackets": -0.5,
     "penalty_unbalanced_special_quotes": -0.5,
-    "penalty_garbage_after_final_response": -1.0,
+    "penalty_garbage_after_final_response": -2.0,
     "penalty_final_response_unclosed": -0.75,
     "penalty_missing_response": -1.0,
     "penalty_undefined_tags": -0.4,
     "penalty_unsatisfied_todos": -1.0,
     "penalty_repetition": -1.0,
     "penalty_tool_calls_without_matching_result": -0.75,
+    "penalty_not_ended_cleanly_after_response": -2.0,
     "no_call_penalty": -1.25,
     "any_success_bonus": 0.5,
     "missing_results_penalty": -0.75,
     "response_presence_bonus": 0.1,
+    "exact_final_termination_bonus": 0.5,
 }
 
 REWARD_CONFIG = DEFAULT_REWARD_CONFIG.copy()
@@ -67,6 +69,20 @@ def _set_reward_config(overrides: dict[str, float]) -> None:
     REWARD_CONFIG.update({k: v for k, v in overrides.items() if v is not None})
 
 
+def _ended_cleanly_after_response(text: str) -> bool:
+    if "response「" not in text:
+        return False
+    return bool(re.search(r"response「.*?」\s*(?:<\|im_end\|>\s*)?$", text, re.DOTALL))
+
+
+def _response_termination_reward(text: str) -> float:
+    if "response「" not in text:
+        return 0.0
+    if _ended_cleanly_after_response(text):
+        return REWARD_CONFIG["exact_final_termination_bonus"]
+    return REWARD_CONFIG["penalty_not_ended_cleanly_after_response"]
+
+
 def _structure_reward(trace_text: str, validator) -> float:
     """Always-on reward term from TaskValidator. Targets the V2 eval failure modes:
     malformed tail / extra braces, reference hygiene, todo satisfaction."""
@@ -79,6 +95,7 @@ def _structure_reward(trace_text: str, validator) -> float:
             if err.startswith(prefix):
                 score += REWARD_CONFIG[penalty_key]
                 break
+    score += _response_termination_reward(trace_text)
     return score
 
 
@@ -289,6 +306,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     expected_args = _normalize_expected_args(info.get("expected_args"))
     validator: TaskValidator = kwargs.get("validator")
     structure = _structure_reward(text, validator)
+    assistant_trace = assistant_text or text
 
     # Non-Rust prompt: structure enforcement only. Env still mocks tool results
     # if the model emits a call, but we don't score Rust execution.
@@ -328,7 +346,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     else:
         reward += REWARD_CONFIG["missing_results_penalty"]
 
-    if "response「" in text:
+    if _ended_cleanly_after_response(assistant_trace):
         reward += REWARD_CONFIG["response_presence_bonus"]
 
     return reward + structure
@@ -464,10 +482,12 @@ def load_environment(
     penalty_unsatisfied_todos: float | None = None,
     penalty_repetition: float | None = None,
     penalty_tool_calls_without_matching_result: float | None = None,
+    penalty_not_ended_cleanly_after_response: float | None = None,
     no_call_penalty: float | None = None,
     any_success_bonus: float | None = None,
     missing_results_penalty: float | None = None,
     response_presence_bonus: float | None = None,
+    exact_final_termination_bonus: float | None = None,
 ) -> vf.Environment:
     """Load the Rust tool RL environment with real multi-round tool execution."""
     _set_reward_config(
@@ -484,10 +504,12 @@ def load_environment(
             "penalty_unsatisfied_todos": penalty_unsatisfied_todos,
             "penalty_repetition": penalty_repetition,
             "penalty_tool_calls_without_matching_result": penalty_tool_calls_without_matching_result,
+            "penalty_not_ended_cleanly_after_response": penalty_not_ended_cleanly_after_response,
             "no_call_penalty": no_call_penalty,
             "any_success_bonus": any_success_bonus,
             "missing_results_penalty": missing_results_penalty,
             "response_presence_bonus": response_presence_bonus,
+            "exact_final_termination_bonus": exact_final_termination_bonus,
         }
     )
 

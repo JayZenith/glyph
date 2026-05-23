@@ -59,10 +59,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--penalty-unsatisfied-todos", type=float)
     parser.add_argument("--penalty-repetition", type=float)
     parser.add_argument("--penalty-tool-calls-without-matching-result", type=float)
+    parser.add_argument("--penalty-not-ended-cleanly-after-response", type=float)
     parser.add_argument("--no-call-penalty", type=float)
     parser.add_argument("--any-success-bonus", type=float)
     parser.add_argument("--missing-results-penalty", type=float)
     parser.add_argument("--response-presence-bonus", type=float)
+    parser.add_argument("--exact-final-termination-bonus", type=float)
     parser.add_argument("--port", type=int)
     parser.add_argument("--rollout-init-model", help="HF repo id for the rollout runtime model.")
     parser.add_argument("--teacher-model", default="JayZenith/GLYPH_SFT")
@@ -231,10 +233,16 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -
         "penalty_tool_calls_without_matching_result",
         args.penalty_tool_calls_without_matching_result,
     )
+    maybe_set(
+        env_args,
+        "penalty_not_ended_cleanly_after_response",
+        args.penalty_not_ended_cleanly_after_response,
+    )
     maybe_set(env_args, "no_call_penalty", args.no_call_penalty)
     maybe_set(env_args, "any_success_bonus", args.any_success_bonus)
     maybe_set(env_args, "missing_results_penalty", args.missing_results_penalty)
     maybe_set(env_args, "response_presence_bonus", args.response_presence_bonus)
+    maybe_set(env_args, "exact_final_termination_bonus", args.exact_final_termination_bonus)
 
     infer_model = inference.setdefault("model", {})
     infer_server = inference.setdefault("server", {})

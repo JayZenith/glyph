@@ -1,0 +1,19 @@
+{
+  "base_rows": 3943,
+  "topup_rows": 192,
+  "combined_rows": 4135,
+  "topup_tool_mix": {
+    "read_file": 32,
+    "cargo_run": 32,
+    "cargo_build": 32,
+    "cargo_check": 32,
+    "cargo_test": 32,
+    "rustc": 32
+  },
+  "topup_file": "synthetic_data/rlvr_seed_single_tool_hardening_v2.jsonl",
+  "combined_file": "synthetic_data/final_glyph_sft_dataset_rlvr_term_v3.jsonl",
+  "notes": [
+    "This heavier top-up teaches exact single-tool sufficiency and clean immediate stopping.",
+    "It is designed to reduce unnecessary read_file and repair-workflow expansion on single-tool tasks."
+  ]
+}

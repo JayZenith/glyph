@@ -6,7 +6,7 @@ Canonical broad clean training file:
 
 Recommended RL-oriented retrain file:
 
-- `final_glyph_sft_dataset_rlvr_curated_v1.jsonl`
+- `final_glyph_sft_dataset_rlvr_curated_v2.jsonl`
 
 Build chain:
 
@@ -52,6 +52,18 @@ Build chain:
      - single-tool hardening v2
    - exact-dedupes and user-dedupes those RL-only traces
    - produces `final_glyph_sft_dataset_rlvr_curated_v1.jsonl`
+13. `build_rlvr_curated_dataset_v2.py`
+   - hardens the RL-only corpus with explicit integrity filters
+   - uses only:
+     - termination hardening
+     - single-tool hardening v2
+   - drops any trace with:
+     - validator failure
+     - disallowed tool sequence
+     - non-clean ending
+     - nested role-marker leakage inside assistant text
+     - assistant-side `rustdoc_lookup`
+   - produces `final_glyph_sft_dataset_rlvr_curated_v2.jsonl`
 
 Files that matter now:
 
@@ -69,6 +81,7 @@ Files that matter now:
 - `final_glyph_sft_dataset_rlvr_term_v3.jsonl`
 - `final_glyph_sft_dataset_rlvr_term_v4_useruniq.jsonl`
 - `final_glyph_sft_dataset_rlvr_curated_v1.jsonl`
+- `final_glyph_sft_dataset_rlvr_curated_v2.jsonl`
 
 Repro facts:
 
@@ -98,7 +111,20 @@ Repro facts:
   - `cargo_run`: `32`
   - `cargo_test`: `32`
   - `rustc`: `32`
+- `final_glyph_sft_dataset_rlvr_curated_v2.jsonl` has `952` rows
+- `final_glyph_sft_dataset_rlvr_curated_v2.jsonl` has `952/952` validator-valid traces
+- `final_glyph_sft_dataset_rlvr_curated_v2.jsonl` has `0` exact user overlap with `formal_eval_rl`
+- `final_glyph_sft_dataset_rlvr_curated_v2.jsonl` dropped `48` assistant-side `rustdoc_lookup` traces from the RL-only sources
+- `final_glyph_sft_dataset_rlvr_curated_v2.jsonl` tool mix:
+  - `read_file -> apply_patch -> cargo_test`: `488`
+  - `read_file -> apply_patch -> cargo_run`: `320`
+  - `read_file`: `24`
+  - `cargo_build`: `24`
+  - `cargo_check`: `24`
+  - `cargo_run`: `24`
+  - `cargo_test`: `24`
+  - `rustc`: `24`
 - all `137` seed traces are in the final `3148` file
 - all `7` micro-fix traces are in the final `3148` file
 - `final_glyph_sft_dataset.jsonl` remains the older broad clean set
-- `final_glyph_sft_dataset_rlvr_curated_v1.jsonl` is the current file to use for RL-oriented SFT retrain
+- `final_glyph_sft_dataset_rlvr_curated_v2.jsonl` is the current file to use for RL-oriented SFT retrain

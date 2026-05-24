@@ -89,6 +89,9 @@ def main():
     parser.add_argument("--grad-accum", type=int, default=8)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--lm-head-lr", type=float, default=3e-5)
+    parser.add_argument("--warmup-ratio", type=float, default=0.03)
+    parser.add_argument("--weight-decay", type=float, default=0.01)
+    parser.add_argument("--lr-scheduler-type", type=str, default="cosine")
     parser.add_argument("--max-seq-length", type=int, default=1536)
     parser.add_argument("--use-lora", action=argparse.BooleanOptionalAction, default=True,
                         help="Use LoRA (default True). Disable with --no-use-lora for full fine-tune.")
@@ -100,8 +103,18 @@ def main():
                         help="Loss masking. 'assistant_only' (default) masks system+user; 'full_trace' trains on all tokens")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint")
     parser.add_argument("--resume-from", type=str, help="Resume from specific checkpoint")
+    parser.add_argument("--bf16", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--tf32", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--gradient-checkpointing", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--save-strategy", type=str, default="steps")
     parser.add_argument("--save-steps", type=int, default=500)
     parser.add_argument("--save-total-limit", type=int, default=3)
+    parser.add_argument("--eval-steps", type=int, default=25)
+    parser.add_argument("--eval-batch-size", type=int, default=1)
+    parser.add_argument("--load-best-model-at-end", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--logging-steps", type=int, default=10)
+    parser.add_argument("--logging-first-step", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--report-to", type=str, default="tensorboard")
     parser.add_argument("--enable-merge", action="store_true",
                         help="Merge LoRA into base at end of training (default off; merge locally instead)")
     parser.add_argument("--cache-dir", type=str, default=".cache", help="Cache directory for tokenized data")
@@ -117,14 +130,24 @@ def main():
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
         lm_head_lr=args.lm_head_lr,
+        warmup_ratio=args.warmup_ratio,
+        weight_decay=args.weight_decay,
+        lr_scheduler_type=args.lr_scheduler_type,
         max_seq_length=args.max_seq_length,
         masking_mode=args.masking_mode,
         use_lora=args.use_lora,
         lora_r=args.lora_r,
         lora_alpha=args.lora_alpha,
         lora_modules_to_save=[] if args.modules_to_save == "none" else ["lm_head"],
+        bf16=args.bf16,
+        tf32=args.tf32,
+        gradient_checkpointing=args.gradient_checkpointing,
+        save_strategy=args.save_strategy,
         save_steps=args.save_steps,
         save_total_limit=args.save_total_limit,
+        logging_steps=args.logging_steps,
+        logging_first_step=args.logging_first_step,
+        report_to=args.report_to,
     )
 
     if args.resume_from:
@@ -181,9 +204,9 @@ def main():
         save_steps=config.save_steps,
         save_total_limit=config.save_total_limit,
         eval_strategy="steps",
-        eval_steps=25,
-        per_device_eval_batch_size=1,
-        load_best_model_at_end=True,
+        eval_steps=args.eval_steps,
+        per_device_eval_batch_size=args.eval_batch_size,
+        load_best_model_at_end=args.load_best_model_at_end,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
         logging_steps=config.logging_steps,

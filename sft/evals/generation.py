@@ -5,9 +5,10 @@ a mocked `tool` turn so the next assistant turn can continue. This mirrors the
 SFT/RL chat structure closely enough for offline format checks.
 """
 import re
+from threading import Thread
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
 
 # Match the standalone `id ↦ ...` field inside a call block, not substrings
@@ -58,7 +59,13 @@ def load_model(model_path: str):
     return model, tokenizer
 
 
-def _generate_once(model, tokenizer, prompt: str, max_new_tokens: int) -> tuple[str, int, bool]:
+def _generate_once(
+    model,
+    tokenizer,
+    prompt: str,
+    max_new_tokens: int,
+    token_callback=None,
+) -> tuple[str, int, bool]:
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     input_len = inputs["input_ids"].shape[1]
     stop_ids = [tokenizer.eos_token_id]
@@ -66,23 +73,55 @@ def _generate_once(model, tokenizer, prompt: str, max_new_tokens: int) -> tuple[
     if im_end_id != tokenizer.unk_token_id:
         stop_ids.append(im_end_id)
 
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=stop_ids,
+    gen_kwargs = dict(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+        pad_token_id=tokenizer.pad_token_id,
+        eos_token_id=stop_ids,
+    )
+
+    if token_callback is not None:
+        streamer = TextIteratorStreamer(
+            tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=False,
         )
+        gen_kwargs["streamer"] = streamer
+        holder: dict[str, torch.Tensor] = {}
+
+        def _run_generate():
+            with torch.no_grad():
+                holder["outputs"] = model.generate(**gen_kwargs)
+
+        worker = Thread(target=_run_generate, daemon=True)
+        worker.start()
+        pieces: list[str] = []
+        for piece in streamer:
+            pieces.append(piece)
+            token_callback(piece)
+        worker.join()
+        outputs = holder["outputs"]
+        text = "".join(pieces)
+    else:
+        with torch.no_grad():
+            outputs = model.generate(**gen_kwargs)
+        text = tokenizer.decode(outputs[0, input_len:], skip_special_tokens=False)
 
     new_token_count = outputs.shape[1] - input_len
     last_tok = outputs[0, -1].item()
     hit_stop = last_tok in stop_ids
-    text = tokenizer.decode(outputs[0, input_len:], skip_special_tokens=False)
     return text, new_token_count, hit_stop
 
 
-def generate(model, tokenizer, prompt: str, max_new_tokens: int, max_tool_rounds: int = 4) -> tuple[str, int]:
+def generate(
+    model,
+    tokenizer,
+    prompt: str,
+    max_new_tokens: int,
+    max_tool_rounds: int = 4,
+    token_callback=None,
+) -> tuple[str, int]:
     """Multi-round greedy generation with mocked tool-role results."""
     accumulated = ""
     total_new_tokens = 0
@@ -91,7 +130,13 @@ def generate(model, tokenizer, prompt: str, max_new_tokens: int, max_tool_rounds
     for _ in range(max_tool_rounds + 1):
         if remaining <= 0:
             break
-        chunk, n_tok, hit_stop = _generate_once(model, tokenizer, cur_prompt, remaining)
+        chunk, n_tok, hit_stop = _generate_once(
+            model,
+            tokenizer,
+            cur_prompt,
+            remaining,
+            token_callback=token_callback,
+        )
         accumulated += chunk
         total_new_tokens += n_tok
         remaining -= n_tok

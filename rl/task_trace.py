@@ -8,7 +8,7 @@ from pathlib import Path
 from datasets import Dataset
 
 import verifiers as vf
-from core.validator import TaskValidator
+from rl.protocol import SimpleTraceValidator, ended_cleanly_after_final, has_final
 from rl.task_format import load_prompts
 from rl.rust.executor import ExecutionResult, RustExecutor, create_executor
 from rl.rust.results import (
@@ -29,17 +29,12 @@ DEBUG_PARSE = False
 DEFAULT_REWARD_CONFIG = {
     "clean_tool_boundary_bonus": 1.5,
     "structure_valid_bonus": 1.0,
-    "penalty_unbalanced_braces": -0.5,
-    "penalty_unbalanced_brackets": -0.5,
-    "penalty_unbalanced_special_quotes": -0.5,
     "penalty_garbage_after_final_response": -2.0,
-    "penalty_final_response_unclosed": -0.75,
     "penalty_missing_response": -1.0,
-    "penalty_undefined_tags": -0.4,
-    "penalty_unsatisfied_todos": -1.0,
+    "penalty_role_marker_leakage": -0.5,
     "penalty_repetition": -1.0,
     "penalty_tool_calls_without_matching_result": -0.75,
-    "penalty_not_ended_cleanly_after_response": -2.0,
+    "penalty_not_ended_cleanly_after_final": -2.0,
     "no_call_penalty": -1.25,
     "any_success_bonus": 0.5,
     "missing_results_penalty": -0.75,
@@ -52,14 +47,9 @@ DEFAULT_REWARD_CONFIG = {
 REWARD_CONFIG = DEFAULT_REWARD_CONFIG.copy()
 
 STRUCTURE_PENALTY_KEYS = {
-    "Unbalanced braces": "penalty_unbalanced_braces",
-    "Unbalanced brackets": "penalty_unbalanced_brackets",
-    "Unbalanced special quotes": "penalty_unbalanced_special_quotes",
     "Garbage after final response": "penalty_garbage_after_final_response",
-    "Final response block is unclosed": "penalty_final_response_unclosed",
     "Missing response": "penalty_missing_response",
-    "References to undefined tags": "penalty_undefined_tags",
-    "Unsatisfied todo items": "penalty_unsatisfied_todos",
+    "Role marker leakage": "penalty_role_marker_leakage",
     "Detected repetition": "penalty_repetition",
     "Tool calls without matching result": "penalty_tool_calls_without_matching_result",
 }
@@ -72,21 +62,19 @@ def _set_reward_config(overrides: dict[str, float]) -> None:
 
 
 def _ended_cleanly_after_response(text: str) -> bool:
-    if "response「" not in text:
-        return False
-    return bool(re.search(r"response「.*?」\s*(?:<\|im_end\|>\s*)?$", text, re.DOTALL))
+    return ended_cleanly_after_final(text)
 
 
 def _response_termination_reward(text: str) -> float:
-    if "response「" not in text:
+    if not has_final(text):
         return 0.0
     if _ended_cleanly_after_response(text):
         return REWARD_CONFIG["exact_final_termination_bonus"]
-    return REWARD_CONFIG["penalty_not_ended_cleanly_after_response"]
+    return REWARD_CONFIG["penalty_not_ended_cleanly_after_final"]
 
 
 def _has_response(text: str) -> bool:
-    return "response「" in text
+    return has_final(text)
 
 
 def _apply_clean_termination_gate(
@@ -116,19 +104,17 @@ def _apply_clean_termination_gate(
     return reward
 
 
-def _structure_reward(trace_text: str, validator) -> float:
-    """Always-on reward term from TaskValidator. Targets the V2 eval failure modes:
-    malformed tail / extra braces, reference hygiene, todo satisfaction."""
+def _structure_reward(assistant_text: str, result_text: str, validator: SimpleTraceValidator | None) -> float:
     if validator is None:
         return 0.0
-    v = validator.validate(trace_text)
+    v = validator.validate(assistant_text, result_text)
     score = REWARD_CONFIG["structure_valid_bonus"] if v.valid else 0.0
     for err in v.errors:
         for prefix, penalty_key in STRUCTURE_PENALTY_KEYS.items():
             if err.startswith(prefix):
                 score += REWARD_CONFIG[penalty_key]
                 break
-    score += _response_termination_reward(trace_text)
+    score += _response_termination_reward(assistant_text)
     return score
 
 
@@ -137,18 +123,8 @@ def _structure_reward(trace_text: str, validator) -> float:
 # ---------------------------------------------------------------------------
 
 def _execute(executor: RustExecutor, tool_name: str, params: dict) -> ExecutionResult:
-    if tool_name == "rustc":
-        source_file = params.get("source_file")
-        if not source_file:
-            return ExecutionResult(False, "", "missing source_file", -1)
-        return executor.compile_file(source_file, params.get("output"))
-    if tool_name == "cargo_check":
-        return executor.cargo_check(params.get("project_path", "."))
-    if tool_name == "cargo_build":
-        release = str(params.get("release", "false")).lower() == "true"
-        return executor.cargo_build(params.get("project_path", "."), release)
     if tool_name == "cargo_test":
-        return executor.cargo_test(params.get("project_path", "."), params.get("test_name"))
+        return executor.cargo_test(params.get("project_path", "."))
     if tool_name == "cargo_run":
         return executor.cargo_run(params.get("project_path", "."))
     if tool_name == "read_file":
@@ -235,6 +211,26 @@ def _score_tool_alignment(
     return score
 
 
+def _score_tool_sequence(calls: list[dict], expected_tool_sequence: list[str]) -> float:
+    if not expected_tool_sequence:
+        return 0.0
+    actual = [call["tool"] for call in calls]
+    if actual == expected_tool_sequence:
+        return 1.25
+    score = 0.0
+    for idx, expected_tool in enumerate(expected_tool_sequence):
+        if idx >= len(actual):
+            score -= 0.3
+            continue
+        if actual[idx] == expected_tool:
+            score += 0.2
+        else:
+            score -= 0.35
+    if len(actual) > len(expected_tool_sequence):
+        score -= min(0.15 * (len(actual) - len(expected_tool_sequence)), 0.75)
+    return score
+
+
 def _completion_text(completion) -> str:
     if isinstance(completion, str):
         return completion
@@ -293,7 +289,7 @@ def _trajectory_tool_text(state: dict) -> str:
 def _find_result_for(call_id: str, text: str) -> dict | None:
     """Locate the env-emitted result block for a given call id; pull status fields."""
     m = re.search(
-        r"result\s*\{[^}]*?data\s*↦\s*「(.*?)」\s*🏷\s*" + re.escape(call_id) + r"[^}]*\}",
+        r"RESULT\s+" + re.escape(call_id) + r":\n(.*?)(?=\nRESULT\s+[A-Za-z0-9_\-]+:|\Z)",
         text,
         re.DOTALL,
     )
@@ -337,8 +333,9 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     info = kwargs.get("info") or {}
     expected_tool = info.get("expected_tool")
     expected_args = _normalize_expected_args(info.get("expected_args"))
-    validator: TaskValidator = kwargs.get("validator")
-    structure = _structure_reward(text, validator)
+    expected_tool_sequence = list(info.get("expected_tool_sequence") or [])
+    validator: SimpleTraceValidator | None = kwargs.get("validator")
+    structure = _structure_reward(assistant_text or text, tool_text, validator)
     assistant_trace = assistant_text or text
 
     # Non-Rust prompt: structure enforcement only. Env still mocks tool results
@@ -352,6 +349,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
 
     first_call = calls[0]
     reward = _score_tool_alignment(first_call, expected_tool, expected_args)
+    reward += _score_tool_sequence(calls, expected_tool_sequence)
 
     # Sum compute_tool_reward across every executed call. Multi-step workflows
     # (apply_patch → cargo_test, apply_patch → cargo_run) are credited per call.
@@ -388,9 +386,9 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
 # ---------------------------------------------------------------------------
 
 class RustToolEnv(vf.MultiTurnEnv):
-    """Run the model in trace-format chat; when it emits an `act { call ↦ … }`
-    block, execute the tool for real and append a `result {…}` block before the
-    next round. Stops when no pending calls remain or `max_tool_rounds` reached.
+    """Run the model in chat format; when it emits a `CALL ...` block, execute
+    the tool for real and append a `RESULT cN:` block before the next round.
+    Stops when no pending calls remain or `max_tool_rounds` is reached.
 
     NOTE: this subclasses `vf.MultiTurnEnv` and follows the current async
     verifiers API (`env_response(messages, state)` + `is_completed(state)`).
@@ -503,17 +501,12 @@ def load_environment(
     max_tool_rounds: int = 5,
     clean_tool_boundary_bonus: float | None = None,
     structure_valid_bonus: float | None = None,
-    penalty_unbalanced_braces: float | None = None,
-    penalty_unbalanced_brackets: float | None = None,
-    penalty_unbalanced_special_quotes: float | None = None,
     penalty_garbage_after_final_response: float | None = None,
-    penalty_final_response_unclosed: float | None = None,
     penalty_missing_response: float | None = None,
-    penalty_undefined_tags: float | None = None,
-    penalty_unsatisfied_todos: float | None = None,
+    penalty_role_marker_leakage: float | None = None,
     penalty_repetition: float | None = None,
     penalty_tool_calls_without_matching_result: float | None = None,
-    penalty_not_ended_cleanly_after_response: float | None = None,
+    penalty_not_ended_cleanly_after_final: float | None = None,
     no_call_penalty: float | None = None,
     any_success_bonus: float | None = None,
     missing_results_penalty: float | None = None,
@@ -527,17 +520,12 @@ def load_environment(
         {
             "clean_tool_boundary_bonus": clean_tool_boundary_bonus,
             "structure_valid_bonus": structure_valid_bonus,
-            "penalty_unbalanced_braces": penalty_unbalanced_braces,
-            "penalty_unbalanced_brackets": penalty_unbalanced_brackets,
-            "penalty_unbalanced_special_quotes": penalty_unbalanced_special_quotes,
             "penalty_garbage_after_final_response": penalty_garbage_after_final_response,
-            "penalty_final_response_unclosed": penalty_final_response_unclosed,
             "penalty_missing_response": penalty_missing_response,
-            "penalty_undefined_tags": penalty_undefined_tags,
-            "penalty_unsatisfied_todos": penalty_unsatisfied_todos,
+            "penalty_role_marker_leakage": penalty_role_marker_leakage,
             "penalty_repetition": penalty_repetition,
             "penalty_tool_calls_without_matching_result": penalty_tool_calls_without_matching_result,
-            "penalty_not_ended_cleanly_after_response": penalty_not_ended_cleanly_after_response,
+            "penalty_not_ended_cleanly_after_final": penalty_not_ended_cleanly_after_final,
             "no_call_penalty": no_call_penalty,
             "any_success_bonus": any_success_bonus,
             "missing_results_penalty": missing_results_penalty,
@@ -557,7 +545,14 @@ def load_environment(
     # env_response / reward kwargs but does NOT forward arbitrary top-level
     # columns. Pack expected_tool / expected_args / blueprint_root /
     # expected_output into `info` so the env can actually execute the verifier.
-    info_keys = ("expected_tool", "expected_args", "blueprint_root", "expected_output")
+    info_keys = (
+        "expected_tool",
+        "expected_args",
+        "expected_tool_sequence",
+        "blueprint_root",
+        "expected_output",
+        "kind",
+    )
     dataset = Dataset.from_list(
         [
             {
@@ -570,7 +565,7 @@ def load_environment(
     )
 
     parser = vf.Parser()
-    validator = TaskValidator()
+    validator = SimpleTraceValidator()
     executor = create_executor(nsjail_path=nsjail_path, timeout=timeout)
     rubric = vf.Rubric(parser=parser)
     rubric.class_objects["validator"] = validator

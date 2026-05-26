@@ -15,6 +15,30 @@ The reset schema keeps only behavior that matters:
 - assistant emits exactly one `FINAL: ...`
 - model stops immediately
 
+## Canonical Format
+
+```bash
+<|im_start|>system
+You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
+<|im_end|>
+
+<|im_start|>user
+User task here.
+<|im_end|>
+
+<|im_start|>assistant
+CALL tool_name(id="c1", arg1="...", arg2="...")
+<|im_end|>
+
+<|im_start|>tool
+RESULT c1:
+tool output here
+<|im_end|>
+
+<|im_start|>assistant
+FINAL: brief final answer.
+<|im_end|>
+
 2. Tool Scope
 
 Keep the tool set narrow:
@@ -22,8 +46,6 @@ Keep the tool set narrow:
 - `apply_patch`
 - `cargo_test`
 - `cargo_run`
-
-Do not mix in docs, search, planning, or broad assistant tasks.
 
 3. Synthetic Families
 

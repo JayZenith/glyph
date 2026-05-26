@@ -113,29 +113,11 @@ class RustExecutor:
                 exit_code=getattr(exc, "errno", -1) or -1,
             )
 
-    def compile_file(self, file_path: str, output_path: str | None = None) -> ExecutionResult:
-        cmd = ["rustc", file_path]
-        if output_path:
-            cmd.extend(["-o", output_path])
-        return self.execute(cmd)
-
     def cargo_run(self, project_path: str) -> ExecutionResult:
         return self.execute(["cargo", "run", "--quiet"], working_dir=project_path)
 
-    def cargo_check(self, project_path: str) -> ExecutionResult:
-        return self.execute(["cargo", "check"], working_dir=project_path)
-
-    def cargo_test(self, project_path: str, test_name: str | None = None) -> ExecutionResult:
-        cmd = ["cargo", "test"]
-        if test_name:
-            cmd.extend(["--", test_name])
-        return self.execute(cmd, working_dir=project_path)
-
-    def cargo_build(self, project_path: str, release: bool = False) -> ExecutionResult:
-        cmd = ["cargo", "build"]
-        if release:
-            cmd.append("--release")
-        return self.execute(cmd, working_dir=project_path)
+    def cargo_test(self, project_path: str) -> ExecutionResult:
+        return self.execute(["cargo", "test"], working_dir=project_path)
 
     def read_file(self, file_path: str, max_chars: int = 4000) -> ExecutionResult:
         """Return file contents (truncated if huge). Pure in-process, no subprocess."""

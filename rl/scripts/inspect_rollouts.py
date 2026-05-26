@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Per-step rollout quality summary for a task-trace RL run.
-
-Reads `run_default/rollouts/step_*/train_rollouts.jsonl` and prints
-mean/min/max reward, count of positive-reward rollouts, count of
-rollouts with no `act { call ... }`, total tool turns, zero-advantage
-filtered rollouts, and average assistant text length.
-"""
+"""Per-step rollout quality summary for a CALL/RESULT/FINAL RL run."""
 from __future__ import annotations
 
 import argparse
@@ -44,7 +38,7 @@ def summarize(path: str) -> tuple:
                 for message in row.get("completion", [])
                 if isinstance(message, dict) and message.get("role") == "assistant"
             )
-            no_call += "act {" not in assistant
+            no_call += "CALL " not in assistant
             tools += sum(
                 1
                 for message in row.get("completion", [])

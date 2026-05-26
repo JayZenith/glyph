@@ -38,7 +38,11 @@ python3 rl/train.py \
   --output runs/rl1/rust_tool_run
 ```
 
-Multi-turn execution: `RustToolEnv` in `task_trace.py` parses each `act { call ↦ … }`
+Multi-turn execution: `RustToolEnv` in `task_trace.py` parses each `CALL ...`
 the model emits, runs the real tool via `rl/rust/executor.py`, and injects a
-`result {…}` block back into the rollout (up to `max_tool_rounds`, default 5).
-RLVR reward sums `compute_tool_reward` across every call's verifiable outcome.
+`RESULT cN:` block back into the rollout (up to `max_tool_rounds`, default 5).
+The live tool set is intentionally narrow:
+- `read_file`
+- `apply_patch`
+- `cargo_test`
+- `cargo_run`

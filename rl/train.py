@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from transformers import AutoConfig, AutoTokenizer
-from huggingface_hub import snapshot_download
 import tomli_w
 
 
@@ -29,12 +28,9 @@ def parse_int_list(value: str) -> list[int]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Launch PRIME-RL. Default mode is full-finetune.")
+    parser = argparse.ArgumentParser(description="Launch PRIME-RL.")
     parser.add_argument("--model", default="JayZenith/GLYPH_SFT",
-                        help="HF repo id for full-finetune init (default mode).")
-    parser.add_argument("--adapter", default=None,
-                        help="HF repo id for a PEFT adapter (LoRA mode). Disables full-FT default.")
-    parser.add_argument("--base-model", help="Override the adapter base model (LoRA mode only).")
+                        help="HF repo id for trainer and rollout initialization.")
     parser.add_argument("--data", type=Path, help="Prompt dataset path.")
     parser.add_argument("--output", type=Path, default=Path("outputs/prime_rl"))
     parser.add_argument("--max-steps", type=int)
@@ -48,7 +44,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float)
     parser.add_argument("--checkpoint-interval", type=int)
     parser.add_argument("--resume-step", type=int)
-    parser.add_argument("--disable-orchestrator-lora", action="store_true")
     parser.add_argument("--served-model-name", action="append")
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--gpu-memory-utilization", type=float)
@@ -60,17 +55,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tool-timeout", type=int)
     parser.add_argument("--clean-tool-boundary-bonus", type=float)
     parser.add_argument("--structure-valid-bonus", type=float)
-    parser.add_argument("--penalty-unbalanced-braces", type=float)
-    parser.add_argument("--penalty-unbalanced-brackets", type=float)
-    parser.add_argument("--penalty-unbalanced-special-quotes", type=float)
     parser.add_argument("--penalty-garbage-after-final-response", type=float)
-    parser.add_argument("--penalty-final-response-unclosed", type=float)
     parser.add_argument("--penalty-missing-response", type=float)
-    parser.add_argument("--penalty-undefined-tags", type=float)
-    parser.add_argument("--penalty-unsatisfied-todos", type=float)
+    parser.add_argument("--penalty-role-marker-leakage", type=float)
     parser.add_argument("--penalty-repetition", type=float)
     parser.add_argument("--penalty-tool-calls-without-matching-result", type=float)
-    parser.add_argument("--penalty-not-ended-cleanly-after-response", type=float)
+    parser.add_argument("--penalty-not-ended-cleanly-after-final", type=float)
     parser.add_argument("--no-call-penalty", type=float)
     parser.add_argument("--any-success-bonus", type=float)
     parser.add_argument("--missing-results-penalty", type=float)
@@ -105,16 +95,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--dump-config", type=Path)
     return parser.parse_args()
-
-
-def resolve_adapter_dir(adapter: str) -> Path:
-    return Path(snapshot_download(repo_id=adapter, repo_type="model"))
-
-
-def load_adapter_config(adapter_dir: Path) -> dict[str, Any]:
-    path = adapter_dir / "adapter_config.json"
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 def load_toml(path: Path) -> dict[str, Any]:
@@ -173,28 +153,13 @@ def build_teacher_inference_config(
     return teacher_inference
 
 
-def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -> dict[str, Any]:
+def build_config(args: argparse.Namespace) -> dict[str, Any]:
     trainer, orchestrator, inference = load_templates()
     trainer.pop("buffer", None)
 
-    use_lora = adapter_cfg is not None
     output_dir = args.output.resolve()
     data_path = args.data.resolve() if args.data else None
-
-    if use_lora:
-        base_model = args.base_model or adapter_cfg["base_model_name_or_path"]
-        rank = int(adapter_cfg["r"])
-        alpha = float(adapter_cfg["lora_alpha"])
-        dropout = float(adapter_cfg.get("lora_dropout", 0.0))
-        target_modules = list(adapter_cfg["target_modules"])
-        modules_to_save = list(adapter_cfg.get("modules_to_save") or [])
-        adapter_label = str(args.adapter).replace("/", "__")
-        adapter_name = f"{adapter_label}-r{rank}-a{int(alpha)}"
-        auto_lora_name = f"r{rank}-a{float(alpha)}"
-    else:
-        base_model = args.base_model or args.model
-        adapter_name = None
-        auto_lora_name = None
+    base_model = args.model
     rollout_model = args.rollout_init_model or base_model
     teacher_model_name = args.teacher_model or rollout_model
 
@@ -204,14 +169,6 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -
     trainer_ckpt = trainer.setdefault("ckpt", {})
 
     trainer_model["name"] = base_model
-    if use_lora:
-        trainer_model["lora"] = {
-            "rank": rank,
-            "alpha": alpha,
-            "dropout": dropout,
-            "target_modules": target_modules,
-            "modules_to_save": modules_to_save,
-        }
     maybe_set(trainer_model, "seq_len", args.seq_len)
     maybe_set(trainer_optim, "lr", args.learning_rate)
     maybe_set(trainer_optim, "weight_decay", args.weight_decay)
@@ -228,12 +185,6 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -
     orch_ckpt = orchestrator.setdefault("ckpt", {})
 
     orch_model["name"] = rollout_model
-    if use_lora and not args.disable_orchestrator_lora:
-        orch_model["lora"] = {
-            "name": adapter_name,
-            "rank": rank,
-            "alpha": alpha,
-        }
     maybe_set(orchestrator, "batch_size", args.batch_size)
     maybe_set(orchestrator, "rollouts_per_example", args.rollouts_per_example)
     maybe_set(orchestrator, "seq_len", args.seq_len)
@@ -252,14 +203,9 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -
     maybe_set(env_args, "timeout", args.tool_timeout)
     maybe_set(env_args, "clean_tool_boundary_bonus", args.clean_tool_boundary_bonus)
     maybe_set(env_args, "structure_valid_bonus", args.structure_valid_bonus)
-    maybe_set(env_args, "penalty_unbalanced_braces", args.penalty_unbalanced_braces)
-    maybe_set(env_args, "penalty_unbalanced_brackets", args.penalty_unbalanced_brackets)
-    maybe_set(env_args, "penalty_unbalanced_special_quotes", args.penalty_unbalanced_special_quotes)
     maybe_set(env_args, "penalty_garbage_after_final_response", args.penalty_garbage_after_final_response)
-    maybe_set(env_args, "penalty_final_response_unclosed", args.penalty_final_response_unclosed)
     maybe_set(env_args, "penalty_missing_response", args.penalty_missing_response)
-    maybe_set(env_args, "penalty_undefined_tags", args.penalty_undefined_tags)
-    maybe_set(env_args, "penalty_unsatisfied_todos", args.penalty_unsatisfied_todos)
+    maybe_set(env_args, "penalty_role_marker_leakage", args.penalty_role_marker_leakage)
     maybe_set(env_args, "penalty_repetition", args.penalty_repetition)
     maybe_set(
         env_args,
@@ -268,8 +214,8 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -
     )
     maybe_set(
         env_args,
-        "penalty_not_ended_cleanly_after_response",
-        args.penalty_not_ended_cleanly_after_response,
+        "penalty_not_ended_cleanly_after_final",
+        args.penalty_not_ended_cleanly_after_final,
     )
     maybe_set(env_args, "no_call_penalty", args.no_call_penalty)
     maybe_set(env_args, "any_success_bonus", args.any_success_bonus)
@@ -291,8 +237,6 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -
     maybe_set(inference, "gpu_memory_utilization", args.gpu_memory_utilization)
     served_aliases: list[str] = []
     candidates = [rollout_model, base_model]
-    if use_lora:
-        candidates += [adapter_name, auto_lora_name]
     candidates += list(args.served_model_name or [])
     for name in candidates:
         if name and name not in served_aliases:
@@ -403,19 +347,11 @@ def launch_teacher_inference(raw_config: dict[str, Any], args: argparse.Namespac
 
 def main() -> None:
     args = parse_args()
-    if args.adapter:
-        adapter_dir = resolve_adapter_dir(args.adapter)
-        adapter_cfg = load_adapter_config(adapter_dir)
-    else:
-        adapter_dir = None
-        adapter_cfg = None
-    raw_config = build_config(args, adapter_cfg)
+    raw_config = build_config(args)
     raw_config["metadata"] = {
-        "mode": "lora" if adapter_cfg else "full_finetune",
-        "init_model": args.adapter or args.model,
+        "mode": "full_finetune",
+        "init_model": args.model,
     }
-    if adapter_dir is not None:
-        raw_config["metadata"]["init_adapter_resolved_dir"] = str(adapter_dir)
     if args.rollout_init_model:
         raw_config["metadata"]["rollout_init_model_source"] = args.rollout_init_model
 
@@ -427,9 +363,6 @@ def main() -> None:
     if args.dry_run:
         return
 
-    if adapter_dir is not None:
-        os.environ["PRIME_RL_INIT_ADAPTER"] = str(adapter_dir)
-    os.environ["PRIME_RL_INFERENCE_FULL_WEIGHTS"] = "1"
     cwd = str(Path.cwd())
     rl_dir = str(Path.cwd() / "rl")
     pythonpath = os.environ.get("PYTHONPATH")

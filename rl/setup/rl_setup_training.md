@@ -23,9 +23,7 @@ source /workspace/prime-rl-src/.venv/bin/activate
 ```bash
 python3 -m rl.rust.prepare_cases \
    --root runs/rlvr1/rust_cases \
-   --output runs/rlvr1/prompts.jsonl \
-   --phrasings 2 \
-   --gold-count 12
+   --output runs/rlvr1/prompts.jsonl
 ```
 
 ## 4. Run training
@@ -72,17 +70,12 @@ HF_HOME=/workspace/.hf_home \
     --teacher-port 8001 \
     --clean-tool-boundary-bonus 1.5 \
     --structure-valid-bonus 1.0 \
-    --penalty-unbalanced-braces -0.5 \
-    --penalty-unbalanced-brackets -0.5 \
-    --penalty-unbalanced-special-quotes -0.5 \
     --penalty-garbage-after-final-response -3.0 \
-    --penalty-final-response-unclosed -1.25 \
     --penalty-missing-response -1.5 \
-    --penalty-undefined-tags -0.4 \
-    --penalty-unsatisfied-todos -1.5 \
+    --penalty-role-marker-leakage -0.5 \
     --penalty-repetition -1.0 \
     --penalty-tool-calls-without-matching-result -1.0 \
-    --penalty-not-ended-cleanly-after-response -3.0 \
+    --penalty-not-ended-cleanly-after-final -3.0 \
     --no-call-penalty -1.25 \
     --any-success-bonus 0.5 \
     --missing-results-penalty -1.0 \
@@ -136,17 +129,12 @@ cd /workspace/glyph && mkdir -p outputs/rlvr1_4gpu_run2/logs && nohup env
    --teacher-port 8001 \
    --clean-tool-boundary-bonus 1.5 \
    --structure-valid-bonus 1.0 \
-   --penalty-unbalanced-braces -0.5 \
-   --penalty-unbalanced-brackets -0.5 \
-   --penalty-unbalanced-special-quotes -0.5 \
    --penalty-garbage-after-final-response -3.0 \
-   --penalty-final-response-unclosed -1.25 \
    --penalty-missing-response -1.5 \
-   --penalty-undefined-tags -0.4 \
-   --penalty-unsatisfied-todos -1.5 \
+   --penalty-role-marker-leakage -0.5 \
    --penalty-repetition -1.0 \
    --penalty-tool-calls-without-matching-result -1.0 \
-   --penalty-not-ended-cleanly-after-response -3.0 \
+   --penalty-not-ended-cleanly-after-final -3.0 \
    --no-call-penalty -1.25 \
    --any-success-bonus 0.5 \
    --missing-results-penalty -1.0 \

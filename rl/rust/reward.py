@@ -29,40 +29,7 @@ def compute_tool_reward(
         details["reason"] = "execution timed out"
         return ToolReward(total=-1.0, components=components, details=details)
 
-    if tool_name == "rustc":
-        if success:
-            components["compilation_success"] = 1.0
-            if stderr and "warning" in stderr.lower():
-                components["compilation_warnings"] = -0.1
-            else:
-                components["compilation_warnings"] = 0.0
-        else:
-            components["compilation_success"] = -1.0
-            details["error_snippet"] = stderr[:500] if stderr else "unknown error"
-
-    elif tool_name == "cargo_check":
-        if success:
-            components["check_success"] = 1.0
-            if stderr and "warning" in stderr.lower():
-                components["check_warnings"] = -0.1
-            else:
-                components["check_warnings"] = 0.0
-        else:
-            components["check_success"] = -1.0
-            details["error_snippet"] = stderr[:500] if stderr else "unknown error"
-
-    elif tool_name == "cargo_build":
-        if success:
-            components["build_success"] = 1.0
-            if stderr and "warning" in stderr.lower():
-                components["build_warnings"] = -0.1
-            else:
-                components["build_warnings"] = 0.0
-        else:
-            components["build_success"] = -1.0
-            details["error_snippet"] = stderr[:500] if stderr else "unknown error"
-
-    elif tool_name == "cargo_test":
+    if tool_name == "cargo_test":
         if success:
             stdout_lower = stdout.lower()
             test_count = stdout.count("test result:")

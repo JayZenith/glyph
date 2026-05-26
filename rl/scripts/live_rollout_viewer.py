@@ -14,10 +14,9 @@ from urllib.parse import urlparse
 
 
 FAKE_RESULT_PATTERNS = [
-    re.compile(r"\bresult\s*(?:\{|//)"),
-    re.compile(r"结果\s*\{"),
+    re.compile(r"\bresult\s*\{", re.IGNORECASE),
     re.compile(r"data\s*↦\s*[「\"].*?[」\"]\s*🏷\s*[\w\"-]+", re.DOTALL),
-    re.compile(r"status\s*:\s*(?:success|failure).*?exit_code\s*:", re.DOTALL),
+    re.compile(r"^\s*RESULT\s+[A-Za-z0-9_-]+:", re.MULTILINE),
 ]
 
 
@@ -54,7 +53,7 @@ def summarize(path: str) -> dict:
             fake_result = has_fake_result(assistant)
             fake += fake_result
             posfake += fake_result and reward > 0
-            no_call += "act {" not in assistant
+            no_call += "CALL " not in assistant
             tools += sum(
                 1
                 for message in row.get("completion", [])

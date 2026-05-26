@@ -3,11 +3,8 @@ set -euo pipefail
 
 # Install PRIME-RL the way upstream expects: its own uv-managed Python 3.12 env.
 # Then apply rl/setup/patch_install.py to the installed checkout. The patches
-# fix vLLM Qwen3 packed-weight loading, the orchestrator's teacher-logprob path
-# (used by the KL anchor), the full-weights inference broadcast, and tolerate
-# checkpoints that don't carry `revert_weight_conversion`. The legacy LoRA-
-# bootstrap patch lives in the same file and is a no-op when
-# PRIME_RL_INIT_ADAPTER is unset (which is the default in the full-FT path).
+# fix vLLM Qwen3 packed-weight loading, the orchestrator's teacher-logprob path,
+# and tolerate checkpoints that don't carry `revert_weight_conversion`.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PRIME_RL_DIR="${1:-${PRIME_RL_DIR:-/workspace/prime-rl-src}}"
@@ -100,8 +97,6 @@ except Exception:
     print("none")
 PY
 )"
-
-  uv pip install --python "$python_bin" peft
 
   # Build a candidate list — first match wins. Each candidate is a URL.
   # Pinned wheels by (torch, cuda, py, abi, optional sm-cap requirement).

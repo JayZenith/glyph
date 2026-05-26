@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Dry-run config validator for the full-finetune RLVR launcher.
+# Dry-run config validator for the RL launcher.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -25,7 +25,7 @@ print(f"visible_gpus={count}")
 PY
 
 if [ ! -f "$DATA_PATH" ]; then
-  python3 -m rl.rust.prepare_cases --root "$CASES_ROOT" --output "$DATA_PATH" --phrasings 3 --gold-count 12
+  python3 -m rl.rust.prepare_cases --root "$CASES_ROOT" --output "$DATA_PATH"
 fi
 
 python3 "$ROOT_DIR/rl/train.py" \
@@ -46,8 +46,6 @@ cfg = json.load(open(sys.argv[1]))
 assert cfg["deployment"]["gpus_per_node"] == 2
 assert cfg["deployment"]["num_train_gpus"] == 1
 assert cfg["deployment"]["num_infer_gpus"] == 1
-# Full-finetune mode: no LoRA section in trainer.model; init model = MODEL.
-assert "lora" not in cfg["trainer"]["model"], "trainer should not carry LoRA in full-FT mode"
 assert cfg["trainer"]["model"]["name"] == "JayZenith/GLYPH_SFT"
 assert cfg["inference"]["model"]["name"] == "JayZenith/GLYPH_SFT"
 # Teacher anchor is opt-in; default dry-run should stay pure RL.

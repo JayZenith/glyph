@@ -2,7 +2,7 @@ post_eval:
   - name: patch_test_pass_addlib
     kind: patch_test_pass
     system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-    user: Fix the failing crate at /workspace/cases/addlib_bug. Read src/lib.rs, patch the bug, run cargo_test, then answer once.
+    user: Repair the failing crate at runs/rlvr1/rust_cases/addlib_bug. Inspect src/lib.rs, fix the bug, run cargo_test, then give one final answer.
     expected_tool_sequence: [read_file, apply_patch, cargo_test]
     mock_results:
       - tool: read_file
@@ -19,7 +19,7 @@ post_eval:
   - name: patch_run_pass_greeter
     kind: patch_run_pass
     system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-    user: Fix the crate at /workspace/cases/greeter_bug. Read src/main.rs, patch the greeting bug, run cargo_run, then answer once.
+    user: Repair the crate at runs/rlvr1/rust_cases/greeter_bug. Inspect src/main.rs, fix the greeting bug, run cargo_run, then give one final answer.
     expected_tool_sequence: [read_file, apply_patch, cargo_run]
     mock_results:
       - tool: read_file
@@ -36,7 +36,7 @@ post_eval:
   - name: patch_test_recover_once_range
     kind: patch_test_recover_once
     system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-    user: Fix the crate at /workspace/cases/range_bug. Read src/lib.rs, patch the bug, run cargo_test, and keep going until tests pass, then answer once.
+    user: Repair the crate at runs/rlvr1/rust_cases/range_bug. Inspect src/lib.rs, fix the bug, run cargo_test, and continue until the tests pass, then give one final answer.
     expected_tool_sequence: [read_file, apply_patch, cargo_test, read_file, apply_patch, cargo_test]
     mock_results:
       - tool: read_file
@@ -63,7 +63,7 @@ post_eval:
   - name: patch_run_recover_once_banner
     kind: patch_run_recover_once
     system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-    user: Fix the crate at /workspace/cases/banner_bug. Read src/main.rs, patch the bug, run cargo_run, and keep going until the output is correct, then answer once.
+    user: Repair the crate at runs/rlvr1/rust_cases/banner_bug. Inspect src/main.rs, fix the bug, run cargo_run, and continue until the output is correct, then give one final answer.
     expected_tool_sequence: [read_file, apply_patch, cargo_run, read_file, apply_patch, cargo_run]
     mock_results:
       - tool: read_file
@@ -91,12 +91,12 @@ post_eval:
   - name: patch_test_recover_twice_parser
     kind: patch_test_recover_twice
     system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-    user: Fix the crate at /workspace/cases/parser_bug. Read src/lib.rs, patch the bug, run cargo_test, and keep iterating until tests pass, then answer once.
+    user: Repair the crate at runs/rlvr1/rust_cases/parser_bug. Inspect src/lib.rs, fix the bug, run cargo_test, and keep iterating until the tests pass, then give one final answer.
     expected_tool_sequence: [read_file, apply_patch, cargo_test, read_file, apply_patch, cargo_test, read_file, apply_patch, cargo_test]
     mock_results:
       - tool: read_file
         content: |
-          pub fn parse_num(s: &str) -> i32 { s.parse::<i32>().unwrap_or(1) }
+          pub fn parse_num(s: &str) -> i32 { s.parse::<u32>().unwrap_or(1) as i32 }
       - tool: apply_patch
         content: |
           status: success
@@ -106,17 +106,17 @@ post_eval:
           stderr: test parse_default failed: left=1 right=0
       - tool: read_file
         content: |
-          pub fn parse_num(s: &str) -> i32 { s.parse::<i32>().unwrap_or(0) }
+          pub fn parse_num(s: &str) -> i32 { s.parse::<u32>().unwrap_or(0) as i32 }
       - tool: apply_patch
         content: |
           status: success
       - tool: cargo_test
         content: |
           status: failed
-          stderr: test parse_trimmed failed: left panicked on input " 7 "
+          stderr: test parse_signed failed
       - tool: read_file
         content: |
-          pub fn parse_num(s: &str) -> i32 { s.parse::<i32>().unwrap_or(0) }
+          pub fn parse_num(s: &str) -> i32 { s.trim().parse::<u32>().unwrap_or(0) as i32 }
       - tool: apply_patch
         content: |
           status: success
@@ -128,62 +128,61 @@ post_eval:
   - name: patch_run_recover_twice_counter
     kind: patch_run_recover_twice
     system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-    user: Fix the crate at /workspace/cases/counter_bug. Read src/main.rs, patch the bug, run cargo_run, and keep iterating until the output is correct, then answer once.
+    user: Repair the crate at runs/rlvr1/rust_cases/counter_bug. Inspect src/main.rs, fix the bug, run cargo_run, and keep iterating until the output is correct, then give one final answer.
     expected_tool_sequence: [read_file, apply_patch, cargo_run, read_file, apply_patch, cargo_run, read_file, apply_patch, cargo_run]
     mock_results:
       - tool: read_file
         content: |
-          fn main() { for n in 1..4 { println!("{n}"); } }
+          fn main() { for n in 1..4 { print!("count {n} "); } }
       - tool: apply_patch
         content: |
           status: success
       - tool: cargo_run
         content: |
           status: failed
-          stdout: 1
-          stderr: expected lines: 1 2 3 4
+          stdout: count 1 count 2 count 3 count 4
+          stderr: expected lines with capitalized Count prefix
       - tool: read_file
         content: |
-          fn main() { for n in 1..=3 { println!("{n}"); } }
+          fn main() { for n in 1..=4 { print!("count {n} "); } }
       - tool: apply_patch
         content: |
           status: success
       - tool: cargo_run
         content: |
           status: failed
-          stdout: 1
-          2
-          3
-          stderr: missing final line 4
+          stdout: Count: 1 Count: 2 Count: 3 Count: 4
+          stderr: expected one line per count value
       - tool: read_file
         content: |
-          fn main() { for n in 1..=4 { println!("{n}"); } }
+          fn main() { for n in 1..=4 { print!("Count: {n} "); } }
       - tool: apply_patch
         content: |
           status: success
       - tool: cargo_run
         content: |
           status: success
-          stdout: 1
-          2
-          3
-          4
+          stdout: |
+            Count: 1
+            Count: 2
+            Count: 3
+            Count: 4
 
   - name: test_only_suite
     kind: test_only
     system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-    user: Run cargo_test on /workspace/cases/passing_suite and report the result in one final answer.
+    user: Run cargo_test for runs/rlvr1/rust_cases/passing_suite and report the outcome in one final answer.
     expected_tool_sequence: [cargo_test]
     mock_results:
       - tool: cargo_test
         content: |
           status: success
-          stdout: test result: ok. 6 passed; 0 failed
+          stdout: test result: ok. 2 passed; 0 failed
 
   - name: read_only_show_lib
     kind: read_only
     system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-    user: Read /workspace/cases/showcase_lib/src/lib.rs and summarize what it does in one final answer.
+    user: Open runs/rlvr1/rust_cases/showcase_lib/src/lib.rs and summarize what it does in one final answer.
     expected_tool_sequence: [read_file]
     mock_results:
       - tool: read_file

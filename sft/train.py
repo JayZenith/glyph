@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """SFT training entry point. Run from repo root:
-
     python -m sft.train [flags]
-
 To resume from latest checkpoint: --resume
-To merge LoRA into base at end of training: --enable-merge (default off)
 """
 import argparse
 from pathlib import Path
@@ -17,15 +14,12 @@ from transformers import (
     Trainer,
     DataCollatorForSeq2Seq,
 )
-from peft import LoraConfig, get_peft_model
 
 from sft.config import TrainConfig
 from sft.data import load_traces, create_dataset
-from sft.trainers import ParamGroupTrainer
-
 
 def setup_model_and_tokenizer(config: TrainConfig):
-    """Load model + tokenizer; apply LoRA before grad checkpointing."""
+    """Load model + tokenizer for full fine-tuning."""
     print(f"Loading model: {config.model_name}")
     tokenizer_name = config.tokenizer_name or config.model_name
 
@@ -40,33 +34,11 @@ def setup_model_and_tokenizer(config: TrainConfig):
             config.model_name,
             trust_remote_code=True,
             torch_dtype=torch.bfloat16 if config.bf16 else torch.float32,
-            attn_implementation="flash_attention_2",
+            attn_implementation="flash_attention",
         )
-        print("✓ Using Flash Attention 2")
+        print("✓ Using Flash Attention")
     except Exception as e:
-        print(f"⚠️  Flash Attention 2 failed ({e}), falling back to SDPA")
-        model = AutoModelForCausalLM.from_pretrained(
-            config.model_name,
-            trust_remote_code=True,
-            torch_dtype=torch.bfloat16 if config.bf16 else torch.float32,
-            attn_implementation="sdpa",
-        )
-
-    # LoRA must be applied before gradient_checkpointing_enable, else PEFT's
-    # trainable params won't get grads through the checkpointed graph.
-    if config.use_lora:
-        print("Applying LoRA...")
-        lora_config = LoraConfig(
-            r=config.lora_r,
-            lora_alpha=config.lora_alpha,
-            lora_dropout=config.lora_dropout,
-            target_modules=config.lora_target_modules,
-            modules_to_save=config.lora_modules_to_save,
-            bias="none",
-            task_type="CAUSAL_LM",
-        )
-        model = get_peft_model(model, lora_config)
-        model.print_trainable_parameters()
+        raise RuntimeError(f"Failed to load flash attention backend: {e}")
 
     if config.gradient_checkpointing:
         if hasattr(model, "enable_input_require_grads"):
@@ -88,19 +60,10 @@ def main():
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--grad-accum", type=int, default=8)
     parser.add_argument("--lr", type=float, default=2e-5)
-    parser.add_argument("--lm-head-lr", type=float, default=3e-5)
     parser.add_argument("--warmup-ratio", type=float, default=0.03)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--lr-scheduler-type", type=str, default="cosine")
     parser.add_argument("--max-seq-length", type=int, default=1536)
-    parser.add_argument("--use-lora", action=argparse.BooleanOptionalAction, default=True,
-                        help="Use LoRA (default True). Disable with --no-use-lora for full fine-tune.")
-    parser.add_argument("--lora-r", type=int, default=64)
-    parser.add_argument("--lora-alpha", type=int, default=64)
-    parser.add_argument("--modules-to-save", choices=["lm_head", "none"], default="lm_head",
-                        help="Which non-LoRA modules to fully train. 'lm_head' (default) | 'none'")
-    parser.add_argument("--masking-mode", choices=["assistant_only", "full_trace"], default="assistant_only",
-                        help="Loss masking. 'assistant_only' (default) masks system+user; 'full_trace' trains on all tokens")
     parser.add_argument("--resume", action="store_true", help="Resume from latest checkpoint")
     parser.add_argument("--resume-from", type=str, help="Resume from specific checkpoint")
     parser.add_argument("--bf16", action=argparse.BooleanOptionalAction, default=True)
@@ -117,8 +80,6 @@ def main():
     parser.add_argument("--logging-steps", type=int, default=10)
     parser.add_argument("--logging-first-step", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--report-to", type=str, default="tensorboard")
-    parser.add_argument("--enable-merge", action="store_true",
-                        help="Merge LoRA into base at end of training (default off; merge locally instead)")
     parser.add_argument("--cache-dir", type=str, default=".cache", help="Cache directory for tokenized data")
     args = parser.parse_args()
 
@@ -131,16 +92,11 @@ def main():
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
-        lm_head_lr=args.lm_head_lr,
         warmup_ratio=args.warmup_ratio,
         weight_decay=args.weight_decay,
         lr_scheduler_type=args.lr_scheduler_type,
         max_seq_length=args.max_seq_length,
-        masking_mode=args.masking_mode,
-        use_lora=args.use_lora,
-        lora_r=args.lora_r,
-        lora_alpha=args.lora_alpha,
-        lora_modules_to_save=[] if args.modules_to_save == "none" else ["lm_head"],
+        masking_mode="assistant_only",
         bf16=args.bf16,
         tf32=args.tf32,
         gradient_checkpointing=args.gradient_checkpointing,
@@ -152,6 +108,7 @@ def main():
         report_to=args.report_to,
     )
 
+    # resume from checkpoint
     if args.resume_from:
         config.resume_from_checkpoint = args.resume_from
     elif args.resume:
@@ -168,21 +125,33 @@ def main():
     model, tokenizer = setup_model_and_tokenizer(config)
 
     traces = load_traces(config.data_path)
+
+    # deduplication regardless of split or not
+    seen = set()
+    deduped = []
+    for trace in traces:
+        if trace["text"] not in seen:
+            seen.add(trace["text"])
+            deduped.append(trace)
+
+    if len(deduped) != len(traces):
+        print(f"Removed {len(traces) - len(deduped)} duplicate traces")
+
     full_dataset = create_dataset(
-        traces, tokenizer, config.max_seq_length, args.cache_dir,
-        masking_mode=config.masking_mode,
+        deduped,
+        tokenizer,
+        config.max_seq_length,
+        args.cache_dir,
     )
 
     if args.no_train_split:
         dataset = full_dataset
         eval_dataset = None
-        print(f"Train: {len(dataset)} (full dataset, no internal split)")
+        print(f"Train: {len(dataset)}")
     else:
-        # 80/10/10 train/val/test split with fixed seed.
-        # val: in-loop loss tracking + early stopping
-        # test: HELD OUT — never touched during training/HP tuning. Final eval only.
         first = full_dataset.train_test_split(test_size=0.2, seed=42)
         dataset = first["train"]
+
         holdout = first["test"].train_test_split(test_size=0.5, seed=42)
         eval_dataset = holdout["train"]
         test_dataset = holdout["test"]
@@ -190,8 +159,13 @@ def main():
         test_dir = Path(config.output_dir) / "test_set"
         test_dir.parent.mkdir(parents=True, exist_ok=True)
         test_dataset.save_to_disk(str(test_dir))
-        print(f"Train: {len(dataset)}, Val: {len(eval_dataset)}, Test: {len(test_dataset)} (saved to {test_dir})")
-    print(f"Sample token lengths (train): {[len(dataset[i]['input_ids']) for i in range(min(5, len(dataset)))]}")
+
+        print(
+            f"Train: {len(dataset)}, "
+            f"Val: {len(eval_dataset)}, "
+            f"Test: {len(test_dataset)} "
+            f"(saved to {test_dir})"
+        )
 
     data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, padding=True, pad_to_multiple_of=8)
 
@@ -222,13 +196,10 @@ def main():
         dataloader_num_workers=4,
         dataloader_pin_memory=True,
         remove_unused_columns=False,
-        deepspeed=None,
-        ddp_find_unused_parameters=False,
         save_only_model=True,
         save_safetensors=True,
     )
 
-    trainer_cls = ParamGroupTrainer if config.use_lora and config.lora_modules_to_save else Trainer
     trainer_kwargs = dict(
         model=model,
         args=training_args,
@@ -238,23 +209,26 @@ def main():
     )
     if eval_dataset is not None:
         trainer_kwargs["eval_dataset"] = eval_dataset
-    if trainer_cls is ParamGroupTrainer:
-        trainer_kwargs["lm_head_lr"] = config.lm_head_lr
-        trainer_kwargs["lm_head_module_names"] = tuple(config.lora_modules_to_save)
-    trainer = trainer_cls(**trainer_kwargs)
+    trainer = Trainer(**trainer_kwargs)
     print("\n" + "=" * 60)
     print("Starting training...")
     print(f"  Model: {config.model_name}")
-    print(f"  Data: {config.data_path} ({len(dataset)} samples)")
+    print(f"  Data: {config.data_path}")
+    print(f"  Train samples: {len(dataset)}")
+    if eval_dataset is not None:
+        print(f"  Val samples: {len(eval_dataset)}")
+    print(f"  Train split: {'disabled' if args.no_train_split else '80/10/10'}")
+    print("  Masking mode: assistant_only")
     print(f"  Epochs: {config.num_train_epochs}")
     print(f"  Batch size per device: {config.per_device_train_batch_size}")
     print(f"  Gradient accumulation: {config.gradient_accumulation_steps}")
+    print(f"  Effective batch size: {config.per_device_train_batch_size * config.gradient_accumulation_steps}")
     print(f"  Learning rate: {config.learning_rate}")
     print(f"  Max seq length: {config.max_seq_length}")
-    print(f"  LoRA: {config.use_lora}")
+    print(f"  BF16: {config.bf16}")
+    print(f"  Gradient checkpointing: {config.gradient_checkpointing}")
     print(f"  Output: {config.output_dir}")
-    if config.resume_from_checkpoint:
-        print(f"  Resuming from: {config.resume_from_checkpoint}")
+    print(f"  Resume: {config.resume_from_checkpoint or 'none'}")
     print("=" * 60 + "\n")
 
     trainer.train(resume_from_checkpoint=config.resume_from_checkpoint)
@@ -263,16 +237,6 @@ def main():
     final_dir = Path(config.output_dir) / "final"
     trainer.save_model(str(final_dir))
     tokenizer.save_pretrained(str(final_dir))
-
-    if config.use_lora and args.enable_merge:
-        print("Merging LoRA adapter into base model...")
-        merged_model = trainer.model.merge_and_unload()
-        merged_dir = Path(config.output_dir) / "merged"
-        merged_model.save_pretrained(str(merged_dir))
-        tokenizer.save_pretrained(str(merged_dir))
-        print(f"Merged checkpoint saved to: {merged_dir}")
-    elif config.use_lora:
-        print("Skipping merge (use --enable-merge to merge in-process; default is off so disk is light).")
 
     print("Training complete!")
 

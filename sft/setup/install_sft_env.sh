@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Creates a local .venv for SFT, installs a pinned torch build into it, then
-# installs the pinned Python deps from requirements-train.txt. flash-attn is
-# installed wheel-only so setup never falls back to a source build.
+# AVOID flash-attn source build time sink
+# creates Python venv for SFT training, installing pinned Torch/CUDA deps then installs flash-attn from prebuilt wheels
+# Targets diff Blackwell and Ampere
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
@@ -34,6 +34,7 @@ is_blackwell_gpu() {
   esac
 }
 
+# return true if user didn't override default deps
 using_default_sft_stack() {
   [ "${TORCH_VERSION}" = "2.5.1" ] \
     && [ "${CUDA_WHL_TAG}" = "cu124" ] \
@@ -42,6 +43,7 @@ using_default_sft_stack() {
     && [ -z "${PYTHON_BIN:-}" ]
 }
 
+# If on Blackwell & using defaults, override the stack
 if using_default_sft_stack && is_blackwell_gpu; then
   TORCH_VERSION="2.11.0"
   CUDA_WHL_TAG="cu128"
@@ -49,7 +51,7 @@ if using_default_sft_stack && is_blackwell_gpu; then
   FLASH_ATTN_WHEEL_URL="$BLACKWELL_FLASH_ATTN_WHEEL_URL"
   SFT_PYTHON_TARGET="3.12"
   echo "Detected Blackwell-class GPU; using fallback stack: python=${SFT_PYTHON_TARGET}, torch=${TORCH_VERSION}, cuda=${CUDA_WHL_TAG}" >&2
-else
+else # otherwise target Python 3.11
   SFT_PYTHON_TARGET="3.11"
 fi
 
@@ -69,12 +71,15 @@ retry_uv_pip_install() {
   done
 }
 
+# if uv missing, install with user-level pip
 if ! command -v uv >/dev/null 2>&1; then
   python3 -m pip install --user uv
 fi
 
+# make sure newly installed uv can be found
 export PATH="$HOME/.local/bin:$PATH"
 
+# if user manually sets a python path, use it else pick best available Python matching target
 if [ -n "${PYTHON_BIN:-}" ]; then
   SELECTED_PYTHON="$PYTHON_BIN"
 elif [ "$SFT_PYTHON_TARGET" = "3.12" ] && command -v python3.12 >/dev/null 2>&1; then
@@ -88,12 +93,14 @@ else
   exit 1
 fi
 
+# get selected python version
 PY_MINOR="$($SELECTED_PYTHON - <<'PYINFO'
 import sys
 print(f"{sys.version_info.major}.{sys.version_info.minor}")
 PYINFO
 )"
 
+# If Blackwell path needs Python 3.12, enforce it
 if [ "$SFT_PYTHON_TARGET" = "3.12" ]; then
   case "$PY_MINOR" in
     3.12) ;;
@@ -144,20 +151,26 @@ EOF
   esac
 fi
 
+# delete/recreate virtualenv using selected python
 uv venv --clear --python "$SELECTED_PYTHON" "$VENV_DIR"
 
+# Path to venv Python
 VENV_PY="$VENV_DIR/bin/python"
 
+# Install pinned Torch from Torch CUDA wheel index
 retry_uv_pip_install 4 \
   --python "$VENV_PY" \
   --index-url "$TORCH_INDEX_URL" \
   --extra-index-url "$NVIDIA_PYPI_INDEX" \
   "torch==${TORCH_VERSION}"
 
+# install  pinned deps
 retry_uv_pip_install 3 \
   --python "$VENV_PY" \
   -r "$ROOT_DIR/requirements-train.txt"
 
+# extract compatibility tags needd to find correct flash-attn wheel
+# Gets Torch minor version, CUDA major version, Python ABI flag, C++ ABI mode
 read -r FLASH_TORCH_TAG FLASH_CUDA_TAG FLASH_PY_TAG FLASH_ABI_TAG <<EOF
 $("$VENV_PY" - <<'PYINFO'
 import sys
@@ -171,10 +184,12 @@ PYINFO
 )
 EOF
 
+# Construct expected flash-attn wheel filename and GitHub URL
 AUTO_WHEEL_NAME="flash_attn-${FLASH_ATTN_VERSION}+${FLASH_CUDA_TAG}torch${FLASH_TORCH_TAG}cxx11abi${FLASH_ABI_TAG}-${FLASH_PY_TAG}-${FLASH_PY_TAG}-linux_x86_64.whl"
 AUTO_WHEEL_URL="https://github.com/Dao-AILab/flash-attention/releases/download/v${FLASH_ATTN_VERSION}/${AUTO_WHEEL_NAME//+/%2B}"
 MIRROR_WHEEL_URL="https://huggingface.co/strangertoolshf/flash_attention_2_wheelhouse/resolve/main/wheelhouse-flash_attn-${FLASH_ATTN_VERSION}/linux_x86_64/torch${FLASH_TORCH_TAG}/${FLASH_CUDA_TAG}/abi${FLASH_ABI_TAG}/${FLASH_PY_TAG}/${AUTO_WHEEL_NAME//+/%2B}"
 
+# install flash-attn wheel to /tmp, install, deletes temp dir
 install_flash_wheel() {
   local wheel_url="$1"
   local wheel_name wheel_dir wheel_file
@@ -187,6 +202,8 @@ install_flash_wheel() {
   rm -rf "$wheel_dir"
 }
 
+# If user or Blackwell fallback supplied wheel URL, use first
+# else try official flash-attn GitHub wheel
 if [ -n "${FLASH_ATTN_WHEEL_URL:-}" ]; then
   install_flash_wheel "$FLASH_ATTN_WHEEL_URL"
 elif install_flash_wheel "$AUTO_WHEEL_URL"; then

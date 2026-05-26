@@ -1,8 +1,0 @@
-{
-  "source_rows": 4135,
-  "output_rows": 3963,
-  "removed_duplicate_user_rows": 172,
-  "unique_users": 3963,
-  "source_file": "synthetic_data/final_glyph_sft_dataset_rlvr_term_v3.jsonl",
-  "output_file": "synthetic_data/final_glyph_sft_dataset_rlvr_term_v4_useruniq.jsonl"
-}

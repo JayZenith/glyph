@@ -1,8 +1,0 @@
-{
-  "base_rows": 3141,
-  "topup_rows": 7,
-  "combined_rows": 3148,
-  "topup_file": "synthetic_data/rlvr_seed_microfix_v1.jsonl",
-  "combined_file": "synthetic_data/gold_glyph_3148_plus_rlvr_seed_microfix_v1.jsonl",
-  "exact_prompt_overlap_count": 0
-}

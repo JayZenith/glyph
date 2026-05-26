@@ -1,7 +1,6 @@
 """Training config dataclass for SFT runs."""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
-
 
 @dataclass
 class TrainConfig:
@@ -24,27 +23,10 @@ class TrainConfig:
     weight_decay: float = 0.01
     lr_scheduler_type: str = "cosine"
 
-    # LoRA (default True; set False for full fine-tune)
-    use_lora: bool = True
-    lora_r: int = 64
-    lora_alpha: int = 64
-    lora_dropout: float = 0.05
-    lora_target_modules: list = field(default_factory=lambda: [
-        "q_proj", "k_proj", "v_proj", "o_proj",
-        "gate_proj", "up_proj", "down_proj",
-    ])
-    # Fully trained (not LoRA'd) so we can shift the vocab prior — needed for
-    # termination/repetition fixes. Qwen3-4B-Base has tied embeddings, so
-    # training lm_head also updates embed_tokens.
-    lora_modules_to_save: list = field(default_factory=lambda: ["lm_head"])
-    # Separate LR for lm_head. Keep it slightly above trunk LR so the model
-    # learns stop/closure tokens a bit faster on the strict glyph traces.
-    lm_head_lr: float = 3e-5
-
     # Optimization
     bf16: bool = True
     tf32: bool = True
-    gradient_checkpointing: bool = True
+    gradient_checkpointing: bool = False
 
     # Checkpointing
     save_strategy: str = "steps"

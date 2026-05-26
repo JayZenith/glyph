@@ -1,18 +1,22 @@
-"""Load eval prompts from evals/prompts_125.yaml and render them to TASK format."""
+"""Load eval prompts from evals/eval_prompts.yaml and render them to CALL/RESULT format."""
+import json
+import re
 from pathlib import Path
 
 import yaml
 
-_PROMPTS_FILE = Path(__file__).parent / "prompts_125.yaml"
-
+_PROMPTS_FILE = Path(__file__).parent / "eval_prompts.yaml"
+_USER_RE = re.compile(r"<\|im_start\|>user\n(.*?)\n<\|im_end\|>", re.DOTALL)
 
 def load_prompts(section: str, prompt_file: str | None = None) -> list[dict]:
     """Load a named section from a prompt yaml file."""
     prompt_path = Path(prompt_file) if prompt_file else _PROMPTS_FILE
+    # read/prase YAML into python dicts/lists
     data = yaml.safe_load(prompt_path.read_text())
     if section not in data:
         raise KeyError(f"Section {section!r} not in {prompt_path}; have {list(data)}")
     rows = data[section]
+    # if section already directly contains prompt list, return immediately
     if isinstance(rows, list):
         return rows
     if not isinstance(rows, dict) or "include_from" not in rows or "names" not in rows:
@@ -31,41 +35,56 @@ def load_prompts(section: str, prompt_file: str | None = None) -> list[dict]:
     return selected
 
 
-def build_prompt(user_message: str, tools: list[dict], system_message: str | None = None) -> str:
-    """Render a TASK-format prompt up to the assistant header (greedy generation continues from here)."""
+def build_prompt(user_message: str, system_message: str | None = None) -> str:
+    """Render a simple CALL/RESULT prompt up to the assistant header."""
+    system = system_message or "You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately."
     parts = [
         "<|im_start|>system",
-        f"system「{system_message or 'You are a helpful AI assistant that completes tasks step by step.'}」",
-    ]
-    for tool in tools:
-        parts.append("tool {")
-        parts.append(f"    name ↦ {tool['name']} •")
-        if tool.get("description"):
-            parts.append(f'    description ↦ "{tool["description"]}" •')
-        if tool.get("params"):
-            parts.append("    params ↦ {")
-            param_lines = []
-            for param_name, param_def in tool["params"].items():
-                inner = []
-                if "type" in param_def:
-                    inner.append(f"type ↦ {param_def['type']}")
-                if "enum" in param_def:
-                    inner.append(f"enum ↦ [ {' • '.join(param_def['enum'])} ]")
-                if "description" in param_def:
-                    inner.append(f'description ↦ "{param_def["description"]}"')
-                if param_def.get("required") is False:
-                    inner.append("required ↦ false")
-                param_lines.append(f"        {param_name} ↦ {{ {' • '.join(inner)} }}")
-            parts.append(" •\n".join(param_lines))
-            parts.append("    }")
-        parts.append("}")
-    parts.extend([
+        system,
         "<|im_end|>",
         "",
         "<|im_start|>user",
-        f"user「{user_message}」🏷 usr1",
+        user_message,
         "<|im_end|>",
         "",
         "<|im_start|>assistant",
-    ])
+    ]
     return "\n".join(parts) + "\n"
+
+
+def assert_no_prompt_overlap(prompts: list[dict], train_data_path: str) -> None:
+    """Raise if any eval prompt user string appears exactly in the train dataset."""
+    train_path = Path(train_data_path)
+    if not train_path.exists():
+        raise FileNotFoundError(f"Train data file not found: {train_path}")
+
+    prompt_to_names: dict[str, list[str]] = {}
+    for item in prompts:
+        prompt_to_names.setdefault(item["user"], []).append(item["name"])
+
+    overlaps: list[tuple[str, list[str]]] = []
+    with train_path.open(encoding="utf-8") as fh:
+        for line_no, line in enumerate(fh, 1):
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            trace = obj.get("trace")
+            if not isinstance(trace, str):
+                raise ValueError(f"{train_path}:{line_no} is missing string field 'trace'")
+            match = _USER_RE.search(trace)
+            if not match:
+                raise ValueError(f"{train_path}:{line_no} is missing a user block")
+            user_text = match.group(1)
+            if user_text in prompt_to_names:
+                overlaps.append((user_text, prompt_to_names[user_text]))
+
+    if overlaps:
+        details = "; ".join(
+            f"{'/'.join(names)} -> {user[:120]!r}"
+            for user, names in overlaps[:5]
+        )
+        raise ValueError(
+            f"Eval/train contamination detected in {train_path}: "
+            f"{len(overlaps)} exact prompt overlaps. {details}"
+        )

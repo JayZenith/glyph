@@ -342,7 +342,7 @@ def phrasings_for(case: dict, n: int) -> list[str]:
 
 
 def prompt_for(task: str) -> str:
-    return build_prompt(task, RUST_TOOLS)
+    return build_prompt(task)
 
 
 # ---------------------------------------------------------------------------

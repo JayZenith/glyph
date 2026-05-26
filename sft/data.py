@@ -2,9 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
-
 from datasets import Dataset
-
 
 def load_traces(data_path: str) -> list[dict]:
     """Load processed traces from JSONL into [{text: ...}, ...]."""
@@ -19,34 +17,23 @@ def load_traces(data_path: str) -> list[dict]:
             try:
                 item = json.loads(line)
                 traces.append({"text": item["trace"]})
-            except Exception:
-                pass
+            except Exception as e:
+                raise ValueError(f"Failed to parse dataset line: {e}")
     print(f"Loaded {len(traces)} traces from {p}")
     return traces
-
 
 def create_dataset(
     traces: list[dict],
     tokenizer,
     max_seq_length: int,
     cache_dir: str = ".cache",
-    masking_mode: str = "assistant_only",
 ) -> Dataset:
-    """Tokenize traces with the chosen loss masking; cache the result.
-
-    masking_mode:
-      - "assistant_only" (default): labels are -100 everywhere except inside
-        `<|im_start|>assistant\\n` ... `<|im_end|>` (the trailing `<|im_end|>`
-        is included so the model is trained to emit the stop token).
-      - "full_trace": labels = input_ids (no masking; train on system+user too).
-    """
-    if masking_mode not in ("assistant_only", "full_trace"):
-        raise ValueError(f"masking_mode must be 'assistant_only' or 'full_trace', got {masking_mode!r}")
+    """Tokenize traces with assistant-only loss masking and cache the result."""
     trace_fingerprint = hashlib.md5(
         "".join(trace["text"] for trace in traces).encode("utf-8")
     ).hexdigest()[:12]
     cache_key = hashlib.md5(
-        f"v4_{masking_mode}_{len(traces)}_{trace_fingerprint}_{tokenizer.name_or_path}_{max_seq_length}".encode()
+        f"v5_assistant_only_{len(traces)}_{trace_fingerprint}_{tokenizer.name_or_path}_{max_seq_length}".encode()
     ).hexdigest()[:12]
     cache_path = Path(cache_dir) / f"tokenized_{cache_key}"
 
@@ -60,19 +47,24 @@ def create_dataset(
 
     true_lengths = []
     for trace in traces:
-        tokens = tokenizer(trace["text"], truncation=False, add_special_tokens=True)
+        # dont cut seq even if exceeding model context length
+        # don't add model-specific tokens BOS/EOS or chat formatting tokens
+        # tokens results in { "input_ids": [...], "attention_mask": [...]}
+        tokens = tokenizer(trace["text"], truncation=False, add_special_tokens=False)
         true_lengths.append(len(tokens["input_ids"]))
 
-    truncated = sum(1 for l in true_lengths if l > max_seq_length)
-    if truncated > 0:
-        over_lengths = [l for l in true_lengths if l > max_seq_length]
-        print("\n⚠️  Truncation warning:")
-        print(f"   {truncated}/{len(traces)} traces exceed max_seq_length ({max_seq_length})")
-        print(f"   Max length: {max(true_lengths)}, Median: {sorted(true_lengths)[len(true_lengths) // 2]}")
-        print(f"   Truncated lengths: min={min(over_lengths)}, max={max(over_lengths)}, avg={sum(over_lengths) // len(over_lengths)}")
+    over_lengths = [l for l in true_lengths if l > max_seq_length]
+    if over_lengths:
+        raise ValueError(
+            f"{len(over_lengths)}/{len(traces)} traces exceed max_seq_length "
+            f"({max_seq_length}). "
+            f"Max length: {max(over_lengths)}"
+        )
     else:
         print(f"✓ No truncation needed (max trace: {max(true_lengths)} tokens)")
 
+    # Convert chat markers to IDs so masking code scans token sequences to
+    # find assistant header, start unmasking labels skipping assistant to <|im_end|> then stops
     asst_header_ids = tokenizer.encode("<|im_start|>assistant\n", add_special_tokens=False)
     im_end_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
     H = len(asst_header_ids)
@@ -98,17 +90,16 @@ def create_dataset(
     def tokenize(examples):
         tokenized = tokenizer(
             examples["text"],
-            truncation=True,
+            truncation=False,
             max_length=max_seq_length,
             padding=False,
             return_attention_mask=True,
         )
-        if masking_mode == "assistant_only":
-            tokenized["labels"] = [make_labels(ids) for ids in tokenized["input_ids"]]
-        else:  # full_trace
-            tokenized["labels"] = [list(ids) for ids in tokenized["input_ids"]]
+        tokenized["labels"] = [make_labels(ids) for ids in tokenized["input_ids"]]
         return tokenized
 
+    # turn Python list like [{"text": "..."}, ...] into HF Dataset Object
+    # Then dataset.map(...) applies tokenize() across dataset
     dataset = Dataset.from_list(traces)
     dataset = dataset.map(
         tokenize,
@@ -117,10 +108,6 @@ def create_dataset(
         num_proc=4,
         desc="Tokenizing",
     )
-
-    original_len = len(dataset)
-    dataset = dataset.filter(lambda x: len(x["input_ids"]) > 100)
-    print(f"Filtered {original_len - len(dataset)} short sequences")
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     dataset.save_to_disk(str(cache_path))

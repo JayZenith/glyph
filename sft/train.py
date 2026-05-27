@@ -29,16 +29,25 @@ def setup_model_and_tokenizer(config: TrainConfig):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    try:
-        model = AutoModelForCausalLM.from_pretrained(
-            config.model_name,
-            trust_remote_code=True,
-            torch_dtype=torch.bfloat16 if config.bf16 else torch.float32,
-            attn_implementation="flash_attention",
-        )
-        print("✓ Using Flash Attention")
-    except Exception as e:
-        raise RuntimeError(f"Failed to load flash attention backend: {e}")
+    last_error = None
+    for attn_impl, label in (
+        ("flash_attention_3", "Flash Attention 3"),
+        ("flash_attention_2", "Flash Attention 2"),
+        ("sdpa", "SDPA"),
+    ):
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                config.model_name,
+                trust_remote_code=True,
+                torch_dtype=torch.bfloat16 if config.bf16 else torch.float32,
+                attn_implementation=attn_impl,
+            )
+            print(f"✓ Using {label}")
+            break
+        except Exception as e:
+            last_error = e
+    else:
+        raise RuntimeError(f"Failed to load supported attention backend: {last_error}")
 
     if config.gradient_checkpointing:
         if hasattr(model, "enable_input_require_grads"):

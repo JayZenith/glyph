@@ -25,10 +25,10 @@ post_eval:
   case_id: welcome_eval
   difficulty: single_repair
   expected_output: Welcome, team!
-- name: patch_test_recover_once_triangle
+- name: patch_test_recover_triangle
   kind: patch_test_recover
   system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-  real_case_name: patch_test_recover_once_triangle
+  real_case_name: patch_test_recover_triangle
   user_template: Repair the crate at {project_root}. Inspect src/lib.rs, fix the bug,
     run cargo_test, and continue until the tests pass, then give one final answer.
   expected_tool_sequence:
@@ -39,12 +39,12 @@ post_eval:
   - apply_patch
   - cargo_test
   case_id: triangle_eval
-  difficulty: recover_once
+  difficulty: recover
   expected_output: null
-- name: patch_run_recover_once_banner
+- name: patch_run_recover_banner
   kind: patch_run_recover
   system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-  real_case_name: patch_run_recover_once_banner
+  real_case_name: patch_run_recover_banner
   user_template: Repair the crate at {project_root}. Inspect src/main.rs, fix the
     bug, run cargo_run, and continue until the output is correct, then give one final
     answer.
@@ -56,12 +56,12 @@ post_eval:
   - apply_patch
   - cargo_run
   case_id: banner_eval
-  difficulty: recover_once
+  difficulty: recover
   expected_output: Ready!
-- name: patch_test_recover_twice_signed_parse
+- name: patch_test_recover_signed_parse
   kind: patch_test_recover
   system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-  real_case_name: patch_test_recover_twice_signed_parse
+  real_case_name: patch_test_recover_signed_parse
   user_template: Repair the crate at {project_root}. Inspect src/lib.rs, fix the bug,
     run cargo_test, and keep iterating until the tests pass, then give one final answer.
   expected_tool_sequence:
@@ -75,12 +75,12 @@ post_eval:
   - apply_patch
   - cargo_test
   case_id: signed_parse_eval
-  difficulty: recover_twice
+  difficulty: recover
   expected_output: null
-- name: patch_run_recover_twice_counter
+- name: patch_run_recover_counter
   kind: patch_run_recover
   system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-  real_case_name: patch_run_recover_twice_counter
+  real_case_name: patch_run_recover_counter
   user_template: Repair the crate at {project_root}. Inspect src/main.rs, fix the
     bug, run cargo_run, and keep iterating until the output is correct, then give
     one final answer.
@@ -95,7 +95,7 @@ post_eval:
   - apply_patch
   - cargo_run
   case_id: counter_eval
-  difficulty: recover_twice
+  difficulty: recover
   expected_output: 'Count: 1
 
     Count: 2

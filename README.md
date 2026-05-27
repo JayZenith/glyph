@@ -33,6 +33,7 @@ python -m sft.train \
 python -m sft.eval_formal \
     --sft-model runs/SIGNAL_259_SFT_E3_LR2E5/final \
     --train-data synthetic_data/signal_259.jsonl \
+    --max-prompt-similarity 0.90 \
     --prompt-section post_eval \
     --output runs/SIGNAL_259_SFT_E3_LR2E5/eval_formal_post_eval_flatroots.json \
     --max-new-tokens 1200 \
@@ -91,6 +92,7 @@ python -m sft.eval_test_loss \
 python -m sft.eval_formal \
     --sft-model runs/SIGNAL_259_SFT_E3_LR2E5/final \
     --train-data synthetic_data/signal_259.jsonl \
+    --max-prompt-similarity 0.90 \
     --prompt-section post_eval \
     --output runs/SIGNAL_259_SFT_E3_LR2E5/eval_formal_post_eval_flatroots.json \
     --max-new-tokens 1200 \

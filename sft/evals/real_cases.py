@@ -47,7 +47,7 @@ def _patch_run_pass(root: Path) -> RealEvalCase:
     return RealEvalCase("patch_run_pass_welcome", str(project), "Welcome, team!")
 
 
-def _patch_test_recover_once(root: Path) -> RealEvalCase:
+def _patch_test_recover_triangle(root: Path) -> RealEvalCase:
     project = root
     _write(project / "Cargo.toml", _cargo_toml("triangle_eval"))
     _write(
@@ -64,17 +64,17 @@ def _patch_test_recover_once(root: Path) -> RealEvalCase:
             "}\n"
         ),
     )
-    return RealEvalCase("patch_test_recover_once_triangle", str(project))
+    return RealEvalCase("patch_test_recover_triangle", str(project))
 
 
-def _patch_run_recover_once(root: Path) -> RealEvalCase:
+def _patch_run_recover_banner(root: Path) -> RealEvalCase:
     project = root
     _write(project / "Cargo.toml", _cargo_toml("banner_eval"))
     _write(project / "src" / "main.rs", 'fn main() { println!("ready"); }\n')
-    return RealEvalCase("patch_run_recover_once_banner", str(project), "Ready!")
+    return RealEvalCase("patch_run_recover_banner", str(project), "Ready!")
 
 
-def _patch_test_recover_twice(root: Path) -> RealEvalCase:
+def _patch_test_recover_signed_parse(root: Path) -> RealEvalCase:
     project = root
     _write(project / "Cargo.toml", _cargo_toml("signed_parse_eval"))
     _write(
@@ -93,14 +93,14 @@ def _patch_test_recover_twice(root: Path) -> RealEvalCase:
             "}\n"
         ),
     )
-    return RealEvalCase("patch_test_recover_twice_signed_parse", str(project))
+    return RealEvalCase("patch_test_recover_signed_parse", str(project))
 
 
-def _patch_run_recover_twice(root: Path) -> RealEvalCase:
+def _patch_run_recover_counter(root: Path) -> RealEvalCase:
     project = root
     _write(project / "Cargo.toml", _cargo_toml("counter_eval"))
     _write(project / "src" / "main.rs", 'fn main() { for n in 1..4 { print!("count {n} "); } }\n')
-    return RealEvalCase("patch_run_recover_twice_counter", str(project), "Count: 1\nCount: 2\nCount: 3\nCount: 4")
+    return RealEvalCase("patch_run_recover_counter", str(project), "Count: 1\nCount: 2\nCount: 3\nCount: 4")
 
 
 def _test_only(root: Path) -> RealEvalCase:
@@ -144,10 +144,10 @@ def _read_only(root: Path) -> RealEvalCase:
 BUILDERS = {
     "patch_test_pass_sumswap": _patch_test_pass,
     "patch_run_pass_welcome": _patch_run_pass,
-    "patch_test_recover_once_triangle": _patch_test_recover_once,
-    "patch_run_recover_once_banner": _patch_run_recover_once,
-    "patch_test_recover_twice_signed_parse": _patch_test_recover_twice,
-    "patch_run_recover_twice_counter": _patch_run_recover_twice,
+    "patch_test_recover_triangle": _patch_test_recover_triangle,
+    "patch_run_recover_banner": _patch_run_recover_banner,
+    "patch_test_recover_signed_parse": _patch_test_recover_signed_parse,
+    "patch_run_recover_counter": _patch_run_recover_counter,
     "test_only_passing_suite": _test_only,
     "run_only_total": _run_only,
     "read_only_headline": _read_only,

@@ -2,6 +2,7 @@
 """Format-quality eval for the SFT model only."""
 import argparse
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,13 @@ from sft.evals import (
     summarize,
 )
 from sft.evals.real_cases import materialize_case
+
+
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _sanitize_stream_piece(piece: str) -> str:
+    return _CONTROL_CHARS_RE.sub("", piece)
 
 
 def prepare_eval_items(items: list[dict], cases_root: Path) -> list[dict]:
@@ -84,7 +92,9 @@ def main() -> int:
                 if not started:
                     print(f"\n===== {item['name']} | sft =====\n", end="", flush=True)
                     started = True
-                print(piece, end="", flush=True)
+                cleaned = _sanitize_stream_piece(piece)
+                if cleaned:
+                    print(cleaned, end="", flush=True)
 
             return _cb
 

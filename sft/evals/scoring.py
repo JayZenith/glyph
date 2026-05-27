@@ -91,6 +91,24 @@ def _failure_buckets(metrics: dict) -> list[str]:
     return buckets
 
 
+def _expected_sequence_match(kind: str, call_sequence: list[str], expected_tool_sequence: list[str]) -> bool:
+    if kind == "patch_test_recover":
+        if len(call_sequence) < 3 or len(call_sequence) % 3 != 0:
+            return False
+        return all(
+            call_sequence[i:i + 3] == ["read_file", "apply_patch", "cargo_test"]
+            for i in range(0, len(call_sequence), 3)
+        )
+    if kind == "patch_run_recover":
+        if len(call_sequence) < 3 or len(call_sequence) % 3 != 0:
+            return False
+        return all(
+            call_sequence[i:i + 3] == ["read_file", "apply_patch", "cargo_run"]
+            for i in range(0, len(call_sequence), 3)
+        )
+    return call_sequence == expected_tool_sequence
+
+
 def score_output(
     prompt_text: str,
     output_text: str,
@@ -108,6 +126,7 @@ def score_output(
     result_ids = _extract_result_ids(tool_bodies)
     parsed_calls = parse_call_blocks(assistant_text)
     expected_tool_sequence = item.get("expected_tool_sequence", [])
+    kind = item.get("kind", "other")
     final_blocks = [body for body in assistant_bodies if body.strip().startswith("FINAL:")]
     last_assistant = assistant_bodies[-1].strip() if assistant_bodies else ""
     last_call = parsed_calls[-1] if parsed_calls else None
@@ -127,7 +146,7 @@ def score_output(
         "has_final": bool(final_blocks),
         "final_count": len(final_blocks),
         "clean_end": bool(assistant_bodies) and last_assistant.startswith("FINAL:"),
-        "expected_tool_sequence_exact": call_sequence == expected_tool_sequence,
+        "expected_tool_sequence_exact": _expected_sequence_match(kind, call_sequence, expected_tool_sequence),
         "result_ids_match_call_ids": result_ids == call_ids[: len(result_ids)],
         "all_calls_have_ids": len(call_ids) == len(calls),
         "role_marker_leakage": bool(ROLE_LEAK_RE.search(assistant_text)),

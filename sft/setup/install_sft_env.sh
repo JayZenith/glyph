@@ -76,6 +76,16 @@ if ! command -v uv >/dev/null 2>&1; then
   python3 -m pip install --user uv
 fi
 
+if ! command -v cargo >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then
+  if command -v sudo >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y cargo rustc
+  else
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y cargo rustc
+  fi
+fi
+
 # make sure newly installed uv can be found
 export PATH="$HOME/.local/bin:$PATH"
 
@@ -235,5 +245,6 @@ Installed:
   python=$SELECTED_PYTHON
   torch==$TORCH_VERSION from $TORCH_INDEX_URL
   flash-attn wheel only
+  rust toolchain via apt (cargo/rustc)
   pinned SFT deps from requirements-train.txt
 EOF

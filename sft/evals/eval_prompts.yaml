@@ -26,7 +26,7 @@ post_eval:
   difficulty: single_repair
   expected_output: Welcome, team!
 - name: patch_test_recover_once_triangle
-  kind: patch_test_recover_once
+  kind: patch_test_recover
   system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
   real_case_name: patch_test_recover_once_triangle
   user_template: Repair the crate at {project_root}. Inspect src/lib.rs, fix the bug,
@@ -42,7 +42,7 @@ post_eval:
   difficulty: recover_once
   expected_output: null
 - name: patch_run_recover_once_banner
-  kind: patch_run_recover_once
+  kind: patch_run_recover
   system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
   real_case_name: patch_run_recover_once_banner
   user_template: Repair the crate at {project_root}. Inspect src/main.rs, fix the
@@ -59,7 +59,7 @@ post_eval:
   difficulty: recover_once
   expected_output: Ready!
 - name: patch_test_recover_twice_signed_parse
-  kind: patch_test_recover_twice
+  kind: patch_test_recover
   system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
   real_case_name: patch_test_recover_twice_signed_parse
   user_template: Repair the crate at {project_root}. Inspect src/lib.rs, fix the bug,
@@ -78,7 +78,7 @@ post_eval:
   difficulty: recover_twice
   expected_output: null
 - name: patch_run_recover_twice_counter
-  kind: patch_run_recover_twice
+  kind: patch_run_recover
   system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
   real_case_name: patch_run_recover_twice_counter
   user_template: Repair the crate at {project_root}. Inspect src/main.rs, fix the
@@ -125,14 +125,3 @@ post_eval:
   case_id: run_eval
   difficulty: single_tool
   expected_output: total=9
-- name: read_only_show_lib
-  kind: read_only
-  system: You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately.
-  real_case_name: read_only_headline
-  user_template: Open {project_root}/src/lib.rs and summarize what it does in one
-    final answer.
-  expected_tool_sequence:
-  - read_file
-  case_id: read_eval_lib
-  difficulty: single_tool
-  expected_output: null

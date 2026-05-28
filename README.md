@@ -32,7 +32,6 @@ python -m sft.train \
 python -m sft.eval_formal \
     --sft-model runs/SIGNAL_259_SFT_E3_LR2E5/final \
     --train-data synthetic_data/signal_259.jsonl \
-    --max-prompt-similarity 0.90 \
     --prompt-section post_eval \
     --output runs/SIGNAL_259_SFT_E3_LR2E5/eval_formal_post_eval_flatroots.json \
     --max-new-tokens 1200 \
@@ -41,21 +40,21 @@ python -m sft.eval_formal \
 ```
 
 
-
 ## Example of Training Run
 ```bash
 python -m sft.train \
-    --model Qwen/Qwen3-4B-Base \
-    --tokenizer Qwen/Qwen3-4B-Base \
-    --data synthetic_data/signal_259.jsonl \
-    --output runs/SIGNAL_259_SFT_E3_LR2E5 \
-    --epochs 3 \
-    --batch-size 1 \
-    --grad-accum 8 \
-    --lr 2e-5 \
-    --max-seq-length 4096 \
-    --save-total-limit 1 \
-    --no-train-split
+  --model Qwen/Qwen3-4B-Base \
+  --tokenizer Qwen/Qwen3-4B-Base \
+  --data synthetic_data/signal_1062.jsonl \
+  --output runs/SIGNAL_1062_SFT_E3_LR2E5 \
+  --epochs 3 \
+  --batch-size 1 \
+  --grad-accum 8 \
+  --lr 2e-5 \
+  --max-seq-length 4096 \
+  --save-total-limit 2 \
+  --save-steps 100 \
+  --no-train-split
 ```
 
 Defaults:
@@ -80,6 +79,28 @@ report_to: str = "tensorboard"
 
 
 ## Example of Eval Runs
+1. Rust source similarity audit
+```bash
+python3 synthetic_data/audit_blueprint_similarity.py \
+  --train-data synthetic_data/signal_1062.jsonl \
+  --train-blueprints synthetic_data/blueprints \
+  --eval-data synthetic_data/eval_heldout_69.jsonl \
+  --eval-blueprints synthetic_data/eval_blueprints \
+  --max-source-similarity 0.92
+```
+
+2. run evals
+```bash
+python -m sft.eval_formal \
+  --sft-model runs/SIGNAL_1062_SFT_E3_LR2E5/final \
+  --train-data synthetic_data/signal_1062.jsonl \
+  --prompt-file sft/evals/eval_prompts_heldout_69.yaml \
+  --prompt-section post_eval_heldout_69 \
+  --output runs/SIGNAL_1062_SFT_E3_LR2E5/eval_formal_heldout_69.json \
+  --max-new-tokens 4000 \
+  --max-tool-rounds 15 \
+  --cases-root runs/rlvr1/rust_cases/eval_heldout_69
+```
 <!--
 ```bash
 python -m sft.eval_test_loss \
@@ -89,17 +110,6 @@ python -m sft.eval_test_loss \
   --output runs/GLYPH_SFT_FINAL/eval_test_loss.json
 ```-->
 
-```bash
-python -m sft.eval_formal \
-    --sft-model runs/SIGNAL_259_SFT_E3_LR2E5/final \
-    --train-data synthetic_data/signal_259.jsonl \
-    --max-prompt-similarity 0.90 \
-    --prompt-section post_eval \
-    --output runs/SIGNAL_259_SFT_E3_LR2E5/eval_formal_post_eval_flatroots.json \
-    --max-new-tokens 1200 \
-    --max-tool-rounds 8 \
-    --cases-root runs/rlvr1/rust_cases/eval
-```
 
 ## Key Results
 

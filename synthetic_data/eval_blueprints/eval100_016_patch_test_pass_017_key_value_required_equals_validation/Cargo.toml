@@ -1,0 +1,6 @@
+[package]
+name = "key_value_required_equals_validation"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

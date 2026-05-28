@@ -75,20 +75,23 @@ def select_rows(rows: list[dict], counts: dict[str, int] | None, seed: int) -> l
     return selected
 
 
-def build_rows(rows: list[dict], source_root: Path) -> list[dict]:
+def build_rows(rows: list[dict], source_root: Path, trace_root: str) -> list[dict]:
     eval_rows: list[dict] = []
     for row in rows:
         case_id = row["case_id"]
         blueprint_root = source_root / case_id
         if not blueprint_root.exists():
             raise SystemExit(f"missing blueprint for {case_id}: {blueprint_root}")
+        original_prefix = f"runs/rlvr1/rust_cases/{case_id}"
+        trace_prefix = f"{trace_root.rstrip('/')}/{case_id}"
+        user = user_from_trace(row["trace"]).replace(original_prefix, trace_prefix)
         eval_rows.append({
             "name": case_id,
             "kind": normalize_family(row["family"]),
             "system": SYSTEM_PROMPT,
             "blueprint_root": str(blueprint_root),
-            "trace_prefix": f"runs/rlvr1/rust_cases/{case_id}",
-            "user": user_from_trace(row["trace"]),
+            "trace_prefix": trace_prefix,
+            "user": user,
             "expected_tool_sequence": row["expected_tool_sequence"],
             "case_id": case_id,
             "difficulty": row.get("difficulty", "unknown"),
@@ -104,11 +107,13 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=Path("sft/evals/generated_eval_prompts.yaml"))
     parser.add_argument("--section", default="post_eval")
     parser.add_argument("--counts", default=None, help="JSON object or JSON file of per-family eval counts")
+    parser.add_argument("--trace-root", default="runs/rlvr1/rust_cases",
+                        help="Path root shown to the model in eval prompts and expected CALLs")
     parser.add_argument("--seed", type=int, default=2026)
     args = parser.parse_args()
 
     rows = select_rows(read_jsonl(args.data), parse_counts(args.counts), args.seed)
-    eval_rows = build_rows(rows, args.source_root)
+    eval_rows = build_rows(rows, args.source_root, args.trace_root)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(yaml.safe_dump({args.section: eval_rows}, sort_keys=False), encoding="utf-8")
     counts = Counter(row["kind"] for row in eval_rows)

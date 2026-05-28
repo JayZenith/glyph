@@ -1,0 +1,7 @@
+[package]
+name = "category_summary_skips_zero_counts_and_sorts"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

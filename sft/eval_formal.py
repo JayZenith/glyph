@@ -57,8 +57,8 @@ def main() -> int:
                         help="Optional yaml file to load prompts from instead of sft/evals/eval_prompts.yaml")
     parser.add_argument("--train-data", required=True,
                         help="Train dataset JSONL used to reject exact eval prompt overlap")
-    parser.add_argument("--max-prompt-similarity", type=float, required=True,
-                        help="Hard-fail if any eval prompt is too lexically similar to train prompts")
+    parser.add_argument("--max-prompt-similarity", type=float, default=None,
+                        help="Optional legacy lexical prompt similarity hard-fail threshold")
     parser.add_argument("--output", required=True)
     parser.add_argument("--max-new-tokens", type=int, default=6000)
     parser.add_argument("--max-tool-rounds", type=int, default=8,
@@ -83,7 +83,8 @@ def main() -> int:
     prompts = load_prompts(args.prompt_section, args.prompt_file)
     prompts = prepare_eval_items(prompts, Path(args.cases_root))
     assert_no_prompt_overlap(prompts, args.train_data)
-    assert_prompt_similarity_below(prompts, args.train_data, args.max_prompt_similarity)
+    if args.max_prompt_similarity is not None:
+        assert_prompt_similarity_below(prompts, args.train_data, args.max_prompt_similarity)
     if args.limit is not None:
         prompts = prompts[:args.limit]
     results = {"sft": []}

@@ -1,0 +1,4 @@
+[package]
+name = "log_window_filter_map_recover"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,4 @@
+[package]
+name = "scale200_018_patch_test_pass_019_grouped_store_totals_report_missing_zero_and_order"
+version = "0.1.0"
+edition = "2021"

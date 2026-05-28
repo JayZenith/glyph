@@ -1,0 +1,4 @@
+[package]
+name = "general50_006_patch_test_pass_007_config_layer_merge_precedence_case7"
+version = "0.1.0"
+edition = "2021"

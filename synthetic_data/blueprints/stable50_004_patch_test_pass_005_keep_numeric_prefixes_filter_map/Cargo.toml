@@ -1,0 +1,4 @@
+[package]
+name = "stable50_004_patch_test_pass_005_keep_numeric_prefixes_filter_map"
+version = "0.1.0"
+edition = "2021"

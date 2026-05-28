@@ -1,0 +1,7 @@
+[package]
+name = "token_collect_skip_empty_and_parse_negatives"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

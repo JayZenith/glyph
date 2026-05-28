@@ -1,0 +1,4 @@
+[package]
+name = "scale200_108_patch_run_pass_037_filter_map_score_report_missing_zero_bonus"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,4 @@
+[package]
+name = "scale200_045_patch_test_pass_046_device_status_match_branch_fix"
+version = "0.1.0"
+edition = "2021"

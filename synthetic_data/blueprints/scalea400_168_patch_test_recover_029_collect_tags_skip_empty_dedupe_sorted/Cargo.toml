@@ -1,0 +1,7 @@
+[package]
+name = "collect_tags_skip_empty_dedupe_sorted"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

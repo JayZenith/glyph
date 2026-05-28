@@ -1,0 +1,6 @@
+[package]
+name = "record_line_parser_partial_then_strict_validation"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

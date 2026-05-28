@@ -1,0 +1,4 @@
+[package]
+name = "scale200_152_patch_test_recover_041_record_parser_validate_required_keys"
+version = "0.1.0"
+edition = "2021"

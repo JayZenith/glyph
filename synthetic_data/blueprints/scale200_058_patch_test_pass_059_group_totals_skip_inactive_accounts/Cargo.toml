@@ -1,0 +1,4 @@
+[package]
+name = "scale200_058_patch_test_pass_059_group_totals_skip_inactive_accounts"
+version = "0.1.0"
+edition = "2021"

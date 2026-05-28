@@ -1,0 +1,6 @@
+[package]
+name = "ticket_queue_reopen_and_close_transitions"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

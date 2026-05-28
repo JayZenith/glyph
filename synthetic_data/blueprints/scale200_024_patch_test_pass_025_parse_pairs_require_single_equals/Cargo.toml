@@ -1,0 +1,4 @@
+[package]
+name = "scale200_024_patch_test_pass_025_parse_pairs_require_single_equals"
+version = "0.1.0"
+edition = "2021"

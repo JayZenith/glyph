@@ -1,0 +1,4 @@
+[package]
+name = "scale200_047_patch_test_pass_048_booking_conflict_half_open_and_invalid_ranges"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,4 @@
+[package]
+name = "stable50_033_patch_test_recover_006_enum_event_dispatch_recover_case6"
+version = "0.1.0"
+edition = "2021"

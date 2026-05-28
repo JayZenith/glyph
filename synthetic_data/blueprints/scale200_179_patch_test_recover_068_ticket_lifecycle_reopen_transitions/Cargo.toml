@@ -1,0 +1,4 @@
+[package]
+name = "scale200_179_patch_test_recover_068_ticket_lifecycle_reopen_transitions"
+version = "0.1.0"
+edition = "2021"

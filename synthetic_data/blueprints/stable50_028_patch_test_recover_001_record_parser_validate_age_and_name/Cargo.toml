@@ -1,0 +1,4 @@
+[package]
+name = "stable50_028_patch_test_recover_001_record_parser_validate_age_and_name"
+version = "0.1.0"
+edition = "2021"

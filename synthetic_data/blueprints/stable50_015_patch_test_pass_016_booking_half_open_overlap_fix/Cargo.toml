@@ -1,0 +1,4 @@
+[package]
+name = "stable50_015_patch_test_pass_016_booking_half_open_overlap_fix"
+version = "0.1.0"
+edition = "2021"

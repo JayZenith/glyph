@@ -24,7 +24,8 @@
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font: 20px/1.12 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-weight: 525;
       color: var(--ink);
       background: linear-gradient(180deg, #f6f2ea 0%, #efe7da 100%);
     }
@@ -34,7 +35,7 @@
       min-height: 100vh;
     }
     .sidebar, .main {
-      padding: 16px;
+      padding: 12px;
     }
     .sidebar {
       border-right: 1px solid var(--border);
@@ -46,8 +47,8 @@
       overflow: auto;
     }
     h1, h2, h3 {
-      margin: 0 0 10px;
-      font-size: 15px;
+      margin: 0 0 6px;
+      font-size: 21px;
     }
     .controls, .summary, .card, .viewer {
       background: var(--panel);
@@ -56,20 +57,20 @@
       box-shadow: 0 8px 24px rgba(31, 26, 23, 0.06);
     }
     .controls, .summary, .viewer {
-      padding: 14px;
-      margin-bottom: 14px;
+      padding: 10px;
+      margin-bottom: 10px;
     }
     .row {
       display: flex;
       gap: 8px;
       align-items: center;
       flex-wrap: wrap;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
     input[type="text"] {
       flex: 1;
       min-width: 180px;
-      padding: 10px 12px;
+      padding: 8px 10px;
       border-radius: 10px;
       border: 1px solid var(--border);
       background: #fff;
@@ -80,7 +81,7 @@
       border: 1px solid var(--border);
       background: #fff;
       color: var(--ink);
-      padding: 10px 12px;
+      padding: 8px 10px;
       border-radius: 10px;
       cursor: pointer;
       font: inherit;
@@ -89,7 +90,7 @@
     input[type="file"] { display: none; }
     .hint, .meta, .empty {
       color: var(--muted);
-      font-size: 12px;
+      font-size: 18px;
     }
     .summary-grid {
       display: grid;
@@ -97,28 +98,28 @@
       gap: 8px;
     }
     .stat {
-      padding: 10px;
+      padding: 8px;
       border-radius: 10px;
       background: #fff;
       border: 1px solid var(--border);
     }
     .stat .k {
       color: var(--muted);
-      font-size: 11px;
+      font-size: 17px;
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
     .stat .v {
-      font-size: 18px;
+      font-size: 26px;
       font-weight: 700;
       margin-top: 4px;
     }
     .list {
       display: grid;
-      gap: 8px;
+      gap: 6px;
     }
     .card {
-      padding: 12px;
+      padding: 8px 9px;
       cursor: pointer;
     }
     .card.active {
@@ -127,19 +128,19 @@
     }
     .title {
       font-weight: 700;
-      margin-bottom: 6px;
+      margin-bottom: 0;
       word-break: break-word;
     }
     .badges {
       display: flex;
-      gap: 6px;
+      gap: 4px;
       flex-wrap: wrap;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
     .badge {
-      padding: 3px 7px;
+      padding: 0 5px;
       border-radius: 999px;
-      font-size: 11px;
+      font-size: 17px;
       border: 1px solid var(--border);
       background: #fff;
     }
@@ -154,13 +155,13 @@
       background: rgba(155, 34, 38, 0.08);
     }
     .viewer {
-      min-height: calc(100vh - 32px);
+      min-height: calc(100vh - 24px);
     }
     .trace-block {
       border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 10px 12px;
-      margin-bottom: 10px;
+      padding: 2px 4px;
+      margin-bottom: 2px;
       white-space: pre-wrap;
       word-break: break-word;
     }
@@ -170,23 +171,28 @@
     .trace-block.final { background: var(--final); }
     .trace-block.plain { background: var(--plain); }
     .trace-label {
-      font-size: 11px;
+      font-size: 17px;
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: var(--muted);
-      margin-bottom: 8px;
+      margin-bottom: 0;
       font-weight: 700;
     }
     .section {
-      margin-bottom: 16px;
+      margin-bottom: 6px;
     }
     .section h3 {
-      margin-bottom: 8px;
+      margin-bottom: 0;
+    }
+    .section:has(.trace-block) {
+      margin-bottom: 2px;
     }
     pre {
       margin: 0;
       white-space: pre-wrap;
       word-break: break-word;
+      line-height: 1.22;
+      font-size: 20px;
     }
     @media (max-width: 980px) {
       .app { grid-template-columns: 1fr; }
@@ -201,7 +207,7 @@
       <div class="controls">
         <h1>Trace Viewer</h1>
         <div class="row">
-          <input id="pathInput" type="text" placeholder="results/eval_formal_post_eval_flatroots.json">
+          <input id="pathInput" type="text" value="/results/eval_formal_post_eval_flatroots.json" placeholder="/results/eval_formal_post_eval_flatroots.json">
           <button id="loadBtn">Load</button>
         </div>
         <div class="row">
@@ -210,7 +216,7 @@
             <input id="fileInput" type="file" accept=".json,.jsonl,application/json">
           </label>
         </div>
-        <div class="hint">Serve repo root with `python -m http.server`, then open `http://localhost:8000/tools/trace_viewer.html?file=results/...json`.</div>
+        <div class="hint">Serve repo root with `python -m http.server`, then open `http://localhost:8000/tools/trace_viewer.html?file=/results/...json`.</div>
       </div>
 
       <div class="summary" id="summary">
@@ -237,7 +243,6 @@
 
     let currentRows = [];
     let activeIndex = -1;
-
     function esc(text) {
       return text
         .replaceAll("&", "&amp;")
@@ -260,12 +265,24 @@
       summaryEl.innerHTML = `
         <h2>Summary</h2>
         <div class="summary-grid">
-          <div class="stat"><div class="k">Rows</div><div class="v">${rows.length}</div></div>
+          <div class="stat"><div class="k">Eval Tests</div><div class="v">${rows.length}</div></div>
           <div class="stat"><div class="k">Valid</div><div class="v">${valid}</div></div>
-          <div class="stat"><div class="k">Avg Score</div><div class="v">${avgScore}</div></div>
+          <div class="stat"><div class="k">Avg Score</div><div class="v">${avgScore} / 14</div></div>
           <div class="stat"><div class="k">Model</div><div class="v" style="font-size:12px">${esc(runArgs.sft_model || runArgs.base || "n/a")}</div></div>
         </div>
+        <div class="hint" style="margin-top:10px">Avg score is the mean per-test formal eval score, currently on a 0-14 scale.</div>
       `;
+    }
+
+    function compactWhitespace(text) {
+      return text
+        .replace(/<\|im_start\|>\w+\n?/g, "")
+        .replace(/<\|im_end\|>/g, "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/^\n+|\n+$/g, "")
+        .trim();
     }
 
     function classifySegment(text) {
@@ -287,10 +304,10 @@
         if (match.index > last) {
           const raw = output.slice(last, match.index);
           const kind = classifySegment(raw);
-          if (kind) segments.push({ kind, label: kind.toUpperCase(), text: raw.trim() });
+          if (kind) segments.push({ kind, label: kind.toUpperCase(), text: compactWhitespace(raw) });
         }
         const role = match[1];
-        const body = match[2].trim();
+        const body = compactWhitespace(match[2]);
         if (body) {
           if (role === "tool") {
             segments.push({ kind: "tool", label: "TOOL", text: body });
@@ -305,7 +322,7 @@
       if (last < output.length) {
         const raw = output.slice(last);
         const kind = classifySegment(raw);
-        if (kind) segments.push({ kind, label: kind.toUpperCase(), text: raw.trim() });
+        if (kind) segments.push({ kind, label: kind.toUpperCase(), text: compactWhitespace(raw) });
       }
       return segments;
     }
@@ -341,6 +358,8 @@
       viewerEl.innerHTML = `
         <div class="section">
           <h2>${esc(row.name || "trace")}</h2>
+        </div>
+        <div class="section">
           <div class="badges">
             <span class="badge ${metrics.valid_trace ? "good" : "bad"}">${metrics.valid_trace ? "valid" : "invalid"}</span>
             <span class="badge">score ${metrics.score ?? "?"}</span>
@@ -350,7 +369,7 @@
         </div>
         <div class="section">
           <h3>Prompt</h3>
-          <div class="trace-block plain"><pre>${esc(row.prompt || "")}</pre></div>
+          <div class="trace-block plain"><pre>${esc(compactWhitespace(row.prompt || ""))}</pre></div>
         </div>
         <div class="section">
           <h3>Trace</h3>
@@ -361,6 +380,7 @@
             </div>
           `).join("") || `<div class="empty">No output.</div>`}
         </div>
+        <div class="hint" style="margin-top:6px">Avg score is the mean per-test formal eval score, currently on a 0-14 scale.</div>
       `;
     }
 
@@ -376,8 +396,14 @@
       }
     }
 
+    function normalizePath(path) {
+      if (/^(https?:|file:)/.test(path) || path.startsWith("/")) return path;
+      return `/${path}`;
+    }
+
     async function loadFromPath(path) {
-      const res = await fetch(path);
+      const normalized = normalizePath(path);
+      const res = await fetch(normalized);
       if (!res.ok) throw new Error(`Failed to fetch ${path}: ${res.status}`);
       const payload = await res.json();
       renderPayload(payload);
@@ -390,14 +416,16 @@
     }
 
     loadBtn.onclick = async () => {
-      const path = pathInput.value.trim();
+      const path = pathInput.value.trim() || "/results/eval_formal_post_eval_flatroots.json";
       if (!path) return;
+      const normalized = normalizePath(path);
       const url = new URL(window.location.href);
-      url.searchParams.set("file", path);
+      url.searchParams.set("file", normalized);
       history.replaceState(null, "", url);
       try {
-        setStatus(`Loading ${path}...`);
-        await loadFromPath(path);
+        pathInput.value = normalized;
+        setStatus(`Loading ${normalized}...`);
+        await loadFromPath(normalized);
       } catch (err) {
         setStatus(err.message);
       }
@@ -416,8 +444,9 @@
 
     const qsFile = new URLSearchParams(window.location.search).get("file");
     if (qsFile) {
-      pathInput.value = qsFile;
-      loadFromPath(qsFile).catch(err => setStatus(err.message));
+      const normalized = normalizePath(qsFile);
+      pathInput.value = normalized;
+      loadFromPath(normalized).catch(err => setStatus(err.message));
     }
   </script>
 </body>

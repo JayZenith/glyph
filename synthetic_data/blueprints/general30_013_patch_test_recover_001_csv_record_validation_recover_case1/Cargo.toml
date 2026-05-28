@@ -1,0 +1,4 @@
+[package]
+name = "general30_013_patch_test_recover_001_csv_record_validation_recover_case1"
+version = "0.1.0"
+edition = "2021"

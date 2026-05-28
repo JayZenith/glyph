@@ -1,0 +1,4 @@
+[package]
+name = "monthly_team_totals_report_recovery"
+version = "0.1.0"
+edition = "2021"

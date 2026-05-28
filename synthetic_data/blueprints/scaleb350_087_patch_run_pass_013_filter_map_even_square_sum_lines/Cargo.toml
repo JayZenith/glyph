@@ -1,0 +1,4 @@
+[package]
+name = "filter_map_even_square_sum_lines"
+version = "0.1.0"
+edition = "2021"

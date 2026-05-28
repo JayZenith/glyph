@@ -1,0 +1,4 @@
+[package]
+name = "general50_004_patch_test_pass_005_keep_even_length_words_fix"
+version = "0.1.0"
+edition = "2021"

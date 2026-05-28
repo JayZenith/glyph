@@ -1,0 +1,4 @@
+[package]
+name = "scale200_040_patch_test_pass_041_csv_record_requires_three_fields"
+version = "0.1.0"
+edition = "2021"

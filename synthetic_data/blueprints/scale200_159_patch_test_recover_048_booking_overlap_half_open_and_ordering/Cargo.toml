@@ -1,0 +1,4 @@
+[package]
+name = "scale200_159_patch_test_recover_048_booking_overlap_half_open_and_ordering"
+version = "0.1.0"
+edition = "2021"

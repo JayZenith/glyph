@@ -1,0 +1,4 @@
+[package]
+name = "scale200_172_patch_test_recover_061_filter_collect_tags_partial_then_fix"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,4 @@
+[package]
+name = "validate_semicolon_records_require_all_fields"
+version = "0.1.0"
+edition = "2021"

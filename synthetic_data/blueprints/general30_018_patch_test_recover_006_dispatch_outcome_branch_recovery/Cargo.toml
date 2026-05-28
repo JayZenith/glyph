@@ -1,0 +1,4 @@
+[package]
+name = "general30_018_patch_test_recover_006_dispatch_outcome_branch_recovery"
+version = "0.1.0"
+edition = "2021"

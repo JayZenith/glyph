@@ -1,0 +1,6 @@
+[package]
+name = "ticket_resolution_requires_active_owner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

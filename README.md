@@ -25,7 +25,6 @@ python -m sft.train \
     --max-seq-length 4096 \
     --save-total-limit 1 \
     --no-train-split
-
 ```
 
 # Eval run on 8 creating results/eval_formal_post_eval_flatroots.json
@@ -41,7 +40,9 @@ python -m sft.eval_formal \
     --cases-root runs/rlvr1/rust_cases/eval
 ```
 
-## Real Training Run
+
+
+## Example of Training Run
 ```bash
 python -m sft.train \
     --model Qwen/Qwen3-4B-Base \
@@ -78,7 +79,7 @@ report_to: str = "tensorboard"
 ```
 
 
-## Real Eval Runs
+## Example of Eval Runs
 <!--
 ```bash
 python -m sft.eval_test_loss \

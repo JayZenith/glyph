@@ -1,0 +1,6 @@
+[package]
+name = "keep_even_positive_squares"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

@@ -1,0 +1,4 @@
+[package]
+name = "general50_028_patch_test_recover_007_layered_bool_and_timeout_precedence"
+version = "0.1.0"
+edition = "2021"

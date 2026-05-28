@@ -1,0 +1,6 @@
+[package]
+name = "team_ranking_tiebreak_goal_diff"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

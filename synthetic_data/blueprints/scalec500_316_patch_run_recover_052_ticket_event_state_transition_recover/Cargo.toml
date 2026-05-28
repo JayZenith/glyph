@@ -1,0 +1,4 @@
+[package]
+name = "ticket_event_state_transition_recover"
+version = "0.1.0"
+edition = "2021"

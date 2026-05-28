@@ -1,0 +1,4 @@
+[package]
+name = "general50_022_patch_test_recover_001_record_parser_requires_exact_fields_and_age_bounds"
+version = "0.1.0"
+edition = "2021"

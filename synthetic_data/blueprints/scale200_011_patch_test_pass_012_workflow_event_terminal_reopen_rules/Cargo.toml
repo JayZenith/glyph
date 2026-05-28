@@ -1,0 +1,4 @@
+[package]
+name = "scale200_011_patch_test_pass_012_workflow_event_terminal_reopen_rules"
+version = "0.1.0"
+edition = "2021"

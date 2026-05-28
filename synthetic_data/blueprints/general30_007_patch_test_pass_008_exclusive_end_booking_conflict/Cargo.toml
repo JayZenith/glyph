@@ -1,0 +1,4 @@
+[package]
+name = "general30_007_patch_test_pass_008_exclusive_end_booking_conflict"
+version = "0.1.0"
+edition = "2021"

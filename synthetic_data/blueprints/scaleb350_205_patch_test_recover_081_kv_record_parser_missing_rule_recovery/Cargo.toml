@@ -1,0 +1,6 @@
+[package]
+name = "kv_record_parser_missing_rule_recovery"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

@@ -1,0 +1,4 @@
+[package]
+name = "keep_even_length_uppercase_names"
+version = "0.1.0"
+edition = "2021"

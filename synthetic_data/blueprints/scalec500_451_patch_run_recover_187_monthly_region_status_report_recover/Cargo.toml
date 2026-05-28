@@ -1,0 +1,6 @@
+[package]
+name = "monthly_region_status_report_recover"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

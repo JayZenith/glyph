@@ -1,0 +1,4 @@
+[package]
+name = "scale200_136_patch_test_recover_025_csv_config_parse_validate_recover"
+version = "0.1.0"
+edition = "2021"

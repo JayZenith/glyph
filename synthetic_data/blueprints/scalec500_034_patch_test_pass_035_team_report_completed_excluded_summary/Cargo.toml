@@ -1,0 +1,6 @@
+[package]
+name = "team_report_completed_excluded_summary"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

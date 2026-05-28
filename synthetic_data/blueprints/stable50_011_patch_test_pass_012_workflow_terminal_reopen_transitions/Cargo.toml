@@ -1,0 +1,4 @@
+[package]
+name = "stable50_011_patch_test_pass_012_workflow_terminal_reopen_transitions"
+version = "0.1.0"
+edition = "2021"

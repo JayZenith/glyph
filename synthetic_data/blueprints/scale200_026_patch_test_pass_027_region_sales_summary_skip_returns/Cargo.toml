@@ -1,0 +1,4 @@
+[package]
+name = "scale200_026_patch_test_pass_027_region_sales_summary_skip_returns"
+version = "0.1.0"
+edition = "2021"

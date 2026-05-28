@@ -1,0 +1,4 @@
+[package]
+name = "scale200_133_patch_test_recover_022_dispatch_policy_partial_then_complete_repair"
+version = "0.1.0"
+edition = "2021"

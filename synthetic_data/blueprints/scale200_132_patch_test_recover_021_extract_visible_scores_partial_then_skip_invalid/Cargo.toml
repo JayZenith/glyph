@@ -1,0 +1,4 @@
+[package]
+name = "scale200_132_patch_test_recover_021_extract_visible_scores_partial_then_skip_invalid"
+version = "0.1.0"
+edition = "2021"

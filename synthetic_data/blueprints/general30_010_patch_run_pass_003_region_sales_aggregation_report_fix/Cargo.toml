@@ -1,0 +1,4 @@
+[package]
+name = "general30_010_patch_run_pass_003_region_sales_aggregation_report_fix"
+version = "0.1.0"
+edition = "2021"

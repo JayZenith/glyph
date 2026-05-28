@@ -1,0 +1,4 @@
+[package]
+name = "workflow_state_transitions_summary_fix"
+version = "0.1.0"
+edition = "2021"

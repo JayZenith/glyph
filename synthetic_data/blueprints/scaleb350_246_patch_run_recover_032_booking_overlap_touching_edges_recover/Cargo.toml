@@ -1,0 +1,4 @@
+[package]
+name = "booking_overlap_touching_edges_recover"
+version = "0.1.0"
+edition = "2021"

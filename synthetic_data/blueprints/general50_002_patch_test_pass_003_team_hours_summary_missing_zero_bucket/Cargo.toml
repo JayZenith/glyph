@@ -1,0 +1,4 @@
+[package]
+name = "general50_002_patch_test_pass_003_team_hours_summary_missing_zero_bucket"
+version = "0.1.0"
+edition = "2021"

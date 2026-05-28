@@ -1,0 +1,6 @@
+[package]
+name = "monthly_sales_report_missing_zero_and_order"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

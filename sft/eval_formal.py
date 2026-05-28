@@ -34,9 +34,13 @@ def prepare_eval_items(items: list[dict], cases_root: Path) -> list[dict]:
         row = dict(item)
         real_case_name = row.get("real_case_name")
         user_template = row.pop("user_template", None)
-        if real_case_name:
+        if row.get("blueprint_root"):
+            row["blueprint_root"] = str(row["blueprint_root"])
+            row["trace_prefix"] = row.get("trace_prefix") or row["blueprint_root"]
+        elif real_case_name:
             case = materialize_case(real_case_name, cases_root / row["name"])
             row["blueprint_root"] = case.blueprint_root
+            row["trace_prefix"] = case.blueprint_root
             if case.expected_output is not None:
                 row["expected_output"] = case.expected_output
             if user_template:
@@ -112,6 +116,7 @@ def main() -> int:
             token_callback=make_token_callback(),
             execution={
                 "blueprint_root": item.get("blueprint_root"),
+                "trace_prefix": item.get("trace_prefix"),
                 "sandbox_root": Path(args.cases_root) / "_sandboxes",
                 "timeout": args.tool_timeout,
                 "nsjail_path": args.nsjail_path,

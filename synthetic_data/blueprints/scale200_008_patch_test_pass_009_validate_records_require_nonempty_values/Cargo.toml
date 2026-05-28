@@ -1,0 +1,4 @@
+[package]
+name = "scale200_008_patch_test_pass_009_validate_records_require_nonempty_values"
+version = "0.1.0"
+edition = "2021"

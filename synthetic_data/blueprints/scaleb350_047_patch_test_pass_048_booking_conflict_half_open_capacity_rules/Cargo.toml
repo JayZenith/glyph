@@ -1,0 +1,8 @@
+[package]
+name = "booking_conflict_half_open_capacity_rules"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "booking_conflict_half_open_capacity_rules"
+path = "src/lib.rs"

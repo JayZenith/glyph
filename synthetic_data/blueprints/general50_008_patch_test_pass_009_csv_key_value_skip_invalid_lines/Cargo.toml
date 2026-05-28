@@ -1,0 +1,4 @@
+[package]
+name = "general50_008_patch_test_pass_009_csv_key_value_skip_invalid_lines"
+version = "0.1.0"
+edition = "2021"

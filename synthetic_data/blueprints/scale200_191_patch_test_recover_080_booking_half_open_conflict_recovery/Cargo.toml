@@ -1,0 +1,4 @@
+[package]
+name = "scale200_191_patch_test_recover_080_booking_half_open_conflict_recovery"
+version = "0.1.0"
+edition = "2021"

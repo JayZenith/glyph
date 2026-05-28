@@ -1,0 +1,4 @@
+[package]
+name = "stable50_036_patch_test_recover_009_record_parser_missing_field_and_age_validation"
+version = "0.1.0"
+edition = "2021"

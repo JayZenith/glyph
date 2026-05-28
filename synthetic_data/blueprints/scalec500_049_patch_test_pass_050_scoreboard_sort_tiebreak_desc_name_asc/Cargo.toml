@@ -1,0 +1,8 @@
+[package]
+name = "scoreboard_sort_tiebreak_desc_name_asc"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "scoreboard_sort_tiebreak_desc_name_asc"
+path = "src/lib.rs"

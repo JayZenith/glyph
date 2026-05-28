@@ -1,0 +1,4 @@
+[package]
+name = "stable50_010_patch_test_pass_011_monthly_region_report_skips_refunds"
+version = "0.1.0"
+edition = "2021"

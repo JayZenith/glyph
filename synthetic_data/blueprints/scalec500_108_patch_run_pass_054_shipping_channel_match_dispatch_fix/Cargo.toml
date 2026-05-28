@@ -1,0 +1,6 @@
+[package]
+name = "shipping_channel_match_dispatch_fix"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

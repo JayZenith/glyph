@@ -1,0 +1,4 @@
+[package]
+name = "scale200_106_patch_run_pass_035_department_hours_summary_filter_and_top"
+version = "0.1.0"
+edition = "2021"

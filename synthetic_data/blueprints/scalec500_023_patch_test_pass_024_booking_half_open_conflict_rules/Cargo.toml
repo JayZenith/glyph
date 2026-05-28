@@ -1,0 +1,6 @@
+[package]
+name = "booking_half_open_conflict_rules"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

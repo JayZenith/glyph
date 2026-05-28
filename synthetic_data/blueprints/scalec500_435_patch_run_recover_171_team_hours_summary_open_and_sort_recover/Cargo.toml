@@ -1,0 +1,6 @@
+[package]
+name = "team_hours_summary_open_and_sort_recover"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

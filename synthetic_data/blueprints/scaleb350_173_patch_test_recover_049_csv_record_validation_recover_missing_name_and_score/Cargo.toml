@@ -1,0 +1,6 @@
+[package]
+name = "csv_record_validation_recover_missing_name_and_score"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

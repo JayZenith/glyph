@@ -1,0 +1,4 @@
+[package]
+name = "scale200_055_patch_test_pass_056_exclusive_end_booking_conflict"
+version = "0.1.0"
+edition = "2021"

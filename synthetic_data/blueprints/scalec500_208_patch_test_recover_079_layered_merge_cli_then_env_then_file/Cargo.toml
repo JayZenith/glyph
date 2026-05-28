@@ -1,0 +1,8 @@
+[package]
+name = "layered_merge_cli_then_env_then_file"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "layered_merge_cli_then_env_then_file"
+path = "src/lib.rs"

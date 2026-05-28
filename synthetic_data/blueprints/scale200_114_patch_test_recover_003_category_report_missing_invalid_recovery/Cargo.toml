@@ -1,0 +1,4 @@
+[package]
+name = "scale200_114_patch_test_recover_003_category_report_missing_invalid_recovery"
+version = "0.1.0"
+edition = "2021"

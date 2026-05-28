@@ -1,0 +1,4 @@
+[package]
+name = "stable50_035_patch_test_recover_008_booking_conflict_touch_and_containment"
+version = "0.1.0"
+edition = "2021"

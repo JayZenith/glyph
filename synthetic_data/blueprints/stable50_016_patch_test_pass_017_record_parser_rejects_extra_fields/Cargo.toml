@@ -1,0 +1,4 @@
+[package]
+name = "stable50_016_patch_test_pass_017_record_parser_rejects_extra_fields"
+version = "0.1.0"
+edition = "2021"

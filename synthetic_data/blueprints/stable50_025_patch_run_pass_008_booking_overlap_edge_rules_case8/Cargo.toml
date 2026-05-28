@@ -1,0 +1,4 @@
+[package]
+name = "stable50_025_patch_run_pass_008_booking_overlap_edge_rules_case8"
+version = "0.1.0"
+edition = "2021"

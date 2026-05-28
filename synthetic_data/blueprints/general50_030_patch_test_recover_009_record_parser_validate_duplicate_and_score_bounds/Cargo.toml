@@ -1,0 +1,4 @@
+[package]
+name = "general50_030_patch_test_recover_009_record_parser_validate_duplicate_and_score_bounds"
+version = "0.1.0"
+edition = "2021"

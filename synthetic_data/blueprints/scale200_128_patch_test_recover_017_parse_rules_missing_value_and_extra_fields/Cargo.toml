@@ -1,0 +1,4 @@
+[package]
+name = "scale200_128_patch_test_recover_017_parse_rules_missing_value_and_extra_fields"
+version = "0.1.0"
+edition = "2021"

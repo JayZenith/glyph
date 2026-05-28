@@ -1,0 +1,4 @@
+[package]
+name = "stable50_000_patch_test_pass_001_parse_record_requires_single_equals"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,7 @@
+[package]
+name = "keep_top_scorers_iterator_filters"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

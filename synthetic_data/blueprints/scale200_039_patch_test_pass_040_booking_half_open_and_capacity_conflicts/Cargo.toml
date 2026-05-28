@@ -1,0 +1,4 @@
+[package]
+name = "scale200_039_patch_test_pass_040_booking_half_open_and_capacity_conflicts"
+version = "0.1.0"
+edition = "2021"

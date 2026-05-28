@@ -1,0 +1,4 @@
+[package]
+name = "general50_024_patch_test_recover_003_category_report_totals_and_empty_group_recover"
+version = "0.1.0"
+edition = "2021"

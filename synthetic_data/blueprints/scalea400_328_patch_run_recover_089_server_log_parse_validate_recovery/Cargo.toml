@@ -1,0 +1,6 @@
+[package]
+name = "server_log_parse_validate_recovery"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

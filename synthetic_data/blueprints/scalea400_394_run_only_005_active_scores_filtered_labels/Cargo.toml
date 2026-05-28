@@ -1,0 +1,6 @@
+[package]
+name = "active_scores_filtered_labels"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

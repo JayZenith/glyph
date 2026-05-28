@@ -1,0 +1,6 @@
+[package]
+name = "task_filter_map_active_tag_scores"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

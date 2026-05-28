@@ -1,0 +1,4 @@
+[package]
+name = "scale200_067_patch_test_pass_068_ticket_reopen_transition_fix"
+version = "0.1.0"
+edition = "2021"

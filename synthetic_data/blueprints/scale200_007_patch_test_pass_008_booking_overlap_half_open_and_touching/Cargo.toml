@@ -1,0 +1,4 @@
+[package]
+name = "scale200_007_patch_test_pass_008_booking_overlap_half_open_and_touching"
+version = "0.1.0"
+edition = "2021"

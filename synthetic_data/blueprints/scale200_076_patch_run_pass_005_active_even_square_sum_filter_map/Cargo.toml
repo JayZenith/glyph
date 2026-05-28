@@ -1,0 +1,4 @@
+[package]
+name = "scale200_076_patch_run_pass_005_active_even_square_sum_filter_map"
+version = "0.1.0"
+edition = "2021"

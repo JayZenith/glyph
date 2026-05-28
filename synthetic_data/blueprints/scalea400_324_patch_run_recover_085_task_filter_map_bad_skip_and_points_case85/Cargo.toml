@@ -1,0 +1,4 @@
+[package]
+name = "task_filter_map_bad_skip_and_points_case85"
+version = "0.1.0"
+edition = "2021"

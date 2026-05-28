@@ -1,0 +1,4 @@
+[package]
+name = "booking_overlap_report_waitlist"
+version = "0.1.0"
+edition = "2021"

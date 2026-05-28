@@ -1,0 +1,4 @@
+[package]
+name = "scale200_054_patch_test_pass_055_merge_precedence_env_disables_feature"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,7 @@
+[package]
+name = "grouped_report_skips_zero_and_sorts_totals"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

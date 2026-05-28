@@ -1,0 +1,6 @@
+[package]
+name = "delivery_channel_priority_branch_fix"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

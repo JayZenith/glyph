@@ -1,0 +1,4 @@
+[package]
+name = "task_filter_map_scoreboard_recover"
+version = "0.1.0"
+edition = "2021"

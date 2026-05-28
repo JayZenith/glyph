@@ -1,0 +1,4 @@
+[package]
+name = "scale200_104_patch_run_pass_033_csv_record_validation_missing_field_check"
+version = "0.1.0"
+edition = "2021"

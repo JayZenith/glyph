@@ -1,0 +1,4 @@
+[package]
+name = "monthly_category_net_summary_recover"
+version = "0.1.0"
+edition = "2021"

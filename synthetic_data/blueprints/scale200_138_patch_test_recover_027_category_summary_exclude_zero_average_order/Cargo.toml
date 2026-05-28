@@ -1,0 +1,4 @@
+[package]
+name = "scale200_138_patch_test_recover_027_category_summary_exclude_zero_average_order"
+version = "0.1.0"
+edition = "2021"

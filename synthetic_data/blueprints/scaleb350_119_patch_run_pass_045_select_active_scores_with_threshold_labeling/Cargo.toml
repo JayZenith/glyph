@@ -1,0 +1,6 @@
+[package]
+name = "select_active_scores_with_threshold_labeling"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

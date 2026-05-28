@@ -1,0 +1,6 @@
+[package]
+name = "csv_record_validation_skip_blank_lines"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

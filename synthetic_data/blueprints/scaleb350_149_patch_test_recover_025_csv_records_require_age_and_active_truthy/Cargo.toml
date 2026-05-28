@@ -1,0 +1,7 @@
+[package]
+name = "csv_records_require_age_and_active_truthy"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

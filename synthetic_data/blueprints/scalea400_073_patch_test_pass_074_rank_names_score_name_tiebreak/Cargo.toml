@@ -1,0 +1,7 @@
+[package]
+name = "rank_names_score_name_tiebreak"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

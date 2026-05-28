@@ -1,0 +1,8 @@
+[package]
+name = "dispatch_action_priority_branch_fix"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "dispatch_action_priority_branch_fix"
+path = "src/lib.rs"

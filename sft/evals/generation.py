@@ -99,6 +99,7 @@ def generate(
         timeout=execution.get("timeout", 30),
     )
     blueprint_root = execution.get("blueprint_root")
+    trace_prefix = execution.get("trace_prefix") or blueprint_root
     sandbox_root = execution.get("sandbox_root")
     sandbox_path = None
     if blueprint_root and sandbox_root:
@@ -132,8 +133,8 @@ def generate(
             if call["id"] not in pending_ids:
                 continue
             params = call["params"]
-            if blueprint_root and sandbox_path:
-                params = rewrite_params_for_sandbox(params, blueprint_root, sandbox_path)
+            if trace_prefix and sandbox_path:
+                params = rewrite_params_for_sandbox(params, trace_prefix, sandbox_path)
             result = execute_rust_tool(
                 executor,
                 call["tool"],

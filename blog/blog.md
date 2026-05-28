@@ -40,7 +40,7 @@ tool output here
 FINAL: brief final answer.
 <|im_end|>
 ```
-* We will also keep assistant-only masking and have the environment feed the system prompt, tools available, and tool results. 
+* We will also keep assistant-only masking and have the environment feed the system prompt, tools available, and tool results.
 
 2. Simplifed Tool Scope
 
@@ -65,13 +65,13 @@ Preferred 1200 trace dataset mix and train on only these families:
   * pass families = `500 / 1200 = 41.7%`
   * recover families = `600 / 1200 = 50.0%`
   * single-tool families = `90 / 1200 = 7.5%`
-* REMINDER: NEED TO MAKE SURE I GENERATE HARDER CASES WITHIN THE FAMILIES TO ENCOURAGE MULTI TURN USE. 
+* REMINDER: NEED TO MAKE SURE I GENERATE HARDER CASES WITHIN THE FAMILIES TO ENCOURAGE MULTI TURN USE.
 
-*This complete set includes multi turn chat capabilities along with recovery behavior. We don't teach the model "failing answers are okay" but that failed tool results are feedback, and it should continue instead of giving up or hallucinating success. 
+*This complete set includes multi turn chat capabilities along with recovery behavior. We don't teach the model "failing answers are okay" but that failed tool results are feedback, and it should continue instead of giving up or hallucinating success.
 
 * This is preferred over a more pass-heavy mix because it reduces dominance of easy one-shot repair and gives the model much more recovery practice before RL.
 
- * For scaling, i will keep one source file per family and merge into one train file at end. This allows me to scale easier as i can raise one family without touching others while auditing quality per family. 
+ * For scaling, i will keep one source file per family and merge into one train file at end. This allows me to scale easier as i can raise one family without touching others while auditing quality per family.
  - synthetic_data/families/patch_test_pass.jsonl
  - synthetic_data/families/patch_run_pass.jsonl
  - synthetic_data/families/patch_test_recover.jsonl
@@ -80,28 +80,28 @@ Preferred 1200 trace dataset mix and train on only these families:
  - synthetic_data/families/run_only.jsonl
 
  The model should invent:
- 
+
    - Rust bug
    - intended repair path
    - patch strings
    - user prompt
    - final message
- 
+
    Local code should own:
- 
+
    - file creation
    - tool execution
    - RESULT blocks
    - status pass/fail truth
    - final JSONL trace assembly
    - rejection of bad cases
- 
+
    That gives you diversity from gpt-5.4, but correctness from execution. It also
    means bad generations are cheap to reject instead of silently poisoning SFT.
 
 
 4. Evals
-I wont include a random train/val/test split for this current run due to compute limits in generating a larger dataset, thus I will train on all curated traces but then will use a held-out post-eval that checks exact schemas, clean stopping, real tool success, and no extra tokens. 
+I wont include a random train/val/test split for this current run due to compute limits in generating a larger dataset, thus I will train on all curated traces but then will use a held-out post-eval that checks exact schemas, clean stopping, real tool success, and no extra tokens.
 
 With scaling up, validation loss is useful for generalization/overfit monitorinng but here its weak as it does not mean "stops corectly" or "uses tool correctly"
 
@@ -116,10 +116,10 @@ Post-eval will follow this held-out curation mix:
 5 `run_only` - `cargo_run -> FINAL`
 
 
-# Prevoiusly i used mock tool calling, thats a cheap format gate. I will be implementing real tool calling in the post-sft eval to care about real patching, real recovery, and real verifier success. 
+# Prevoiusly i used mock tool calling, thats a cheap format gate. I will be implementing real tool calling in the post-sft eval to care about real patching, real recovery, and real verifier success.
 
 # Real Example with real tool call eval suggestion
-SFT eval can still be multi-turn with real tool execution as RL is about reward optimization, policy, updates, while this is just inference + execution + scoring. 
+SFT eval can still be multi-turn with real tool execution as RL is about reward optimization, policy, updates, while this is just inference + execution + scoring.
 
   1. Start from the prompt.
   2. Let the model generate the next assistant block.
@@ -166,43 +166,21 @@ RESULT c3:\nstatus: success\nstdout: test result: ok\n<|im_end|>
 FINAL: Fixed the bug by changing subtraction to addition and verified it with cargo_test.
 <|im_end|>
 ```
-* My concern here is choosing a correct max_tool_rounds cap. 
+* My concern here is choosing a correct max_tool_rounds cap.
 
 
-# OK THE STORY NOW
+# Now really starting from a strong basis...
 
-I started by simplifying the trace format down to the only behavior I actually care about:
-- assistant emits `CALL ...`
-- tool emits `RESULT ...`
-- assistant emits exactly one `FINAL: ...`
-
-Then I narrowed tool scope to:
-- `read_file`
-- `apply_patch`
-- `cargo_test`
-- `cargo_run`
-
-The next big step was making synthetic data real instead of fake. GPT only generates compact case specs, while local code owns:
+## The data pipeleine used to make sure we are not generating hallucinated tool traces
+ I used GPT 5.4 to generate compact case specs from which we used local code execution to verify that the case specs were real for the following:
 - Rust file creation
 - tool execution
 - real `RESULT` blocks
-- pass/fail truth
-- final JSONL assembly
-- rejection of bad generations
 
-That gave me a real data pipeline instead of hallucinated tool traces.
+For dataset generation, I ran small pilot batches first, rejected bad generations, and only kept traces that survived real execution. From that process I assembled the current signal dataset:
+- `synthetic_data/signal_259.jsonl`
 
-I also aligned the runtime across synthetic data, SFT evals, and RL-facing code by using the same path style, same tool protocol, and shared runtime helpers. The eval loop is now real:
-- model emits `CALL`
-- tool executes for real
-- real `RESULT` is injected
-- model continues until `FINAL` or a hard cap
-
-Validation became a required part of the workflow too. `synthetic_data/validate_dataset.py` now does both:
-- static protocol checks
-- replay execution against disposable copied Rust cases
-
-On the data side I started with many brittle family splits, but simplified them into the ones that matter:
+On the data side I started with many brittle family splits, but simplified them into the ones that matter for scaling:
 - `patch_test_pass`
 - `patch_run_pass`
 - `patch_test_recover`
@@ -210,10 +188,6 @@ On the data side I started with many brittle family splits, but simplified them 
 - `test_only`
 - `run_only`
 
-That simplification mattered a lot because exact recovery-count bookkeeping was creating noise without teaching the behavior I actually care about.
-
-For dataset generation, I ran small pilot batches first, rejected bad generations, and only kept traces that survived real execution. From that process I assembled the current signal dataset:
-- `synthetic_data/signal_259.jsonl`
 
 Current signal dataset counts:
 - `patch_test_pass`: `105`
@@ -222,32 +196,85 @@ Current signal dataset counts:
 - `test_only`: `5`
 - `run_only`: `5`
 
+Validation became a required part of the workflow too. `synthetic_data/validate_dataset.py` now does both on the dataset:
+- static protocol checks
+- real execution of the traces
+
+## SFT/RL/Evals alignment
+I also aligned the runtime across synthetic data, SFT evals, and RL-facing code by using the same path style, same tool protocol, and shared runtime helpers. The eval loop is now real:
+- model emits `CALL`
+- tool executes for real
+- real `RESULT` is injected
+- model continues until `FINAL` or a hard cap
+
 Then I built a held-out formal eval with real Rust cases and real tool execution. I also added contamination guards:
 - exact prompt overlap hard fail via `--train-data`
 - prompt similarity hard fail via `--max-prompt-similarity`
 
-The first train/eval runs exposed real issues:
-- old mock-eval assumptions
-- missing Rust toolchain on the eval machine
-- stale eval naming and scoring around `recover_once` / `recover_twice`
-- some held-out case path bugs
-
-Those are now fixed.
-
 The best current SFT run on the 259 dataset is:
-- `3` epochs
-- `lr=2e-5`
-- `max_seq_length=4096`
+```bash
+python -m sft.train \
+    --model Qwen/Qwen3-4B-Base \
+    --tokenizer Qwen/Qwen3-4B-Base \
+    --data synthetic_data/signal_259.jsonl \
+    --output runs/SIGNAL_259_SFT_E3_LR2E5 \
+    --epochs 3 \
+    --batch-size 1 \
+    --grad-accum 8 \
+    --lr 2e-5 \
+    --max-seq-length 4096 \
+    --save-total-limit 1 \
+    --no-train-split
+```
 
-That run now gets real held-out passes on the formal eval with actual tool execution. It is not finished, but it is enough proof that:
+and the eval run on 8 tests was:
+```bash
+python -m sft.eval_formal \
+    --sft-model runs/SIGNAL_259_SFT_E3_LR2E5/final \
+    --train-data synthetic_data/signal_259.jsonl \
+    --max-prompt-similarity 0.90 \
+    --prompt-section post_eval \
+    --output runs/SIGNAL_259_SFT_E3_LR2E5/eval_formal_post_eval_flatroots.json \
+    --max-new-tokens 1200 \
+    --max-tool-rounds 8 \
+    --cases-root runs/rlvr1/rust_cases/eval
+```
+
+
+That run passed 6/8 tests from formal eval with actual tool execution. It is not finished, but it is enough proof that:
 - the runtime works
 - the dataset is teaching something real
 - the eval is testing something real
-- RLVR is now a credible next step rather than a random gamble
-
-So the story at this point is pretty simple:
-- the pipeline is real now
-- the eval loop is real now
-- the current dataset is enough to prove signal
+- RLVR is more likely to be credible next step rather than a random gamble
 
 Now it is time to scale the dataset and eval set up properly, because we have proof that the loop is working.
+
+
+# Validation replays
+We replay each savedtrace against Rust crate to prove trace is real
+1. copy clean create/blueprint into a temp folder
+2. run trace's tool calls in order
+3. check actual results match saved RESULT blocks
+4. Fail if patch/test/run differs.
+
+
+OpenAI generated only `case specs`
+* files: Cargo.toml, src/lib.rs or src/main.rs
+* steps: read/patch/test/run
+* expected output
+* family metadata
+
+Then `materialize_specs.py` used specs to
+- create clean create blueprint under `runs/rlvr1/rust_cases/CASE_ID`
+- copyp it to temp
+- execute tools for real
+- write final JSONL trace
+
+IDs: the trace says paths like:
+`runs/rlvr1/rust_cases/scale200_067_.../src/lib.rs`
+Validation needs exact folder name to exist, or it cannot replay
+
+
+# POTENTIAL ISSUE
+- i was training only on `runs/rlvr1/rust_cases/...` which is too path-specific so going forwrad i need to randomize project roots.
+- I didn't think of this as much since i was focused on working tool-use behavior.

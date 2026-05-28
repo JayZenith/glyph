@@ -1,0 +1,4 @@
+[package]
+name = "stable50_008_patch_test_pass_009_csv_record_field_count_validation"
+version = "0.1.0"
+edition = "2021"

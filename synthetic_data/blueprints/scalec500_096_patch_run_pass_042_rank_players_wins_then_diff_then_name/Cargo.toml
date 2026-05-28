@@ -1,0 +1,6 @@
+[package]
+name = "rank_players_wins_then_diff_then_name"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

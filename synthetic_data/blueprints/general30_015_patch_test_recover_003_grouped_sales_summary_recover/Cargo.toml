@@ -1,0 +1,4 @@
+[package]
+name = "general30_015_patch_test_recover_003_grouped_sales_summary_recover"
+version = "0.1.0"
+edition = "2021"

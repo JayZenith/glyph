@@ -1,0 +1,4 @@
+[package]
+name = "event_scoreboard_sorting_recovery"
+version = "0.1.0"
+edition = "2021"

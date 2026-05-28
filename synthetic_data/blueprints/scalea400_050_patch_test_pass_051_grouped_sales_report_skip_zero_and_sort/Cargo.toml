@@ -1,0 +1,6 @@
+[package]
+name = "grouped_sales_report_skip_zero_and_sort"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

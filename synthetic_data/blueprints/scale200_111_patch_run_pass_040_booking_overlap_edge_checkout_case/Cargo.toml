@@ -1,0 +1,4 @@
+[package]
+name = "scale200_111_patch_run_pass_040_booking_overlap_edge_checkout_case"
+version = "0.1.0"
+edition = "2021"

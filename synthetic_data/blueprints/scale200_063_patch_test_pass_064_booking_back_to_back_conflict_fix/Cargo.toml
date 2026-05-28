@@ -1,0 +1,4 @@
+[package]
+name = "scale200_063_patch_test_pass_064_booking_back_to_back_conflict_fix"
+version = "0.1.0"
+edition = "2021"

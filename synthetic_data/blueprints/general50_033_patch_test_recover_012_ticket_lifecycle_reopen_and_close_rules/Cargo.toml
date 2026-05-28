@@ -1,0 +1,4 @@
+[package]
+name = "general50_033_patch_test_recover_012_ticket_lifecycle_reopen_and_close_rules"
+version = "0.1.0"
+edition = "2021"

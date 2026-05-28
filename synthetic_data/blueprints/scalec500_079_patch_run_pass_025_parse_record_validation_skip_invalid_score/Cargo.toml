@@ -1,0 +1,4 @@
+[package]
+name = "parse_record_validation_skip_invalid_score"
+version = "0.1.0"
+edition = "2021"

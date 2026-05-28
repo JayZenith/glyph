@@ -1,0 +1,4 @@
+[package]
+name = "scale200_056_patch_test_pass_057_parse_record_require_full_pair_validation"
+version = "0.1.0"
+edition = "2021"

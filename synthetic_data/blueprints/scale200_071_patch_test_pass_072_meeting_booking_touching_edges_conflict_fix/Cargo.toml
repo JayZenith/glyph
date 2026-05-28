@@ -1,0 +1,4 @@
+[package]
+name = "scale200_071_patch_test_pass_072_meeting_booking_touching_edges_conflict_fix"
+version = "0.1.0"
+edition = "2021"

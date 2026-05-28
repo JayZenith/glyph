@@ -1,0 +1,4 @@
+[package]
+name = "general50_011_patch_test_pass_012_ticket_flow_reopen_resolution_rules"
+version = "0.1.0"
+edition = "2021"

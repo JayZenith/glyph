@@ -1,0 +1,4 @@
+[package]
+name = "general50_014_patch_run_pass_001_parse_records_validate_amount_and_date"
+version = "0.1.0"
+edition = "2021"

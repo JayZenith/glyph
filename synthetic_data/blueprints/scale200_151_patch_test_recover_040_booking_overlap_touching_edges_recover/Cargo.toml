@@ -1,0 +1,4 @@
+[package]
+name = "scale200_151_patch_test_recover_040_booking_overlap_touching_edges_recover"
+version = "0.1.0"
+edition = "2021"

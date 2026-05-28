@@ -1,0 +1,4 @@
+[package]
+name = "stable50_044_patch_test_recover_017_csv_record_validator_recover_missing_and_quote_rules"
+version = "0.1.0"
+edition = "2021"

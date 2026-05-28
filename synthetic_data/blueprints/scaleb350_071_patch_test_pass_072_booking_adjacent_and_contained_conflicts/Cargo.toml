@@ -1,0 +1,6 @@
+[package]
+name = "booking_adjacent_and_contained_conflicts"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

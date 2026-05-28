@@ -1,0 +1,6 @@
+[package]
+name = "event_kind_match_summary_fix"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

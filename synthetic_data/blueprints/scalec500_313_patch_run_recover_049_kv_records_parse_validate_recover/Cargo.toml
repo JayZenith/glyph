@@ -1,0 +1,4 @@
+[package]
+name = "kv_records_parse_validate_recover"
+version = "0.1.0"
+edition = "2021"

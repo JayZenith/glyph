@@ -1,0 +1,4 @@
+[package]
+name = "scale200_004_patch_test_pass_005_keep_even_squares_filter_map_fix"
+version = "0.1.0"
+edition = "2021"

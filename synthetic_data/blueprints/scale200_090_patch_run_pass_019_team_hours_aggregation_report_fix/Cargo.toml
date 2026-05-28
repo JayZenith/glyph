@@ -1,0 +1,4 @@
+[package]
+name = "scale200_090_patch_run_pass_019_team_hours_aggregation_report_fix"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,6 @@
+[package]
+name = "rank_scores_with_name_tiebreaks"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

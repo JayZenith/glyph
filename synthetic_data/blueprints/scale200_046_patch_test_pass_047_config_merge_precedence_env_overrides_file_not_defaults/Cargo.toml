@@ -1,0 +1,4 @@
+[package]
+name = "scale200_046_patch_test_pass_047_config_merge_precedence_env_overrides_file_not_defaults"
+version = "0.1.0"
+edition = "2021"

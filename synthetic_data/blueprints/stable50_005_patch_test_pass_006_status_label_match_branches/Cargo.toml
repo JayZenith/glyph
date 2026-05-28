@@ -1,0 +1,4 @@
+[package]
+name = "stable50_005_patch_test_pass_006_status_label_match_branches"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,4 @@
+[package]
+name = "stable50_014_patch_test_pass_015_config_merge_cli_empty_does_not_override"
+version = "0.1.0"
+edition = "2021"

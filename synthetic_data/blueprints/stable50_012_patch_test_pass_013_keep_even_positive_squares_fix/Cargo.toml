@@ -1,0 +1,4 @@
+[package]
+name = "stable50_012_patch_test_pass_013_keep_even_positive_squares_fix"
+version = "0.1.0"
+edition = "2021"

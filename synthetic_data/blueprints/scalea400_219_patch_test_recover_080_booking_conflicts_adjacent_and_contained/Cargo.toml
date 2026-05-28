@@ -1,0 +1,7 @@
+[package]
+name = "booking_conflicts_adjacent_and_contained"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

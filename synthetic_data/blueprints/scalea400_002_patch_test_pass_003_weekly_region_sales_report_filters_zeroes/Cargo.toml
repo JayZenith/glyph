@@ -1,0 +1,6 @@
+[package]
+name = "weekly_region_sales_report_filters_zeroes"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

@@ -1,0 +1,4 @@
+[package]
+name = "tagged_even_scores"
+version = "0.1.0"
+edition = "2021"

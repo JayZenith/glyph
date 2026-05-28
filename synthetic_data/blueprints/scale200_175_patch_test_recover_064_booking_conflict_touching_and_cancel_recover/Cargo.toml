@@ -1,0 +1,4 @@
+[package]
+name = "scale200_175_patch_test_recover_064_booking_conflict_touching_and_cancel_recover"
+version = "0.1.0"
+edition = "2021"

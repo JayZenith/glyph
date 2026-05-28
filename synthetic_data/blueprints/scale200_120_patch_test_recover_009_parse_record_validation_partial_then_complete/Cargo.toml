@@ -1,0 +1,4 @@
+[package]
+name = "scale200_120_patch_test_recover_009_parse_record_validation_partial_then_complete"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,4 @@
+[package]
+name = "stable50_022_patch_run_pass_005_active_tags_filter_map_join"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,4 @@
+[package]
+name = "scale200_079_patch_run_pass_008_booking_overlap_sorting_half_open_conflicts"
+version = "0.1.0"
+edition = "2021"

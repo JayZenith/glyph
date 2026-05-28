@@ -1,0 +1,4 @@
+[package]
+name = "general50_038_patch_test_recover_017_kv_record_parser_missing_value_rules"
+version = "0.1.0"
+edition = "2021"

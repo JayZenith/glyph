@@ -1,0 +1,4 @@
+[package]
+name = "general50_010_patch_test_pass_011_monthly_region_summary_skips_zero_totals"
+version = "0.1.0"
+edition = "2021"

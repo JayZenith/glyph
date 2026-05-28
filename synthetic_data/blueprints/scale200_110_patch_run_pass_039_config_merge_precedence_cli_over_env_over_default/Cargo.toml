@@ -1,0 +1,4 @@
+[package]
+name = "scale200_110_patch_run_pass_039_config_merge_precedence_cli_over_env_over_default"
+version = "0.1.0"
+edition = "2021"

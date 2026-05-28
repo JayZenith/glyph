@@ -1,0 +1,8 @@
+[package]
+name = "render_status_match_branch_order"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "render_status_match_branch_order"
+path = "src/lib.rs"

@@ -1,0 +1,4 @@
+[package]
+name = "team_hours_aggregation_report_recovery"
+version = "0.1.0"
+edition = "2021"

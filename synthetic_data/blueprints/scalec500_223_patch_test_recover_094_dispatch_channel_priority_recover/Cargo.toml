@@ -1,0 +1,6 @@
+[package]
+name = "dispatch_channel_priority_recover"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

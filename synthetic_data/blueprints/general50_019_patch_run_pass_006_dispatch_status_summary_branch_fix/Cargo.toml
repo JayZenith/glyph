@@ -1,0 +1,4 @@
+[package]
+name = "general50_019_patch_run_pass_006_dispatch_status_summary_branch_fix"
+version = "0.1.0"
+edition = "2021"

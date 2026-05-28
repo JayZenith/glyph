@@ -1,0 +1,6 @@
+[package]
+name = "ticket_queue_state_reopen_and_resolution"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

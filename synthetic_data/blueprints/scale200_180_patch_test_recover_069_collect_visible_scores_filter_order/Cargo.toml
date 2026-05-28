@@ -1,0 +1,4 @@
+[package]
+name = "scale200_180_patch_test_recover_069_collect_visible_scores_filter_order"
+version = "0.1.0"
+edition = "2021"

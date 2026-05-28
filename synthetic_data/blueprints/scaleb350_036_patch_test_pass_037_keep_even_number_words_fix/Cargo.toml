@@ -1,0 +1,6 @@
+[package]
+name = "keep_even_number_words"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

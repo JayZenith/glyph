@@ -1,0 +1,4 @@
+[package]
+name = "scale200_176_patch_test_recover_065_kv_lines_validate_required_and_duplicate_keys"
+version = "0.1.0"
+edition = "2021"

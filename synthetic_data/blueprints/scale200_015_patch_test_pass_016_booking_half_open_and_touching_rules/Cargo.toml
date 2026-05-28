@@ -1,0 +1,4 @@
+[package]
+name = "scale200_015_patch_test_pass_016_booking_half_open_and_touching_rules"
+version = "0.1.0"
+edition = "2021"

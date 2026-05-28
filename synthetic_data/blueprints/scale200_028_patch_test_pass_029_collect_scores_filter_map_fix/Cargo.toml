@@ -1,0 +1,4 @@
+[package]
+name = "scale200_028_patch_test_pass_029_collect_scores_filter_map_fix"
+version = "0.1.0"
+edition = "2021"

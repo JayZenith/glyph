@@ -1,0 +1,6 @@
+[package]
+name = "ticket_event_state_recover"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

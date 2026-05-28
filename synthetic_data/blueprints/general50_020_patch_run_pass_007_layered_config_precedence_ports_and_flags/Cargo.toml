@@ -1,0 +1,4 @@
+[package]
+name = "general50_020_patch_run_pass_007_layered_config_precedence_ports_and_flags"
+version = "0.1.0"
+edition = "2021"

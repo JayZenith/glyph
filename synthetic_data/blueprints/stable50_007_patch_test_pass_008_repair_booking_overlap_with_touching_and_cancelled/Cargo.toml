@@ -1,0 +1,4 @@
+[package]
+name = "stable50_007_patch_test_pass_008_repair_booking_overlap_with_touching_and_cancelled"
+version = "0.1.0"
+edition = "2021"

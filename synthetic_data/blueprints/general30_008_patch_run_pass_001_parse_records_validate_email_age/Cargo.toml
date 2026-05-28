@@ -1,0 +1,4 @@
+[package]
+name = "general30_008_patch_run_pass_001_parse_records_validate_email_age"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,4 @@
+[package]
+name = "scale200_095_patch_run_pass_024_booking_interval_half_open_conflicts"
+version = "0.1.0"
+edition = "2021"

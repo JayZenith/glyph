@@ -1,0 +1,4 @@
+[package]
+name = "scale200_050_patch_test_pass_051_monthly_sales_report_skips_negative_refunds"
+version = "0.1.0"
+edition = "2021"

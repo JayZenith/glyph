@@ -1,0 +1,4 @@
+[package]
+name = "scale200_070_patch_test_pass_071_merge_config_respects_nonempty_override_and_lock"
+version = "0.1.0"
+edition = "2021"

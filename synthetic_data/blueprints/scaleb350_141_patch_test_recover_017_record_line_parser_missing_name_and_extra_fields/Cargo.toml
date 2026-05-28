@@ -1,0 +1,7 @@
+[package]
+name = "record_line_parser_missing_name_and_extra_fields"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

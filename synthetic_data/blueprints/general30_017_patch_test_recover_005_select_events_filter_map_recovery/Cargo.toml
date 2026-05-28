@@ -1,0 +1,4 @@
+[package]
+name = "general30_017_patch_test_recover_005_select_events_filter_map_recovery"
+version = "0.1.0"
+edition = "2021"

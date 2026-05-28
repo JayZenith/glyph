@@ -1,0 +1,4 @@
+[package]
+name = "filter_map_even_square_labels"
+version = "0.1.0"
+edition = "2021"

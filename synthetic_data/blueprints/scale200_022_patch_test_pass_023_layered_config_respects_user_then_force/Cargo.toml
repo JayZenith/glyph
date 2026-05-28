@@ -1,0 +1,4 @@
+[package]
+name = "scale200_022_patch_test_pass_023_layered_config_respects_user_then_force"
+version = "0.1.0"
+edition = "2021"

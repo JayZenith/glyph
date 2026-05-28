@@ -1,0 +1,4 @@
+[package]
+name = "stable50_039_patch_test_recover_012_ticket_lifecycle_reopen_recovery"
+version = "0.1.0"
+edition = "2021"

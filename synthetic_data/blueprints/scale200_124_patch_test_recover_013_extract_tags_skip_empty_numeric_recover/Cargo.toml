@@ -1,0 +1,4 @@
+[package]
+name = "scale200_124_patch_test_recover_013_extract_tags_skip_empty_numeric_recover"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,4 @@
+[package]
+name = "scale200_068_patch_test_pass_069_collect_tagged_values_skip_empty_and_bad_numbers"
+version = "0.1.0"
+edition = "2021"

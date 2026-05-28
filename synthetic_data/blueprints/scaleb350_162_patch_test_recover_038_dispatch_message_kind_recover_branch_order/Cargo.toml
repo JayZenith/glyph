@@ -1,0 +1,7 @@
+[package]
+name = "dispatch_message_kind_recover_branch_order"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

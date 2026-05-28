@@ -1,0 +1,4 @@
+[package]
+name = "stable50_034_patch_test_recover_007_layered_flags_merge_recover"
+version = "0.1.0"
+edition = "2021"

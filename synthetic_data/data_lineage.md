@@ -255,3 +255,26 @@ python3 synthetic_data/validate_dataset.py \
 ```
 
 Result: `ok: 1062 rows`.
+
+
+Summary:
+Files:
+
+- synthetic_data/batch_specs.py: builds/submits/retrieves GPT-5.4 case-spec
+  batches.
+- synthetic_data/materialize_specs.py: turns specs into crates, executes
+  intended tools, writes real traces, rejects bad specs.
+- synthetic_data/build_train_data.py: merges accepted family JSONLs into final
+  train JSONL.
+- synthetic_data/validate_dataset.py: replays final traces from clean
+  blueprints to verify they are still real.
+- synthetic_data/blueprint_store.py: exports/restores durable blueprint
+  crates.
+- synthetic_data/audit_blueprint_similarity.py: train/eval Rust source
+  contamination check.
+- synthetic_data/build_eval_prompts.py: turns held-out validated eval traces/
+  blueprints into eval YAML.
+- sft/eval_formal.py: runs model inference with real tool execution.
+- sft/evals/generation.py: loop that executes model CALLs and injects real
+  RESULTs.
+- agent_runtime/rust/runtime.py: shared tool execution/path rewrite helpers.

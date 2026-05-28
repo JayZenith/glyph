@@ -40,7 +40,7 @@ python -m sft.eval_formal \
 ```
 
 
-## Example of Training Run
+## Training run for SFT_V1
 ```bash
 python -m sft.train \
   --model Qwen/Qwen3-4B-Base \
@@ -56,6 +56,7 @@ python -m sft.train \
   --save-steps 100 \
   --no-train-split
 ```
+
 
 Defaults:
 ```bash
@@ -78,7 +79,7 @@ report_to: str = "tensorboard"
 ```
 
 
-## Example of Eval Runs
+## EVALS for SFT_V1
 1. Rust source similarity audit
 ```bash
 python3 synthetic_data/audit_blueprint_similarity.py \
@@ -112,11 +113,23 @@ python -m sft.eval_test_loss \
 
 
 ## Key Results
+- SFT_V1 model: `JayZenith/SFT_V1`
+- SFT_V1 dataset: `JayZenith/SFT_V1_DATASET`
+- Eval: `52 / 69` valid traces on held-out real Rust/tool eval.
+- Terminal tool success: `68 / 69`.
+- Result/call ID match, no repetition, and no truncation: `100%`.
+- Rust source similarity audit against train set: `0` exact duplicates, `0` near duplicates at threshold `0.92`.
 
-
-Remaining failure's:
+Remaining failures:
+- Main failure mode is termination: `17` traces kept using tools until max rounds and did not emit `FINAL`.
+- Only `1` trace had terminal tool/task failure.
+- This points to RLVR as the next step: reward successful verifier result followed by exactly one clean `FINAL`.
 
 ## Notes
+- reported repo commit of SFT_V1: `5cb4699b1f9d544207315d551b125f672051c76c`
 
-- reported repo commit: ``
-- dataset hf: `synthetic_data/signal_259.jsonl`
+## RLVR Handoff
+- Start from HF model `JayZenith/SFT_V1` trained on `synthetic_data/signal_1062.jsonl`.
+- Use held-out eval `sft/evals/eval_prompts_heldout_69.yaml` with blueprints in `synthetic_data/eval_blueprints`.
+- Main target: improve clean termination after verifier success. SFT already gets `68 / 69` terminal tool success, but only `52 / 69` valid final traces.
+- Reward should favor real verifier success followed by exactly one clean `FINAL`, and penalize invalid schema, extra tool loops, max-round exhaustion, and task failure.

@@ -31,6 +31,7 @@ sft_artifacts/
 outputs/
 old_results/
 GLYPH_SFT_RESULTS/
+results/
 
 # Agent state
 .claude/

@@ -250,9 +250,55 @@
         .replaceAll(">", "&gt;");
     }
 
+    function messageText(messages, role = null) {
+      if (!Array.isArray(messages)) return "";
+      return messages
+        .filter(m => !role || m.role === role)
+        .map(m => m.content || "")
+        .join("\n\n");
+    }
+
+    function rowOutput(row) {
+      if (row.output) return row.output;
+      if (!Array.isArray(row.completion)) return "";
+      return row.completion
+        .map(m => `<|im_start|>${m.role || "assistant"}\n${m.content || ""}<|im_end|>`)
+        .join("\n\n");
+    }
+
+    function normalizeRolloutRow(row, idx) {
+      const assistant = messageText(row.completion, "assistant");
+      const full = messageText(row.completion);
+      return {
+        name: row.example_id || row.info?.case_id || `rollout_${idx}`,
+        prompt: messageText(row.prompt) || row.info?.trace_prefix || "",
+        output: rowOutput(row),
+        metrics: {
+          valid_trace: Boolean(row.is_completed) && !row.is_truncated,
+          score: row.reward ?? row.metrics?._rust_tool_reward ?? "?",
+          kind: row.info?.kind || row.env_name || "rollout",
+          failure_buckets: [
+            row.error ? `error: ${row.error}` : null,
+            row.is_truncated ? "truncated" : null,
+            full.includes("Mocked tool result") ? "mocked_tool_result" : null,
+            full.includes("missing rust task metadata") ? "missing_rust_metadata" : null,
+            assistant.includes("<|im_end|>user") || assistant.includes("<|im_start|>") ? "role_leakage" : null,
+          ].filter(Boolean),
+        },
+      };
+    }
+
+    function normalizeRows(rows) {
+      return rows.map((row, idx) => {
+        if (row.output || row.metrics?.score !== undefined) return row;
+        if (row.completion || row.reward !== undefined) return normalizeRolloutRow(row, idx);
+        return row;
+      });
+    }
+
     function parseRows(payload) {
       if (payload?.results?.sft && Array.isArray(payload.results.sft)) return payload.results.sft;
-      if (Array.isArray(payload)) return payload;
+      if (Array.isArray(payload)) return normalizeRows(payload);
       throw new Error("Unsupported JSON shape.");
     }
 
@@ -401,11 +447,33 @@
       return `/${path}`;
     }
 
+    function parsePayloadText(text, path = "") {
+      const trimmed = text.trim();
+      if (!trimmed) return [];
+      if (path.endsWith(".jsonl")) {
+        return trimmed
+          .split(/\n+/)
+          .filter(Boolean)
+          .map(line => JSON.parse(line));
+      }
+      try {
+        return JSON.parse(trimmed);
+      } catch (err) {
+        if (trimmed.includes("\n")) {
+          return trimmed
+            .split(/\n+/)
+            .filter(Boolean)
+            .map(line => JSON.parse(line));
+        }
+        throw err;
+      }
+    }
+
     async function loadFromPath(path) {
       const normalized = normalizePath(path);
       const res = await fetch(normalized);
       if (!res.ok) throw new Error(`Failed to fetch ${path}: ${res.status}`);
-      const payload = await res.json();
+      const payload = parsePayloadText(await res.text(), normalized);
       renderPayload(payload);
     }
 
@@ -436,7 +504,7 @@
       if (!file) return;
       try {
         const text = await file.text();
-        renderPayload(JSON.parse(text));
+        renderPayload(parsePayloadText(text, file.name));
       } catch (err) {
         setStatus(`Failed to read file: ${err.message}`);
       }

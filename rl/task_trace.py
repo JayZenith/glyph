@@ -187,6 +187,13 @@ def _strip_role_leak_tail(text: str) -> str:
     return text[: min(markers)].rstrip() if markers else text
 
 
+def _latest_assistant_segment(text: str) -> str:
+    marker = "<|im_start|>assistant\n"
+    if marker not in text:
+        return text
+    return text.rsplit(marker, 1)[-1]
+
+
 def _trajectory_generated_text(state: dict) -> str:
     parts: list[str] = []
     for step in state.get("trajectory") or []:
@@ -377,14 +384,16 @@ class RustToolEnv(vf.MultiTurnEnv):
             return True
         if state.get("tool_budget_exhausted"):
             return True
-        text = _strip_role_leak_tail(self._messages_text(trajectory[-1]["completion"]))
+        text = _strip_role_leak_tail(
+            _latest_assistant_segment(self._messages_text(trajectory[-1]["completion"]))
+        )
         executed = set(state.get("executed_call_ids") or [])
         calls = parse_call_blocks(text)
         return not any(call["id"] not in executed for call in calls)
 
     async def env_response(self, messages, state, **kwargs):
         raw_text = self._messages_text(messages)
-        text = _strip_role_leak_tail(raw_text)
+        text = _strip_role_leak_tail(_latest_assistant_segment(raw_text))
         if self._trajectory_chars(state) + len(text) >= MAX_ROLLOUT_TRANSCRIPT_CHARS:
             state["tool_budget_exhausted"] = True
             return []

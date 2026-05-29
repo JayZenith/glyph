@@ -367,7 +367,7 @@ class RustToolEnv(vf.MultiTurnEnv):
             return []
 
         info = kwargs.get("info") or {}
-        if not info:
+        if not info.get("expected_tool"):
             info = self._infer_info_from_calls(calls)
         is_rust_prompt = bool(info.get("expected_tool"))
         blueprint_root = info.get("blueprint_root")
@@ -388,9 +388,7 @@ class RustToolEnv(vf.MultiTurnEnv):
             if trace_prefix and sandbox_path:
                 params = rewrite_params_for_sandbox(params, trace_prefix, sandbox_path)
             if not is_rust_prompt:
-                # Non-Rust prompt: mock the tool result so the assistant→tool
-                # boundary structure stays intact for the structure reward.
-                er = ExecutionResult(True, f"Mocked tool result for {cid}.", "", 0)
+                er = ExecutionResult(False, "", "missing rust task metadata", -1)
             elif call["tool"] not in RUST_TOOL_NAMES:
                 er = ExecutionResult(False, "", f"unknown tool: {call['tool']}", -1)
             else:

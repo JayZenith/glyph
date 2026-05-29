@@ -174,6 +174,18 @@ def _role_leak_count(text: str) -> int:
     return sum(len(re.findall(pattern, text)) for pattern in patterns)
 
 
+def _strip_role_leak_tail(text: str) -> str:
+    """Use only the assistant segment before leaked chat-template boundaries."""
+    markers = [
+        match.start()
+        for match in re.finditer(
+            r"<\|im_start\|>|<\|im_end\|>|(?m)^(?:user|tool|assistant)\s*$",
+            text,
+        )
+    ]
+    return text[: min(markers)].rstrip() if markers else text
+
+
 def _trajectory_generated_text(state: dict) -> str:
     parts: list[str] = []
     for step in state.get("trajectory") or []:
@@ -243,8 +255,9 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     expected_tool = info.get("expected_tool")
     expected_args = _normalize_expected_args(info.get("expected_args"))
     validator: SimpleTraceValidator | None = kwargs.get("validator")
-    structure = _structure_reward(assistant_text or text, tool_text, validator)
-    assistant_trace = assistant_text or text
+    raw_assistant_trace = assistant_text or text
+    assistant_trace = _strip_role_leak_tail(raw_assistant_trace)
+    structure = _structure_reward(assistant_trace, tool_text, validator)
 
     # Non-Rust prompt: structure enforcement only. Env still mocks tool results
     # if the model emits a call, but we don't score Rust execution.
@@ -257,7 +270,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
 
     first_call = calls[0]
     reward = _score_tool_alignment(first_call, expected_tool, expected_args)
-    reward += min(_role_leak_count(assistant_trace), 4) * REWARD_CONFIG["role_leakage_penalty"]
+    reward += min(_role_leak_count(raw_assistant_trace), 4) * REWARD_CONFIG["role_leakage_penalty"]
 
     # Sum compute_tool_reward across every executed call. Multi-step workflows
     # (apply_patch → cargo_test, apply_patch → cargo_run) are credited per call.
@@ -363,13 +376,14 @@ class RustToolEnv(vf.MultiTurnEnv):
             return True
         if state.get("tool_budget_exhausted"):
             return True
-        text = self._messages_text(trajectory[-1]["completion"])
+        text = _strip_role_leak_tail(self._messages_text(trajectory[-1]["completion"]))
         executed = set(state.get("executed_call_ids") or [])
         calls = parse_call_blocks(text)
         return not any(call["id"] not in executed for call in calls)
 
     async def env_response(self, messages, state, **kwargs):
-        text = self._messages_text(messages)
+        raw_text = self._messages_text(messages)
+        text = _strip_role_leak_tail(raw_text)
         if self._trajectory_chars(state) + len(text) >= MAX_ROLLOUT_TRANSCRIPT_CHARS:
             state["tool_budget_exhausted"] = True
             return []

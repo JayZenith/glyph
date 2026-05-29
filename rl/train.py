@@ -283,6 +283,22 @@ def patch_gpu_mapping(managed_gpu_ids: list[int] | None) -> None:
     rl_mod.check_gpus_available = lambda gpu_ids: None
 
 
+def patch_prime_orchestrator_httpx_import() -> None:
+    import prime_rl.orchestrator.utils as utils_mod
+
+    path = Path(utils_mod.__file__).resolve()
+    text = path.read_text(encoding="utf-8")
+    if "httpx.AsyncClient" not in text or "import httpx\n" in text:
+        return
+    anchor = "import asyncio\n"
+    if anchor in text:
+        text = text.replace(anchor, anchor + "import httpx\n", 1)
+    else:
+        text = "import httpx\n" + text
+    path.write_text(text, encoding="utf-8")
+    print(f"Patched missing httpx import in {path}")
+
+
 def launch_teacher_inference(raw_config: dict[str, Any], args: argparse.Namespace) -> subprocess.Popen[str]:
     teacher_model_name = args.teacher_model or raw_config["trainer"]["model"]["name"]
     teacher_inference = build_teacher_inference_config(raw_config["inference"], teacher_model_name, args)
@@ -339,6 +355,7 @@ def main() -> None:
     from prime_rl.configs.rl import RLConfig
     import prime_rl.entrypoints.rl as rl_mod
 
+    patch_prime_orchestrator_httpx_import()
     managed_gpu_ids = args.prime_rl_gpu_ids
     if managed_gpu_ids is None:
         managed_gpu_ids = [0, 1]

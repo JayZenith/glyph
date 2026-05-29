@@ -1,7 +1,7 @@
 max_steps = 200
 
 [model]
-name = "JayZenith/GLYPH_SFT"
+name = "JayZenith/SFT_V1"
 seq_len = 5120
 attn = "sdpa"
 optimization_dtype = "bfloat16"

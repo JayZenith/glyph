@@ -1,7 +1,7 @@
 gpu_memory_utilization = 0.85
 
 [model]
-name = "JayZenith/GLYPH_SFT"
+name = "JayZenith/SFT_V1"
 dtype = "float16"
 max_model_len = 5120
 enforce_eager = true

@@ -26,32 +26,15 @@ RUST_TOOL_NAMES.discard(None)
 
 DEBUG_PARSE = False
 DEFAULT_REWARD_CONFIG = {
-    "clean_tool_boundary_bonus": 1.5,
-    "structure_valid_bonus": 1.0,
-    "penalty_garbage_after_final_response": -2.0,
-    "penalty_missing_response": -1.0,
-    "penalty_role_marker_leakage": -0.5,
-    "penalty_repetition": -1.0,
-    "penalty_tool_calls_without_matching_result": -0.75,
-    "penalty_not_ended_cleanly_after_final": -2.0,
+    "structure_valid_bonus": 0.5,
     "no_call_penalty": -1.25,
-    "any_success_bonus": 0.5,
-    "missing_results_penalty": -0.75,
-    "response_presence_bonus": 0.1,
-    "exact_final_termination_bonus": 0.5,
-    "dirty_final_response_reward_cap": -5.0,
-    "require_clean_termination_for_success_reward": True,
+    "terminal_success_bonus": 3.0,
+    "clean_final_after_success_bonus": 2.0,
+    "missing_final_after_success_penalty": -1.0,
+    "failed_terminal_penalty": -2.0,
 }
 
 REWARD_CONFIG = DEFAULT_REWARD_CONFIG.copy()
-
-STRUCTURE_PENALTY_KEYS = {
-    "Garbage after final response": "penalty_garbage_after_final_response",
-    "Missing response": "penalty_missing_response",
-    "Role marker leakage": "penalty_role_marker_leakage",
-    "Detected repetition": "penalty_repetition",
-    "Tool calls without matching result": "penalty_tool_calls_without_matching_result",
-}
 
 
 def _set_reward_config(overrides: dict[str, float]) -> None:
@@ -63,58 +46,12 @@ def _set_reward_config(overrides: dict[str, float]) -> None:
 def _ended_cleanly_after_response(text: str) -> bool:
     return ended_cleanly_after_final(text)
 
-
-def _response_termination_reward(text: str) -> float:
-    if not has_final(text):
-        return 0.0
-    if _ended_cleanly_after_response(text):
-        return REWARD_CONFIG["exact_final_termination_bonus"]
-    return REWARD_CONFIG["penalty_not_ended_cleanly_after_final"]
-
-
-def _has_response(text: str) -> bool:
-    return has_final(text)
-
-
-def _apply_clean_termination_gate(
-    reward: float,
-    *,
-    assistant_trace: str,
-    any_success: bool,
-    real_results_seen: int,
-    clean_end: bool,
-) -> float:
-    if clean_end:
-        if any_success:
-            reward += REWARD_CONFIG["any_success_bonus"]
-        if real_results_seen > 0:
-            reward += REWARD_CONFIG["clean_tool_boundary_bonus"]
-        else:
-            reward += REWARD_CONFIG["missing_results_penalty"]
-        reward += REWARD_CONFIG["response_presence_bonus"]
-        return reward
-
-    if real_results_seen == 0:
-        reward += REWARD_CONFIG["missing_results_penalty"]
-
-    if _has_response(assistant_trace) and REWARD_CONFIG["require_clean_termination_for_success_reward"]:
-        reward = min(reward, REWARD_CONFIG["dirty_final_response_reward_cap"])
-
-    return reward
-
-
+# gives bonus if validator passes
 def _structure_reward(assistant_text: str, result_text: str, validator: SimpleTraceValidator | None) -> float:
     if validator is None:
         return 0.0
     v = validator.validate(assistant_text, result_text)
-    score = REWARD_CONFIG["structure_valid_bonus"] if v.valid else 0.0
-    for err in v.errors:
-        for prefix, penalty_key in STRUCTURE_PENALTY_KEYS.items():
-            if err.startswith(prefix):
-                score += REWARD_CONFIG[penalty_key]
-                break
-    score += _response_termination_reward(assistant_text)
-    return score
+    return REWARD_CONFIG["structure_valid_bonus"] if v.valid else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +63,7 @@ def _normalize_expected_args(expected_args) -> dict[str, str]:
         return {}
     return {str(k): str(v) for k, v in expected_args.items()}
 
-
+# small shaping for model's first CALL matching expected first tool and args from RL prompt
 def _score_tool_alignment(
     tool_call: dict,
     expected_tool: str | None,
@@ -171,25 +108,21 @@ def _score_tool_alignment(
 
     return score
 
-
-def _score_tool_sequence(calls: list[dict], expected_tool_sequence: list[str]) -> float:
-    if not expected_tool_sequence:
-        return 0.0
-    actual = [call["tool"] for call in calls]
-    if actual == expected_tool_sequence:
-        return 1.25
-    score = 0.0
-    for idx, expected_tool in enumerate(expected_tool_sequence):
-        if idx >= len(actual):
-            score -= 0.3
+# VITAL, walks backward through calls and finds last cargo_test or cargo_run; if that terminal
+# verifier succeeded, rollout gets a major reward
+def _terminal_verifier_success(
+    calls: list[dict],
+    tool_text: str,
+) -> tuple[bool, bool]:
+    """Return (success, saw_terminal_verifier) for cargo_test/cargo_run."""
+    for call in reversed(calls):
+        if call["tool"] not in {"cargo_test", "cargo_run"}:
             continue
-        if actual[idx] == expected_tool:
-            score += 0.2
-        else:
-            score -= 0.35
-    if len(actual) > len(expected_tool_sequence):
-        score -= min(0.15 * (len(actual) - len(expected_tool_sequence)), 0.75)
-    return score
+        res = _find_result_for(call["id"], tool_text)
+        if res is None:
+            continue
+        return bool(res.get("success", False)), True
+    return False, False
 
 
 def _completion_text(completion) -> str:
@@ -271,14 +204,16 @@ def _find_result_for(call_id: str, text: str) -> dict | None:
     }
 
 
+# core reward function: collect assistant text, collect tool results, parse calls, score first-tool alignment,
+# add per-tool executable rewards, penalize extra calls beyond expected sequence, then heavily reward successful terminal verifier
+# plus clean finalization
 async def _rust_tool_reward(completion, **kwargs) -> float:
     """Score the full multi-turn rollout from the transcript the env produced.
 
-    RLVR shape: every executed tool call contributes its own verifiable reward
-    (exit code, test outcome, etc. via `compute_tool_reward`). Alignment with
-    `expected_tool`/`expected_args` is scored once against the first call (only
-    the first call has an expected target). A light penalty discourages
-    spamming additional tool calls beyond what the task needs.
+    Main SFT_V1 failure was not garbage after FINAL; it was solving or nearly
+    solving but failing to emit a clean FINAL. Reward therefore centers on real
+    verifier success followed by clean finalization, with tool rewards as
+    shaping.
     """
     state = kwargs.get("state") or {}
     text = _completion_text(completion)
@@ -294,7 +229,6 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     info = kwargs.get("info") or {}
     expected_tool = info.get("expected_tool")
     expected_args = _normalize_expected_args(info.get("expected_args"))
-    expected_tool_sequence = list(info.get("expected_tool_sequence") or [])
     validator: SimpleTraceValidator | None = kwargs.get("validator")
     structure = _structure_reward(assistant_text or text, tool_text, validator)
     assistant_trace = assistant_text or text
@@ -310,34 +244,30 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
 
     first_call = calls[0]
     reward = _score_tool_alignment(first_call, expected_tool, expected_args)
-    reward += _score_tool_sequence(calls, expected_tool_sequence)
 
     # Sum compute_tool_reward across every executed call. Multi-step workflows
     # (apply_patch → cargo_test, apply_patch → cargo_run) are credited per call.
     expected_output = info.get("expected_output")
-    any_success = False
-    real_results_seen = 0
     for call in calls:
         res = _find_result_for(call["id"], tool_text)
         if res is None:
             continue
-        real_results_seen += 1
         tr = compute_tool_reward(
             tool_name=call["tool"],
             execution_result=res,
             expected_output=expected_output if call["tool"] == "cargo_run" else None,
         )
         reward += tr.total
-        if bool(res.get("success", False)):
-            any_success = True
 
-    reward = _apply_clean_termination_gate(
-        reward,
-        assistant_trace=assistant_trace,
-        any_success=any_success,
-        real_results_seen=real_results_seen,
-        clean_end=_ended_cleanly_after_response(assistant_trace),
-    )
+    terminal_success, saw_terminal = _terminal_verifier_success(calls, tool_text)
+    if terminal_success:
+        reward += REWARD_CONFIG["terminal_success_bonus"]
+        if _ended_cleanly_after_response(assistant_trace):
+            reward += REWARD_CONFIG["clean_final_after_success_bonus"]
+        else:
+            reward += REWARD_CONFIG["missing_final_after_success_penalty"]
+    elif saw_terminal:
+        reward += REWARD_CONFIG["failed_terminal_penalty"]
 
     return reward + structure
 
@@ -346,6 +276,8 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
 # Multi-turn env: execute real tools between assistant turns
 # ---------------------------------------------------------------------------
 
+# Watches model output for CALLs, rewrites paths into sandbox paths, executes tools, appends RESULT blocks, etc.
+# until no pending calls or max rounds
 class RustToolEnv(vf.MultiTurnEnv):
     """Run the model in chat format; when it emits a `CALL ...` block, execute
     the tool for real and append a `RESULT cN:` block before the next round.
@@ -411,14 +343,15 @@ class RustToolEnv(vf.MultiTurnEnv):
         info = kwargs.get("info") or {}
         is_rust_prompt = bool(info.get("expected_tool"))
         blueprint_root = info.get("blueprint_root")
+        trace_prefix = info.get("trace_prefix") or blueprint_root
         sandbox_path = self._ensure_sandbox(state, blueprint_root) if blueprint_root else None
 
         responses: list[dict[str, str]] = []
         for call in calls:
             cid = call["id"]
             params = call["params"]
-            if blueprint_root and sandbox_path:
-                params = rewrite_params_for_sandbox(params, blueprint_root, sandbox_path)
+            if trace_prefix and sandbox_path:
+                params = rewrite_params_for_sandbox(params, trace_prefix, sandbox_path)
             if not is_rust_prompt:
                 # Non-Rust prompt: mock the tool result so the assistant→tool
                 # boundary structure stays intact for the structure reward.
@@ -453,65 +386,46 @@ class RustToolEnv(vf.MultiTurnEnv):
 # PRIME-RL environment entrypoint
 # ---------------------------------------------------------------------------
 
+# load prompts, pack metadata into `info`, registers _rust_tool_reward and returns `RustToolEnv`
 def load_environment(
-    data_path: str = "traces.processed.jsonl",
+    data_path: str = "synthetic_data/rl_prompts_1062.jsonl",
     max_samples: int | None = None,
-    max_trace_chars: int | None = 50000,
     env_id: str = "task-trace",
     nsjail_path: str | None = None,
     timeout: int = 30,
     max_tool_rounds: int = 5,
-    clean_tool_boundary_bonus: float | None = None,
     structure_valid_bonus: float | None = None,
-    penalty_garbage_after_final_response: float | None = None,
-    penalty_missing_response: float | None = None,
-    penalty_role_marker_leakage: float | None = None,
-    penalty_repetition: float | None = None,
-    penalty_tool_calls_without_matching_result: float | None = None,
-    penalty_not_ended_cleanly_after_final: float | None = None,
     no_call_penalty: float | None = None,
-    any_success_bonus: float | None = None,
-    missing_results_penalty: float | None = None,
-    response_presence_bonus: float | None = None,
-    exact_final_termination_bonus: float | None = None,
-    dirty_final_response_reward_cap: float | None = None,
-    require_clean_termination_for_success_reward: bool | None = None,
+    terminal_success_bonus: float | None = None,
+    clean_final_after_success_bonus: float | None = None,
+    missing_final_after_success_penalty: float | None = None,
+    failed_terminal_penalty: float | None = None,
 ) -> vf.Environment:
     """Load the Rust tool RL environment with real multi-round tool execution."""
     _set_reward_config(
         {
-            "clean_tool_boundary_bonus": clean_tool_boundary_bonus,
             "structure_valid_bonus": structure_valid_bonus,
-            "penalty_garbage_after_final_response": penalty_garbage_after_final_response,
-            "penalty_missing_response": penalty_missing_response,
-            "penalty_role_marker_leakage": penalty_role_marker_leakage,
-            "penalty_repetition": penalty_repetition,
-            "penalty_tool_calls_without_matching_result": penalty_tool_calls_without_matching_result,
-            "penalty_not_ended_cleanly_after_final": penalty_not_ended_cleanly_after_final,
             "no_call_penalty": no_call_penalty,
-            "any_success_bonus": any_success_bonus,
-            "missing_results_penalty": missing_results_penalty,
-            "response_presence_bonus": response_presence_bonus,
-            "exact_final_termination_bonus": exact_final_termination_bonus,
-            "dirty_final_response_reward_cap": dirty_final_response_reward_cap,
-            "require_clean_termination_for_success_reward": require_clean_termination_for_success_reward,
+            "terminal_success_bonus": terminal_success_bonus,
+            "clean_final_after_success_bonus": clean_final_after_success_bonus,
+            "missing_final_after_success_penalty": missing_final_after_success_penalty,
+            "failed_terminal_penalty": failed_terminal_penalty,
         }
     )
 
     prompts, _ = load_prompts(
         data_path=data_path,
         max_samples=max_samples,
-        max_trace_chars=max_trace_chars,
     )
     # Verifiers at our prime-rl pin forwards a dataset row's `info` dict into
     # env_response / reward kwargs but does NOT forward arbitrary top-level
-    # columns. Pack expected_tool / expected_args / blueprint_root /
+    # columns. Pack expected_tool / expected_args / blueprint_root / trace_prefix /
     # expected_output into `info` so the env can actually execute the verifier.
     info_keys = (
         "expected_tool",
         "expected_args",
-        "expected_tool_sequence",
         "blueprint_root",
+        "trace_prefix",
         "expected_output",
         "kind",
     )

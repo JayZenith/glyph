@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Install PRIME-RL the way upstream expects: its own uv-managed Python 3.12 env.
-# Then apply rl/setup/patch_install.py to the installed checkout. The patches
-# fix vLLM Qwen3 packed-weight loading, the orchestrator's teacher-logprob path,
-# and tolerate checkpoints that don't carry `revert_weight_conversion`.
+# Install the pinned PRIME-RL stack used by the current RLVR wrapper.
+# This intentionally stays on the pre teacher-pool refactor commit because
+# rl/train.py launches an external frozen teacher vLLM. A future migration to
+# native PRIME-RL num_teacher_gpus should be done on an instance and tested
+# end-to-end before removing this pin/patcher.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PRIME_RL_DIR="${1:-${PRIME_RL_DIR:-/workspace/prime-rl-src}}"
 PRIME_PYTHON_VERSION="${PRIME_PYTHON_VERSION:-3.12}"
-# Pin to the last commit before the student/teacher inference-pool refactor
-# (d25184e06). Our patcher targets the older flat `inference_pool` layout.
+# Last commit before the student/teacher inference-pool refactor (d25184e06).
+# Our patcher targets the older flat `inference_pool` layout.
 PRIME_RL_COMMIT="${PRIME_RL_COMMIT:-97872d3e0}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 DEFAULT_TMP_ROOT="$WORKSPACE_DIR/.tmp"

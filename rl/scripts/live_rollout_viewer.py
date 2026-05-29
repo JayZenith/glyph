@@ -5,23 +5,11 @@ import argparse
 import glob
 import json
 import os
-import re
 import statistics
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
-
-
-FAKE_RESULT_PATTERNS = [
-    re.compile(r"\bresult\s*\{", re.IGNORECASE),
-    re.compile(r"data\s*↦\s*[「\"].*?[」\"]\s*🏷\s*[\w\"-]+", re.DOTALL),
-    re.compile(r"^\s*RESULT\s+[A-Za-z0-9_-]+:", re.MULTILINE),
-]
-
-
-def has_fake_result(text: str) -> bool:
-    return any(pattern.search(text) for pattern in FAKE_RESULT_PATTERNS)
 
 
 def rollout_paths(run_dir: Path) -> list[str]:
@@ -36,7 +24,7 @@ def rollout_paths(run_dir: Path) -> list[str]:
 
 def summarize(path: str) -> dict:
     rewards: list[float] = []
-    fake = tools = no_call = zeros = pos = posfake = 0
+    tools = no_call = final = zeros = pos = 0
     lengths: list[int] = []
 
     with open(path, encoding="utf-8") as handle:
@@ -50,10 +38,8 @@ def summarize(path: str) -> dict:
                 for message in row.get("completion", [])
                 if isinstance(message, dict) and message.get("role") == "assistant"
             )
-            fake_result = has_fake_result(assistant)
-            fake += fake_result
-            posfake += fake_result and reward > 0
             no_call += "CALL " not in assistant
+            final += "FINAL:" in assistant
             tools += sum(
                 1
                 for message in row.get("completion", [])
@@ -69,9 +55,8 @@ def summarize(path: str) -> dict:
         "min": min(rewards),
         "max": max(rewards),
         "pos": pos,
-        "posfake": posfake,
         "no_call": no_call,
-        "fake": fake,
+        "final": final,
         "tools": tools,
         "zero": zeros,
         "len": round(statistics.mean(lengths)),
@@ -87,7 +72,7 @@ def data_payload(run_dir: Path) -> dict:
             "avg_reward": statistics.mean(row["avg"] for row in latest),
             "avg_pos": statistics.mean(row["pos"] for row in latest),
             "avg_no_call": statistics.mean(row["no_call"] for row in latest),
-            "avg_fake": statistics.mean(row["fake"] for row in latest),
+            "avg_final": statistics.mean(row["final"] for row in latest),
             "avg_tools": statistics.mean(row["tools"] for row in latest),
             "avg_len": statistics.mean(row["len"] for row in latest),
         }
@@ -119,7 +104,7 @@ th:first-child,td:first-child{text-align:left}
 </main>
 <script>
 const metrics=[
-  ["avg","#7dd3fc"],["pos","#86efac"],["fake","#fca5a5"],
+  ["avg","#7dd3fc"],["pos","#86efac"],["final","#34d399"],
   ["no_call","#fcd34d"],["tools","#c4b5fd"],["len","#fdba74"]
 ];
 function fmt(x){return Number.isFinite(x)?x.toFixed(2):""}
@@ -134,7 +119,7 @@ function draw(rows){
   const pad=46,w=c.width-pad*2,h=c.height-pad*2;
   ctx.strokeStyle="#303747";ctx.lineWidth=1;
   for(let i=0;i<=4;i++){let y=pad+h*i/4;ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(pad+w,y);ctx.stroke();}
-  ctx.fillStyle="#aeb4c2";ctx.fillText("higher is better for avg/pos/tools; lower is better for fake/no_call/len",pad,20);
+  ctx.fillStyle="#aeb4c2";ctx.fillText("higher is better for avg/pos/final/tools; lower is better for no_call/len",pad,20);
   metrics.forEach(([key,color],mi)=>{
     ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
     rows.forEach((r,i)=>{
@@ -150,12 +135,12 @@ async function refresh(){
   const last=rows[rows.length-1]||{}, s=data.summary||{};
   document.getElementById("meta").textContent=`${data.run_dir} | latest step ${last.step ?? "none"} | refresh 5s`;
   document.getElementById("stats").innerHTML=[
-    ["latest reward",last.avg],["latest pos",last.pos],["latest fake",last.fake],
+    ["latest reward",last.avg],["latest pos",last.pos],["latest final",last.final],
     ["latest no_call",last.no_call],["latest tools",last.tools],["latest len",last.len]
   ].map(([k,v])=>`<div class=stat>${k}<b>${fmt(v)}</b></div>`).join("");
   draw(rows);
-  document.getElementById("table").innerHTML="<tr>"+["step","avg","min","max","pos","posfake","no_call","fake","tools","zero","len"].map(x=>`<th>${x}</th>`).join("")+"</tr>"+
-    rows.slice(-30).reverse().map(r=>"<tr>"+["step","avg","min","max","pos","posfake","no_call","fake","tools","zero","len"].map(k=>`<td>${fmt(r[k])}</td>`).join("")+"</tr>").join("");
+  document.getElementById("table").innerHTML="<tr>"+["step","avg","min","max","pos","final","no_call","tools","zero","len"].map(x=>`<th>${x}</th>`).join("")+"</tr>"+
+    rows.slice(-30).reverse().map(r=>"<tr>"+["step","avg","min","max","pos","final","no_call","tools","zero","len"].map(k=>`<td>${fmt(r[k])}</td>`).join("")+"</tr>").join("");
 }
 refresh(); setInterval(refresh,5000);
 </script>
@@ -177,7 +162,7 @@ def main() -> None:
             rows = payload["rows"][-20:]
             print("\033[2J\033[H", end="")
             print(f"RL rollout viewer: {payload['run_dir']}")
-            print("step avg min max pos posfake no_call fake tools zero len")
+            print("step avg min max pos final no_call tools zero len")
             for row in rows:
                 print(
                     row["step"],
@@ -185,9 +170,8 @@ def main() -> None:
                     round(row["min"], 2),
                     round(row["max"], 2),
                     row["pos"],
-                    row["posfake"],
+                    row["final"],
                     row["no_call"],
-                    row["fake"],
                     row["tools"],
                     row["zero"],
                     row["len"],

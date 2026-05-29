@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# Full-finetune RLVR launcher. Targets 2-GPU 80-96GB boxes.
-# Trainer on GPU 1, rollout vLLM (+ optional teacher anchor) on GPU 0.
+# Full-finetune RLVR launcher for SFT_V1.
+# Uses rollout vLLM + external frozen teacher vLLM for the pinned PRIME-RL path.
 # HW_PROFILE selects seq_len / completion / tool_rounds presets per arch.
 # Auto-detect by default; override with HW_PROFILE=a100-80gb or blackwell-96gb.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PRIME_RL_DIR="${PRIME_RL_DIR:-/workspace/prime-rl-src}"
-MODEL="${MODEL:-JayZenith/GLYPH_SFT}"
+MODEL="${MODEL:-JayZenith/SFT_V1}"
 TEACHER_MODEL="${TEACHER_MODEL:-$MODEL}"
 TEACHER_TAU="${TEACHER_TAU:-0.0}"
-TEACHER_ANCHOR="${TEACHER_ANCHOR:-0}"
-DATA_PATH="${DATA_PATH:-$ROOT_DIR/runs/rlvr1/prompts.jsonl}"
+DATA_PATH="${DATA_PATH:-$ROOT_DIR/synthetic_data/rl_prompts_1062.jsonl}"
 OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/outputs/rlvr1}"
 PORT="${PORT:-8000}"
 TEACHER_PORT="${TEACHER_PORT:-8001}"
@@ -33,12 +32,12 @@ case "$HW_PROFILE" in
   a100-80gb)
     DEFAULT_SEQ_LEN=5120
     DEFAULT_MAX_COMPLETION_TOKENS=1536
-    DEFAULT_MAX_TOOL_ROUNDS=5
+    DEFAULT_MAX_TOOL_ROUNDS=15
     ;;
   blackwell-96gb)
     DEFAULT_SEQ_LEN=6144
     DEFAULT_MAX_COMPLETION_TOKENS=1536
-    DEFAULT_MAX_TOOL_ROUNDS=5
+    DEFAULT_MAX_TOOL_ROUNDS=15
     ;;
   *)
     echo "Unknown HW_PROFILE=$HW_PROFILE. Valid: a100-80gb, blackwell-96gb." >&2
@@ -72,10 +71,9 @@ ARGS=(
   --max-model-len "$MAX_MODEL_LEN"
   --max-completion-tokens "$MAX_COMPLETION_TOKENS"
   --max-tool-rounds "$MAX_TOOL_ROUNDS"
+  --teacher-model "$TEACHER_MODEL"
+  --teacher-tau "$TEACHER_TAU"
+  --teacher-port "$TEACHER_PORT"
 )
-
-if [[ "$TEACHER_ANCHOR" == "1" ]]; then
-  ARGS+=(--teacher-anchor --teacher-model "$TEACHER_MODEL" --teacher-tau "$TEACHER_TAU" --teacher-port "$TEACHER_PORT")
-fi
 
 exec "${ARGS[@]}"

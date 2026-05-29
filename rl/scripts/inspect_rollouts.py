@@ -23,7 +23,7 @@ def rollout_paths(run_dir: Path) -> list[str]:
 
 def summarize(path: str) -> tuple:
     rewards: list[float] = []
-    tools = no_call = zeros = pos = 0
+    tools = no_call = final = zeros = pos = 0
     lengths: list[int] = []
 
     with open(path, encoding="utf-8") as handle:
@@ -39,6 +39,7 @@ def summarize(path: str) -> tuple:
                 if isinstance(message, dict) and message.get("role") == "assistant"
             )
             no_call += "CALL " not in assistant
+            final += "FINAL:" in assistant
             tools += sum(
                 1
                 for message in row.get("completion", [])
@@ -55,6 +56,7 @@ def summarize(path: str) -> tuple:
         max(rewards),
         pos,
         no_call,
+        final,
         tools,
         zeros,
         round(statistics.mean(lengths)),
@@ -74,7 +76,7 @@ def main() -> None:
     args = parser.parse_args()
 
     rows = [summarize(path) for path in rollout_paths(args.run_dir)]
-    print("step avg min max pos no_call tools zero len")
+    print("step avg min max pos no_call final tools zero len")
     for row in rows[-args.tail :]:
         print(row[0], round(row[1], 4), round(row[2], 2), round(row[3], 2), *row[4:])
     if rows:
@@ -87,10 +89,12 @@ def main() -> None:
             round(statistics.mean(row[4] for row in latest), 2),
             "avg_no_call",
             round(statistics.mean(row[5] for row in latest), 2),
-            "avg_tools",
+            "avg_final",
             round(statistics.mean(row[6] for row in latest), 2),
+            "avg_tools",
+            round(statistics.mean(row[7] for row in latest), 2),
             "avg_len",
-            round(statistics.mean(row[8] for row in latest)),
+            round(statistics.mean(row[9] for row in latest)),
         )
 
 

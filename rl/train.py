@@ -17,6 +17,7 @@ import tomli_w
 CONFIG_DIR = Path(__file__).resolve().parent / "configs" / "task_trace"
 
 
+# turns "0,2,3" into [0,2,3] for --prime-rl-gpu-ids
 def parse_int_list(value: str) -> list[int]:
     items = [item.strip() for item in value.split(",") if item.strip()]
     if not items:
@@ -29,9 +30,9 @@ def parse_int_list(value: str) -> list[int]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch PRIME-RL.")
-    parser.add_argument("--model", default="JayZenith/GLYPH_SFT",
+    parser.add_argument("--model", default="JayZenith/SFT_V1",
                         help="HF repo id for trainer and rollout initialization.")
-    parser.add_argument("--data", type=Path, help="Prompt dataset path.")
+    parser.add_argument("--data", type=Path, default=Path("synthetic_data/rl_prompts_1062.jsonl"), help="Prompt dataset path.")
     parser.add_argument("--output", type=Path, default=Path("outputs/prime_rl"))
     parser.add_argument("--max-steps", type=int)
     parser.add_argument("--batch-size", type=int)
@@ -44,37 +45,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float)
     parser.add_argument("--checkpoint-interval", type=int)
     parser.add_argument("--resume-step", type=int)
-    parser.add_argument("--served-model-name", action="append")
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--gpu-memory-utilization", type=float)
     parser.add_argument("--teacher-gpu-memory-utilization", type=float)
     parser.add_argument("--max-samples", type=int)
-    parser.add_argument("--max-trace-chars", type=int)
     parser.add_argument("--max-tool-rounds", type=int)
     parser.add_argument("--nsjail-path")
     parser.add_argument("--tool-timeout", type=int)
-    parser.add_argument("--clean-tool-boundary-bonus", type=float)
-    parser.add_argument("--structure-valid-bonus", type=float)
-    parser.add_argument("--penalty-garbage-after-final-response", type=float)
-    parser.add_argument("--penalty-missing-response", type=float)
-    parser.add_argument("--penalty-role-marker-leakage", type=float)
-    parser.add_argument("--penalty-repetition", type=float)
-    parser.add_argument("--penalty-tool-calls-without-matching-result", type=float)
-    parser.add_argument("--penalty-not-ended-cleanly-after-final", type=float)
-    parser.add_argument("--no-call-penalty", type=float)
-    parser.add_argument("--any-success-bonus", type=float)
-    parser.add_argument("--missing-results-penalty", type=float)
-    parser.add_argument("--response-presence-bonus", type=float)
-    parser.add_argument("--exact-final-termination-bonus", type=float)
-    parser.add_argument("--dirty-final-response-reward-cap", type=float)
-    parser.add_argument(
-        "--require-clean-termination-for-success-reward",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-    )
     parser.add_argument("--port", type=int)
-    parser.add_argument("--rollout-init-model", help="HF repo id for the rollout runtime model.")
-    parser.add_argument("--teacher-model", default="JayZenith/GLYPH_SFT")
+    parser.add_argument("--teacher-model", default="JayZenith/SFT_V1")
     parser.add_argument("--teacher-port", type=int, default=8001)
     parser.add_argument("--teacher-device", type=int, default=0)
     parser.add_argument("--teacher-tau", type=float, default=0.01)
@@ -87,16 +66,12 @@ def parse_args() -> argparse.Namespace:
                         help="Number of GPUs reserved for rollout inference.")
     parser.add_argument("--gpus-per-node", type=int,
                         help="Visible GPU count exposed to PRIME-RL for this run.")
-    parser.add_argument("--training-mode", choices=("rl", "opd", "sft"))
-    parser.add_argument("--teacher-anchor", action=argparse.BooleanOptionalAction, default=False,
-                        help="Run a frozen teacher inference server with KL anchoring.")
-    parser.add_argument("--enable-teacher-inference", action="store_true",
-                        help=argparse.SUPPRESS)  # back-compat; honored if set
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--dump-config", type=Path)
     return parser.parse_args()
 
 
+# Reads one TOML file into Python dict
 def load_toml(path: Path) -> dict[str, Any]:
     with path.open("rb") as f:
         return tomllib.load(f)
@@ -109,12 +84,13 @@ def load_templates() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         load_toml(CONFIG_DIR / "inference.toml"),
     )
 
-
+# write CLI vlaue into config if user passes it
 def maybe_set(container: dict[str, Any], key: str, value: Any) -> None:
     if value is not None:
         container[key] = value
 
-
+# loads model config + tokenizer, if model vocab > tokenizer vocab we ban extra token IDs with logit bias -100
+# prevents vLLM from sampling garbage invalid tokens
 def add_invalid_token_logit_bias(sampling: dict[str, Any], model_name: str) -> None:
     cfg = AutoConfig.from_pretrained(model_name)
     tok = AutoTokenizer.from_pretrained(model_name)
@@ -128,7 +104,8 @@ def add_invalid_token_logit_bias(sampling: dict[str, Any], model_name: str) -> N
     for token_id in range(tokenizer_len, model_vocab):
         logit_bias[token_id] = -100.0
 
-
+# clone inference config, swap in teacher model, sets teacher context length, sets teacher port,
+# and lowers taecher GPU mem usage if I did not override it
 def build_teacher_inference_config(
     inference: dict[str, Any],
     teacher_model_name: str,
@@ -152,15 +129,17 @@ def build_teacher_inference_config(
         )
     return teacher_inference
 
-
+# loads 3 TOML files and deletes trainer["buffer"] as this wrapper wants
+# PRIME-RL's current config shape, not old buffer block
 def build_config(args: argparse.Namespace) -> dict[str, Any]:
     trainer, orchestrator, inference = load_templates()
     trainer.pop("buffer", None)
 
+    # resolve paths and  model names
     output_dir = args.output.resolve()
     data_path = args.data.resolve() if args.data else None
     base_model = args.model
-    rollout_model = args.rollout_init_model or base_model
+    rollout_model = base_model
     teacher_model_name = args.teacher_model or rollout_model
 
     trainer_model = trainer.setdefault("model", {})
@@ -168,6 +147,7 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
     trainer_loss = trainer.setdefault("loss", {})
     trainer_ckpt = trainer.setdefault("ckpt", {})
 
+    # set trainable model name and trainer configs
     trainer_model["name"] = base_model
     maybe_set(trainer_model, "seq_len", args.seq_len)
     maybe_set(trainer_optim, "lr", args.learning_rate)
@@ -184,6 +164,7 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
     env_args = env_list[0].setdefault("args", {})
     orch_ckpt = orchestrator.setdefault("ckpt", {})
 
+    # set rollout model and related configs
     orch_model["name"] = rollout_model
     maybe_set(orchestrator, "batch_size", args.batch_size)
     maybe_set(orchestrator, "rollouts_per_example", args.rollouts_per_example)
@@ -194,58 +175,28 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
     maybe_set(orch_sampling, "temperature", args.temperature)
     maybe_set(orch_sampling, "max_completion_tokens", args.max_completion_tokens)
     add_invalid_token_logit_bias(orch_sampling, rollout_model)
+
+    # env args
     if data_path is not None:
         env_args["data_path"] = str(data_path)
     maybe_set(env_args, "max_samples", args.max_samples)
-    maybe_set(env_args, "max_trace_chars", args.max_trace_chars)
     maybe_set(env_args, "max_tool_rounds", args.max_tool_rounds)
     maybe_set(env_args, "nsjail_path", args.nsjail_path)
     maybe_set(env_args, "timeout", args.tool_timeout)
-    maybe_set(env_args, "clean_tool_boundary_bonus", args.clean_tool_boundary_bonus)
-    maybe_set(env_args, "structure_valid_bonus", args.structure_valid_bonus)
-    maybe_set(env_args, "penalty_garbage_after_final_response", args.penalty_garbage_after_final_response)
-    maybe_set(env_args, "penalty_missing_response", args.penalty_missing_response)
-    maybe_set(env_args, "penalty_role_marker_leakage", args.penalty_role_marker_leakage)
-    maybe_set(env_args, "penalty_repetition", args.penalty_repetition)
-    maybe_set(
-        env_args,
-        "penalty_tool_calls_without_matching_result",
-        args.penalty_tool_calls_without_matching_result,
-    )
-    maybe_set(
-        env_args,
-        "penalty_not_ended_cleanly_after_final",
-        args.penalty_not_ended_cleanly_after_final,
-    )
-    maybe_set(env_args, "no_call_penalty", args.no_call_penalty)
-    maybe_set(env_args, "any_success_bonus", args.any_success_bonus)
-    maybe_set(env_args, "missing_results_penalty", args.missing_results_penalty)
-    maybe_set(env_args, "response_presence_bonus", args.response_presence_bonus)
-    maybe_set(env_args, "exact_final_termination_bonus", args.exact_final_termination_bonus)
-    maybe_set(env_args, "dirty_final_response_reward_cap", args.dirty_final_response_reward_cap)
-    maybe_set(
-        env_args,
-        "require_clean_termination_for_success_reward",
-        args.require_clean_termination_for_success_reward,
-    )
 
+    # Inference
     infer_model = inference.setdefault("model", {})
     infer_server = inference.setdefault("server", {})
     infer_model["name"] = rollout_model
     maybe_set(infer_model, "max_model_len", args.max_model_len)
     maybe_set(infer_server, "port", args.port)
     maybe_set(inference, "gpu_memory_utilization", args.gpu_memory_utilization)
-    served_aliases: list[str] = []
-    candidates = [rollout_model, base_model]
-    candidates += list(args.served_model_name or [])
-    for name in candidates:
-        if name and name not in served_aliases:
-            served_aliases.append(name)
-    inference.setdefault("vllm_extra", {})["served_model_name"] = served_aliases
+    inference.setdefault("vllm_extra", {})["served_model_name"] = [rollout_model]
 
-    teacher_on = bool(args.teacher_anchor or args.enable_teacher_inference)
-    training_mode = args.training_mode or ("opd" if teacher_on else "rl")
+    # teacher section
+    training_mode = "opd"
 
+    # GPU section
     managed_gpu_ids = args.prime_rl_gpu_ids
     num_train_gpus = args.num_train_gpus if args.num_train_gpus is not None else 1
     num_infer_gpus = args.num_infer_gpus if args.num_infer_gpus is not None else 1
@@ -281,13 +232,12 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
         if args.checkpoint_interval is not None:
             config["ckpt"]["interval"] = args.checkpoint_interval
 
-    if teacher_on:
-        orchestrator["teacher"] = {
-            "model": {"name": teacher_model_name},
-            "client": {
-                "base_url": [f"http://127.0.0.1:{args.teacher_port}/v1"],
-            },
-        }
+    orchestrator["teacher"] = {
+        "model": {"name": teacher_model_name},
+        "client": {
+            "base_url": [f"http://127.0.0.1:{args.teacher_port}/v1"],
+        },
+    }
 
     return config
 
@@ -352,9 +302,6 @@ def main() -> None:
         "mode": "full_finetune",
         "init_model": args.model,
     }
-    if args.rollout_init_model:
-        raw_config["metadata"]["rollout_init_model_source"] = args.rollout_init_model
-
     if args.dump_config:
         args.dump_config.parent.mkdir(parents=True, exist_ok=True)
         args.dump_config.write_text(json.dumps(raw_config, indent=2) + "\n", encoding="utf-8")
@@ -374,14 +321,11 @@ def main() -> None:
     from prime_rl.configs.rl import RLConfig
     import prime_rl.entrypoints.rl as rl_mod
 
-    teacher_on = bool(args.teacher_anchor or args.enable_teacher_inference)
     managed_gpu_ids = args.prime_rl_gpu_ids
-    if managed_gpu_ids is None and teacher_on:
+    if managed_gpu_ids is None:
         managed_gpu_ids = [0, 1]
     patch_gpu_mapping(managed_gpu_ids)
-    teacher_process: subprocess.Popen[str] | None = None
-    if teacher_on:
-        teacher_process = launch_teacher_inference(raw_config, args)
+    teacher_process = launch_teacher_inference(raw_config, args)
 
     validated_config = dict(raw_config)
     validated_config.pop("metadata", None)

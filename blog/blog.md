@@ -306,4 +306,62 @@ so:
 
 
 
-# So now moving onto RLVR ...
+# So now moving onto RLVR with PRIME-RL ...
+PRIME-RL is the training stack as my code defines the `task environment + reward` then hands it to PRIME-RL
+
+## 3 core PRIME-RL runtime pieces
+1. Inference
+2. Orchestrator
+3. Trainer 
+Where the orchestrator is the CPU process between trainer and inference
+
+### Inference 
+vLLM server holding current policy. Generates rollouts as "given this Rust prompt, produces actions / `CALL` blocks / `FINAL`."
+
+# Trainer
+Updates weights. Receives rollout batches, rewards, logprobs, advantages, then does the RL gradient update. Runs backprop/FSDP/optimizer. 
+* FSDP means Fully Sharded Data Parallel and splits model wegihts, gradients, and optimzer state across GPUs. Here's my setup
+```text
+GPU 0 = rollout inference vLLM
+GPU 1 = frozen teacher vLLM
+GPU 2-3 = trainer FSDP shards
+```
+
+# Orchestrator 
+CPU-side traffic controller. Sampels prompts, calls inference for rollouts, invokes the verifier environment, packs completes rollots, sends them to trainer, and relays updated trainer weights back to inference. 
+
+# Teacher
+Optional frozen model as another inference server. Gives token-level logprobs so student policy stays close to SFT behavior while still learning from reard; PRIME-RL calls this on-policy distillation/teacher anchoring. 
+
+
+My Setup is 
+```text
+orchestrator samples RL prompt
+→ inference GPU generates trace
+→ task_trace.py env executes Rust tools
+→ reward function scores result
+→ orchestrator packs rollout batch
+→ trainer GPU updates model
+→ trainer pushes new weights to inference
+→ repeat
+```
+
+My task_trace.py is not PRIME-RL itself; it's the `custom environment` PRIME-RL calls into for Rust tool execution and reawrd scoring. train.py is also not PRIME-RL, it's a warpper that builds PRIME-RL configs, maps GPUs, starts teacher inference, validates config, then calls PRIME-RL's local RL entrypoint.
+
+### Note
+Current PRIME-RL docs say OPD can be done natively with `num_teacher_gpus` plus `teacher_tau > 0` and that automatically starts teacher inference. My repo intentionall pins older PRIME-RL, before the student/teacher inference-pool refactor.SO:
+```text
+Latest PRIME-RL:
+native teacher deployment via num_teacher_gpus
+
+Your pinned PRIME-RL:
+external teacher vLLM server + orchestrator teacher client
+```
+My train.py proves that: it starts teacher inference as a separate subprocess, then points the orchestrator at http://127.0.0.1:{teacher_port}/v1
+
+## The Core Reward Function
+I will not penalize an expected sequence biut focus on the model solving with either fewer/more calls and a clean `FINAL` response. That is successs. Penalizing extra calls can punish valid recovery/exploration. 
+
+
+## Removed explicit expected-sequence reward
+I will need to watch the model for weird but successful workflows unless tool reards and extra-call penalty are enougn.

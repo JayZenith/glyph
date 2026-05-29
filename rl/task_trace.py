@@ -36,7 +36,7 @@ DEFAULT_REWARD_CONFIG = {
 }
 
 REWARD_CONFIG = DEFAULT_REWARD_CONFIG.copy()
-MAX_ROLLOUT_TRANSCRIPT_CHARS = 16_000
+MAX_ROLLOUT_TRANSCRIPT_CHARS = 8_000
 
 
 def _set_reward_config(overrides: dict[str, float]) -> None:

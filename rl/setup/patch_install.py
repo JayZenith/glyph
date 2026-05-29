@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 
@@ -294,10 +295,30 @@ def patch_orchestrator_utils_py(path: Path) -> None:
     text = path.read_text()
     if "payload.get(\"prompt_logprobs\")" in text:
         return
-    if TEACHER_LOGPROB_PATCH_OLD not in text or TEACHER_LOGPROB_BLOCK_OLD not in text:
-        raise RuntimeError("Could not find orchestrator utils blocks to patch")
-    text = text.replace(TEACHER_LOGPROB_PATCH_OLD, TEACHER_LOGPROB_PATCH_NEW, 1)
-    text = text.replace(TEACHER_LOGPROB_BLOCK_OLD, TEACHER_LOGPROB_BLOCK_NEW, 1)
+
+    if "import os\n" not in text:
+        text = text.replace("import asyncio\n", "import asyncio\nimport os\n", 1)
+    if "import httpx\n" not in text:
+        anchor = "import pandas as pd\n"
+        if anchor in text:
+            text = text.replace(anchor, "import httpx\n" + anchor, 1)
+        else:
+            text = "import httpx\n" + text
+
+    if TEACHER_LOGPROB_BLOCK_OLD in text:
+        text = text.replace(TEACHER_LOGPROB_BLOCK_OLD, TEACHER_LOGPROB_BLOCK_NEW, 1)
+        path.write_text(text)
+        return
+
+    match = re.search(
+        r"async def compute_teacher_logprobs\([\s\S]*?\n(?=def |async def |class |\Z)",
+        text,
+    )
+    if match is None:
+        print(f"[patch_install] skipping orchestrator utils patch; compute_teacher_logprobs not found in {path}")
+        path.write_text(text)
+        return
+    text = text[: match.start()] + TEACHER_LOGPROB_BLOCK_NEW + "\n" + text[match.end() :]
     path.write_text(text)
 
 

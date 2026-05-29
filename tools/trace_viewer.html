@@ -266,13 +266,25 @@
         .join("\n\n");
     }
 
+    function promptText(row) {
+      if (typeof row.prompt === "string") return row.prompt;
+      if (!Array.isArray(row.prompt)) return "";
+      return row.prompt
+        .map(m => m.content || "")
+        .join("\n\n");
+    }
+
     function normalizeRolloutRow(row, idx) {
       const assistant = messageText(row.completion, "assistant");
       const full = messageText(row.completion);
       return {
         name: row.example_id || row.info?.case_id || `rollout_${idx}`,
-        prompt: messageText(row.prompt) || row.info?.trace_prefix || "",
+        prompt: promptText(row) || row.info?.trace_prefix || "",
         output: rowOutput(row),
+        messages: [
+          ...(Array.isArray(row.prompt) ? row.prompt : []),
+          ...(Array.isArray(row.completion) ? row.completion : []),
+        ],
         metrics: {
           valid_trace: Boolean(row.is_completed) && !row.is_truncated,
           score: row.reward ?? row.metrics?._rust_tool_reward ?? "?",
@@ -373,6 +385,36 @@
       return segments;
     }
 
+    function splitMessageText(text, role) {
+      const normalized = compactWhitespace(text);
+      if (!normalized) return [];
+      const parts = normalized
+        .split(/(?=^CALL\s|^RESULT\s|^FINAL:)/gm)
+        .map(s => s.trim())
+        .filter(Boolean);
+      return (parts.length ? parts : [normalized]).map(part => {
+        let kind = classifySegment(part) || "plain";
+        if (role === "tool") kind = "tool";
+        return { kind, label: role.toUpperCase(), text: part };
+      });
+    }
+
+    function splitMessages(row) {
+      if (!Array.isArray(row.messages)) return null;
+      const segments = [];
+      for (const message of row.messages) {
+        const role = message.role === "text" ? "prompt" : (message.role || "assistant");
+        const content = message.content || "";
+        const embedded = splitTrace(content);
+        if (embedded.length && role === "prompt") {
+          segments.push(...embedded.map(seg => ({ ...seg, label: seg.label === "PLAIN" ? "PROMPT" : seg.label })));
+        } else {
+          segments.push(...splitMessageText(content, role));
+        }
+      }
+      return segments;
+    }
+
     function renderList(rows) {
       listEl.innerHTML = "";
       rows.forEach((row, idx) => {
@@ -400,7 +442,7 @@
     function renderTrace(row) {
       const metrics = row.metrics || {};
       const failures = metrics.failure_buckets || [];
-      const segments = splitTrace(row.output || "");
+      const segments = splitMessages(row) || splitTrace(row.output || "");
       viewerEl.innerHTML = `
         <div class="section">
           <h2>${esc(row.name || "trace")}</h2>

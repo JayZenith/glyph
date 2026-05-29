@@ -328,6 +328,10 @@ class RustToolEnv(vf.MultiTurnEnv):
             return False
         if state.get("rounds_used", 0) >= self.max_tool_rounds:
             return True
+        if len(state.get("executed_call_ids") or []) >= self.max_tool_rounds:
+            return True
+        if state.get("tool_budget_exhausted"):
+            return True
         text = self._messages_text(trajectory[-1]["completion"])
         executed = set(state.get("executed_call_ids") or [])
         calls = parse_call_blocks(text)
@@ -347,7 +351,14 @@ class RustToolEnv(vf.MultiTurnEnv):
         sandbox_path = self._ensure_sandbox(state, blueprint_root) if blueprint_root else None
 
         responses: list[dict[str, str]] = []
-        for call in calls:
+        remaining = max(self.max_tool_rounds - len(executed), 0)
+        if remaining <= 0:
+            state["tool_budget_exhausted"] = True
+            return []
+        if len(calls) > remaining:
+            state["tool_budget_exhausted"] = True
+
+        for call in calls[:remaining]:
             cid = call["id"]
             params = call["params"]
             if trace_prefix and sandbox_path:

@@ -32,9 +32,11 @@ DEFAULT_REWARD_CONFIG = {
     "clean_final_after_success_bonus": 2.0,
     "missing_final_after_success_penalty": -1.0,
     "failed_terminal_penalty": -2.0,
+    "tool_budget_exhausted_penalty": -2.0,
 }
 
 REWARD_CONFIG = DEFAULT_REWARD_CONFIG.copy()
+MAX_ROLLOUT_TRANSCRIPT_CHARS = 16_000
 
 
 def _set_reward_config(overrides: dict[str, float]) -> None:
@@ -269,6 +271,9 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     elif saw_terminal:
         reward += REWARD_CONFIG["failed_terminal_penalty"]
 
+    if state.get("tool_budget_exhausted"):
+        reward += REWARD_CONFIG["tool_budget_exhausted_penalty"]
+
     return reward + structure
 
 
@@ -322,10 +327,22 @@ class RustToolEnv(vf.MultiTurnEnv):
             return "\n".join(_message_content(m) for m in messages)
         return str(messages)
 
+    @staticmethod
+    def _trajectory_chars(state: dict) -> int:
+        total = 0
+        for step in state.get("trajectory") or []:
+            for field in ("prompt", "completion"):
+                for message in step.get(field) or []:
+                    total += len(_message_content(message))
+        return total
+
     async def is_completed(self, state, **kwargs) -> bool:
         trajectory = state.get("trajectory") or []
         if not trajectory:
             return False
+        if self._trajectory_chars(state) >= MAX_ROLLOUT_TRANSCRIPT_CHARS:
+            state["tool_budget_exhausted"] = True
+            return True
         if state.get("rounds_used", 0) >= self.max_tool_rounds:
             return True
         if len(state.get("executed_call_ids") or []) >= self.max_tool_rounds:
@@ -339,6 +356,9 @@ class RustToolEnv(vf.MultiTurnEnv):
 
     async def env_response(self, messages, state, **kwargs):
         text = self._messages_text(messages)
+        if self._trajectory_chars(state) + len(text) >= MAX_ROLLOUT_TRANSCRIPT_CHARS:
+            state["tool_budget_exhausted"] = True
+            return []
         executed = set(state.get("executed_call_ids") or [])
         calls = [call for call in parse_call_blocks(text) if call["id"] not in executed]
         if not calls:
@@ -411,6 +431,7 @@ def load_environment(
     clean_final_after_success_bonus: float | None = None,
     missing_final_after_success_penalty: float | None = None,
     failed_terminal_penalty: float | None = None,
+    tool_budget_exhausted_penalty: float | None = None,
 ) -> vf.Environment:
     """Load the Rust tool RL environment with real multi-round tool execution."""
     _set_reward_config(
@@ -421,6 +442,7 @@ def load_environment(
             "clean_final_after_success_bonus": clean_final_after_success_bonus,
             "missing_final_after_success_penalty": missing_final_after_success_penalty,
             "failed_terminal_penalty": failed_terminal_penalty,
+            "tool_budget_exhausted_penalty": tool_budget_exhausted_penalty,
         }
     )
 

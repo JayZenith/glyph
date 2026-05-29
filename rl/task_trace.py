@@ -33,7 +33,6 @@ DEFAULT_REWARD_CONFIG = {
     "missing_final_after_success_penalty": -1.0,
     "failed_terminal_penalty": -2.0,
     "tool_budget_exhausted_penalty": -2.0,
-    "role_leak_penalty": -2.0,
 }
 
 REWARD_CONFIG = DEFAULT_REWARD_CONFIG.copy()
@@ -48,18 +47,6 @@ def _set_reward_config(overrides: dict[str, float]) -> None:
 
 def _ended_cleanly_after_response(text: str) -> bool:
     return ended_cleanly_after_final(text)
-
-
-def _has_role_leakage(text: str) -> bool:
-    return any(
-        marker in text
-        for marker in (
-            "<|im_start|>user",
-            "<|im_end|>user",
-            "<|im_start|>assistant",
-            "<|im_end|>assistant",
-        )
-    )
 
 # gives bonus if validator passes
 def _structure_reward(assistant_text: str, result_text: str, validator: SimpleTraceValidator | None) -> float:
@@ -286,8 +273,6 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
 
     if state.get("tool_budget_exhausted"):
         reward += REWARD_CONFIG["tool_budget_exhausted_penalty"]
-    if _has_role_leakage(assistant_trace):
-        reward += REWARD_CONFIG["role_leak_penalty"]
 
     return reward + structure
 
@@ -462,7 +447,6 @@ def load_environment(
     missing_final_after_success_penalty: float | None = None,
     failed_terminal_penalty: float | None = None,
     tool_budget_exhausted_penalty: float | None = None,
-    role_leak_penalty: float | None = None,
 ) -> vf.Environment:
     """Load the Rust tool RL environment with real multi-round tool execution."""
     _set_reward_config(
@@ -474,7 +458,6 @@ def load_environment(
             "missing_final_after_success_penalty": missing_final_after_success_penalty,
             "failed_terminal_penalty": failed_terminal_penalty,
             "tool_budget_exhausted_penalty": tool_budget_exhausted_penalty,
-            "role_leak_penalty": role_leak_penalty,
         }
     )
 

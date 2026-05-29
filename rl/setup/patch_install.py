@@ -293,8 +293,6 @@ def patch_ckpt_py(path: Path) -> None:
 
 def patch_orchestrator_utils_py(path: Path) -> None:
     text = path.read_text()
-    if "payload.get(\"prompt_logprobs\")" in text:
-        return
 
     if "import os\n" not in text:
         text = text.replace("import asyncio\n", "import asyncio\nimport os\n", 1)
@@ -304,6 +302,10 @@ def patch_orchestrator_utils_py(path: Path) -> None:
             text = text.replace(anchor, "import httpx\n" + anchor, 1)
         else:
             text = "import httpx\n" + text
+
+    if "payload.get(\"prompt_logprobs\")" in text:
+        path.write_text(text)
+        return
 
     if TEACHER_LOGPROB_BLOCK_OLD in text:
         text = text.replace(TEACHER_LOGPROB_BLOCK_OLD, TEACHER_LOGPROB_BLOCK_NEW, 1)

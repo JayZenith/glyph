@@ -50,6 +50,22 @@ def call(tool: str, call_id: str, **params: str) -> str:
     return f"CALL {tool}({args})"
 
 
+def raw_trace(assistant: str, results: list[str]) -> str:
+    by_id = {}
+    for block in results:
+        first = block.splitlines()[0]
+        if first.startswith("RESULT ") and first.endswith(":"):
+            by_id[first.removeprefix("RESULT ").removesuffix(":")] = block
+
+    parts = []
+    for line in assistant.splitlines():
+        parts.append(line)
+        parsed = parse_calls(line)
+        if parsed and parsed[0].id in by_id:
+            parts.append(by_id[parsed[0].id])
+    return "\n".join(parts)
+
+
 def score(assistant: str, results: list[str], expected_tool: str = "read_file") -> float:
     calls = [
         {"tool": c.tool, "id": c.id, "params": c.params}
@@ -58,7 +74,11 @@ def score(assistant: str, results: list[str], expected_tool: str = "read_file") 
     return asyncio.run(
         _rust_tool_reward(
             [{"role": "assistant", "content": assistant}],
-            state={"executed_tool_calls": calls, "executed_result_blocks": results},
+            state={
+                "executed_tool_calls": calls,
+                "executed_result_blocks": results,
+                "raw_chatml_transcript": raw_trace(assistant, results),
+            },
             info={
                 "expected_tool": expected_tool,
                 "expected_args": {"file_path": "src/lib.rs"} if expected_tool else {},
@@ -68,67 +88,34 @@ def score(assistant: str, results: list[str], expected_tool: str = "read_file") 
 
 
 class RewardGoldenTests(unittest.TestCase):
-    def test_progress_ladder_is_ordered(self) -> None:
+    def test_finalization_terms_are_additive(self) -> None:
+        read = call("read_file", "c1", file_path="src/lib.rs")
+        result = [result_block("c1", True)]
+
+        no_final = score(read, result)
+        clean_final = score("\n".join([read, "FINAL: fixed"]), result)
+        dirty_final = score("\n".join([read, "FINAL: fixed", "extra text"]), result)
+        double_final = score("\n".join([read, "FINAL: one", "FINAL: two"]), result)
+
+        self.assertAlmostEqual(clean_final - no_final, 3.0)
+        self.assertAlmostEqual(clean_final - dirty_final, 0.5)
+        self.assertAlmostEqual(clean_final - double_final, 1.0)
+
+    def test_verifier_success_does_not_add_ladder_reward(self) -> None:
         read = call("read_file", "c1", file_path="src/lib.rs")
         patch = call("apply_patch", "c2", file_path="src/lib.rs", find="bug", replace="fix")
-        fail = call("cargo_test", "c3", project_path=".")
-        ok = call("cargo_test", "c4", project_path=".")
+        ok = call("cargo_test", "c3", project_path=".")
 
-        cases = {
-            "quit": score("FINAL: done", []),
-            "read": score(read, [result_block("c1", True)]),
-            "patch": score("\n".join([read, patch]), [result_block("c1", True), result_block("c2", True)]),
-            "failed_verifier": score(
-                "\n".join([read, patch, fail]),
-                [result_block("c1", True), result_block("c2", True), result_block("c3", False)],
-            ),
-            "terminal_pass": score(
-                "\n".join([read, patch, ok]),
-                [result_block("c1", True), result_block("c2", True), result_block("c4", True)],
-            ),
-            "clean_final": score(
-                "\n".join([read, patch, ok, "FINAL: fixed"]),
-                [result_block("c1", True), result_block("c2", True), result_block("c4", True)],
-            ),
-        }
-
-        ordered = ["quit", "read", "patch", "failed_verifier", "terminal_pass", "clean_final"]
-        for lower, higher in zip(ordered, ordered[1:]):
-            self.assertLess(cases[lower], cases[higher], cases)
-
-    def test_recovery_is_not_punished_after_final_success(self) -> None:
-        read = call("read_file", "c1", file_path="src/lib.rs")
-        patch = call("apply_patch", "c2", file_path="src/lib.rs", find="bug", replace="fix")
-        fail = call("cargo_test", "c3", project_path=".")
-        ok = call("cargo_test", "c4", project_path=".")
-
-        direct = score(
-            "\n".join([read, patch, ok, "FINAL: fixed"]),
-            [result_block("c1", True), result_block("c2", True), result_block("c4", True)],
+        patched_no_verifier = score(
+            "\n".join([read, patch]),
+            [result_block("c1", True), result_block("c2", True)],
         )
-        recovered = score(
-            "\n".join([read, patch, fail, patch.replace("c2", "c5"), ok, "FINAL: fixed"]),
-            [
-                result_block("c1", True),
-                result_block("c2", True),
-                result_block("c3", False),
-                result_block("c5", True),
-                result_block("c4", True),
-            ],
+        verifier_no_final = score(
+            "\n".join([read, patch, ok]),
+            [result_block("c1", True), result_block("c2", True), result_block("c3", True)],
         )
-        self.assertAlmostEqual(direct, recovered)
 
-    def test_success_without_clean_final_scores_below_clean_final(self) -> None:
-        read = call("read_file", "c1", file_path="src/lib.rs")
-        ok = call("cargo_test", "c2", project_path=".")
-        results = [result_block("c1", True), result_block("c2", True)]
-
-        pass_no_final = score("\n".join([read, ok]), results)
-        pass_bad_tail = score("\n".join([read, ok, "FINAL: fixed", call("read_file", "c3", file_path="src/lib.rs")]), results)
-        clean = score("\n".join([read, ok, "FINAL: fixed"]), results)
-
-        self.assertLess(pass_no_final, clean)
-        self.assertLess(pass_bad_tail, clean)
+        self.assertAlmostEqual(patched_no_verifier, verifier_no_final)
 
 
 def assistant_text(row: dict) -> str:

@@ -6,7 +6,7 @@ from pathlib import Path
 from datasets import Dataset
 
 import verifiers as vf
-from agent_runtime.protocol import SimpleTraceValidator, ended_cleanly_after_final, has_final
+from agent_runtime.protocol import SimpleTraceValidator, ended_cleanly_after_final, final_count
 from rl.task_format import load_prompts
 from agent_runtime.rust.executor import ExecutionResult, RustExecutor, create_executor
 from agent_runtime.rust.runtime import ensure_sandbox_copy, execute_rust_tool, rewrite_params_for_sandbox
@@ -31,22 +31,10 @@ DEFAULT_REWARD_CONFIG = {
     "tool_budget_exhausted_penalty": -2.0,
     "role_leakage_penalty": -0.75,
     "post_boundary_penalty": -2.0,
-    # Monotonic progress ladder (dominant term): the deepest OUTCOME a rollout
-    # reaches. Each rung strictly beats quitting at the prior rung, so the
-    # gradient points forward instead of toward bailing early.
-    "stage_quit_immediately": -2.0,   # called nothing useful / stopped at once
-    "stage_read": -1.0,               # reached read_file, then quit
-    "stage_patch": -0.5,              # patched but never ran a verifier
-    "stage_failed_terminal": 0.5,     # ran cargo_test/run, ended on a failure
-    "stage_terminal_pass": 3.0,       # verifier passed (no clean FINAL)
-    "stage_clean_final": 5.0,         # verifier passed AND clean FINAL
-    # Recovery shaping (on top of the stage): a bounded cost per failed verifier
-    # attempt, fully refunded on eventual success. A recovered trajectory thus
-    # reaches success parity (persistence not punished), while a never-passing
-    # loop only ever trends down — capped, never positive, so it can't be farmed.
-    "failed_cycle_cost": -0.25,       # per failed cargo_test/run attempt
-    "recovery_refund": 0.25,          # per failed attempt, only if it ends in success
-    "max_scored_cycles": 4,           # cap on failed attempts that score (anti-farm)
+    "final_once_bonus": 1.0,
+    "final_after_last_tool_bonus": 1.0,
+    "missing_final_penalty": -1.0,
+    "dirty_final_penalty": -0.5,
 }
 
 REWARD_CONFIG = DEFAULT_REWARD_CONFIG.copy()
@@ -58,9 +46,6 @@ def _set_reward_config(overrides: dict[str, float]) -> None:
     REWARD_CONFIG.update(DEFAULT_REWARD_CONFIG)
     REWARD_CONFIG.update({k: v for k, v in overrides.items() if v is not None})
 
-
-def _ended_cleanly_after_response(text: str) -> bool:
-    return ended_cleanly_after_final(text)
 
 # gives bonus if validator passes
 def _structure_reward(assistant_text: str, result_text: str, validator: SimpleTraceValidator | None) -> float:
@@ -264,6 +249,48 @@ def _trajectory_tool_text(state: dict) -> str:
     return "\n".join(parts)
 
 
+def _trajectory_full_text(state: dict) -> str:
+    if state.get("raw_chatml_transcript"):
+        return str(state["raw_chatml_transcript"])
+    parts: list[str] = []
+    for step in state.get("trajectory") or []:
+        for field in ("prompt", "completion"):
+            for message in step.get(field) or []:
+                parts.append(_message_content(message))
+    return "\n".join(parts)
+
+
+def _finalization_reward(assistant_text: str, full_text: str) -> float:
+    count = final_count(assistant_text)
+    reward = 0.0
+
+    if count == 1:
+        reward += REWARD_CONFIG["final_once_bonus"]
+    elif count == 0:
+        reward += REWARD_CONFIG["missing_final_penalty"]
+
+    if count > 0:
+        last_final = full_text.rfind("FINAL:")
+        last_result = full_text.rfind("RESULT ")
+        if last_result < 0 or last_final > last_result:
+            reward += REWARD_CONFIG["final_after_last_tool_bonus"]
+        if _has_dirty_final_tail(assistant_text):
+            reward += REWARD_CONFIG["dirty_final_penalty"]
+
+    return reward
+
+
+def _has_dirty_final_tail(assistant_text: str) -> bool:
+    if not ended_cleanly_after_final(assistant_text):
+        return True
+    tail = assistant_text[assistant_text.rfind("FINAL:") :]
+    if "\n" not in tail:
+        return False
+    after_first_line = tail.split("\n", 1)[1]
+    after_first_line = after_first_line.replace("<|im_end|>", "")
+    return bool(after_first_line.strip())
+
+
 def _find_result_for(call_id: str, text: str) -> dict | None:
     """Locate the env-emitted result block for a given call id; pull status fields."""
     m = re.search(
@@ -288,17 +315,10 @@ def _find_result_for(call_id: str, text: str) -> dict | None:
     }
 
 
-# core reward function: collect assistant text, collect tool results, parse calls, score first-tool alignment,
-# add per-tool executable rewards, penalize extra calls beyond expected sequence, then heavily reward successful terminal verifier
-# plus clean finalization
+# core reward function: collect assistant text, collect tool results, parse calls,
+# score first-tool alignment/formatting, then add simple finalization shaping.
 async def _rust_tool_reward(completion, **kwargs) -> float:
-    """Score the full multi-turn rollout from the transcript the env produced.
-
-    Main SFT_V1 failure was not garbage after FINAL; it was solving or nearly
-    solving but failing to emit a clean FINAL. Reward therefore centers on real
-    verifier success followed by clean finalization, with tool rewards as
-    shaping.
-    """
+    """Score the full multi-turn rollout from the transcript the env produced."""
     state = kwargs.get("state") or {}
     text = _completion_text(completion)
     assistant_text = _trajectory_generated_text(state) or _completion_role_text(
@@ -310,6 +330,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
         tool_text = _trajectory_tool_text(state) or _completion_role_text(
             completion, "tool"
         )
+    full_text = _append_unseen_text(_trajectory_full_text(state), text) or text
     info = kwargs.get("info") or {}
     expected_tool = info.get("expected_tool")
     expected_args = _normalize_expected_args(info.get("expected_args"))
@@ -341,41 +362,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     if _has_post_boundary_text(raw_assistant_trace):
         reward += REWARD_CONFIG["post_boundary_penalty"]
 
-    # Monotonic progress ladder. Credit the *deepest* stage the rollout actually
-    # reached (only calls with a real env result count), so every correct step
-    # strictly beats quitting at the prior step and the gradient points forward.
-    executed_tools = {
-        call["tool"]
-        for call in calls
-        if _find_result_for(call["id"], tool_text) is not None
-    }
-    verifier_outcomes = _verifier_outcomes(calls, tool_text)
-    saw_terminal = bool(verifier_outcomes)
-    terminal_success = saw_terminal and verifier_outcomes[-1]
-    clean_final = _ended_cleanly_after_response(assistant_trace)
-
-    if terminal_success and clean_final:
-        reward += REWARD_CONFIG["stage_clean_final"]
-    elif terminal_success:
-        reward += REWARD_CONFIG["stage_terminal_pass"]
-    elif saw_terminal:
-        reward += REWARD_CONFIG["stage_failed_terminal"]
-    elif "apply_patch" in executed_tools:
-        reward += REWARD_CONFIG["stage_patch"]
-    elif "read_file" in executed_tools:
-        reward += REWARD_CONFIG["stage_read"]
-    else:
-        reward += REWARD_CONFIG["stage_quit_immediately"]
-
-    # Recovery shaping: bounded retry cost per failed verifier attempt, fully
-    # refunded on eventual success. Recovered trajectories reach success parity
-    # (persistence isn't punished); a never-passing loop only trends down,
-    # capped and never positive, so failing loops can't be farmed.
-    failed_attempts = sum(1 for ok in verifier_outcomes if not ok)
-    scored_fails = min(failed_attempts, REWARD_CONFIG["max_scored_cycles"])
-    reward += scored_fails * REWARD_CONFIG["failed_cycle_cost"]
-    if terminal_success:
-        reward += scored_fails * REWARD_CONFIG["recovery_refund"]
+    reward += _finalization_reward(raw_assistant_trace, full_text)
 
     if state.get("tool_budget_exhausted"):
         reward += REWARD_CONFIG["tool_budget_exhausted_penalty"]
@@ -567,15 +554,10 @@ def load_environment(
     tool_budget_exhausted_penalty: float | None = None,
     role_leakage_penalty: float | None = None,
     post_boundary_penalty: float | None = None,
-    stage_quit_immediately: float | None = None,
-    stage_read: float | None = None,
-    stage_patch: float | None = None,
-    stage_failed_terminal: float | None = None,
-    stage_terminal_pass: float | None = None,
-    stage_clean_final: float | None = None,
-    failed_cycle_cost: float | None = None,
-    recovery_refund: float | None = None,
-    max_scored_cycles: int | None = None,
+    final_once_bonus: float | None = None,
+    final_after_last_tool_bonus: float | None = None,
+    missing_final_penalty: float | None = None,
+    dirty_final_penalty: float | None = None,
 ) -> vf.Environment:
     """Load the Rust tool RL environment with real multi-round tool execution."""
     _set_reward_config(
@@ -586,15 +568,10 @@ def load_environment(
             "tool_budget_exhausted_penalty": tool_budget_exhausted_penalty,
             "role_leakage_penalty": role_leakage_penalty,
             "post_boundary_penalty": post_boundary_penalty,
-            "stage_quit_immediately": stage_quit_immediately,
-            "stage_read": stage_read,
-            "stage_patch": stage_patch,
-            "stage_failed_terminal": stage_failed_terminal,
-            "stage_terminal_pass": stage_terminal_pass,
-            "stage_clean_final": stage_clean_final,
-            "failed_cycle_cost": failed_cycle_cost,
-            "recovery_refund": recovery_refund,
-            "max_scored_cycles": max_scored_cycles,
+            "final_once_bonus": final_once_bonus,
+            "final_after_last_tool_bonus": final_after_last_tool_bonus,
+            "missing_final_penalty": missing_final_penalty,
+            "dirty_final_penalty": dirty_final_penalty,
         }
     )
 

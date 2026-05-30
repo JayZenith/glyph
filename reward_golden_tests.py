@@ -101,7 +101,7 @@ class RewardGoldenTests(unittest.TestCase):
         self.assertAlmostEqual(clean_final - dirty_final, 0.5)
         self.assertAlmostEqual(clean_final - double_final, 1.0)
 
-    def test_verifier_success_does_not_add_ladder_reward(self) -> None:
+    def test_plain_verifier_success_does_not_add_recovery_reward(self) -> None:
         read = call("read_file", "c1", file_path="src/lib.rs")
         patch = call("apply_patch", "c2", file_path="src/lib.rs", find="bug", replace="fix")
         ok = call("cargo_test", "c3", project_path=".")
@@ -116,6 +116,89 @@ class RewardGoldenTests(unittest.TestCase):
         )
 
         self.assertAlmostEqual(patched_no_verifier, verifier_no_final)
+
+    def test_recovery_doorway_gets_separate_credit(self) -> None:
+        read = call("read_file", "c1", file_path="src/lib.rs")
+        patch = call("apply_patch", "c2", file_path="src/lib.rs", find="bug", replace="bad")
+        fail = call("cargo_test", "c3", project_path=".")
+        read_again = call("read_file", "c4", file_path="src/lib.rs")
+
+        before_recovery = score(
+            "\n".join([read, patch, fail]),
+            [result_block("c1", True), result_block("c2", True), result_block("c3", False)],
+        )
+        recovery_doorway = score(
+            "\n".join([read, patch, fail, read_again]),
+            [
+                result_block("c1", True),
+                result_block("c2", True),
+                result_block("c3", False),
+                result_block("c4", True),
+            ],
+        )
+
+        self.assertAlmostEqual(recovery_doorway - before_recovery, 0.75)
+
+    def test_second_patch_gets_more_recovery_credit(self) -> None:
+        read = call("read_file", "c1", file_path="src/lib.rs")
+        patch = call("apply_patch", "c2", file_path="src/lib.rs", find="bug", replace="bad")
+        fail = call("cargo_test", "c3", project_path=".")
+        read_again = call("read_file", "c4", file_path="src/lib.rs")
+        second_patch = call("apply_patch", "c5", file_path="src/lib.rs", find="bad", replace="fix")
+
+        recovery_doorway = score(
+            "\n".join([read, patch, fail, read_again]),
+            [
+                result_block("c1", True),
+                result_block("c2", True),
+                result_block("c3", False),
+                result_block("c4", True),
+            ],
+        )
+        recovered_patch = score(
+            "\n".join([read, patch, fail, read_again, second_patch]),
+            [
+                result_block("c1", True),
+                result_block("c2", True),
+                result_block("c3", False),
+                result_block("c4", True),
+                result_block("c5", True),
+            ],
+        )
+
+        self.assertAlmostEqual(recovered_patch - recovery_doorway, 1.5)
+
+    def test_recovered_pass_final_gets_much_more_credit(self) -> None:
+        read = call("read_file", "c1", file_path="src/lib.rs")
+        patch = call("apply_patch", "c2", file_path="src/lib.rs", find="bug", replace="bad")
+        fail = call("cargo_test", "c3", project_path=".")
+        read_again = call("read_file", "c4", file_path="src/lib.rs")
+        second_patch = call("apply_patch", "c5", file_path="src/lib.rs", find="bad", replace="fix")
+        ok = call("cargo_test", "c6", project_path=".")
+
+        recovered_patch = score(
+            "\n".join([read, patch, fail, read_again, second_patch]),
+            [
+                result_block("c1", True),
+                result_block("c2", True),
+                result_block("c3", False),
+                result_block("c4", True),
+                result_block("c5", True),
+            ],
+        )
+        recovered_final = score(
+            "\n".join([read, patch, fail, read_again, second_patch, ok, "FINAL: fixed"]),
+            [
+                result_block("c1", True),
+                result_block("c2", True),
+                result_block("c3", False),
+                result_block("c4", True),
+                result_block("c5", True),
+                result_block("c6", True),
+            ],
+        )
+
+        self.assertAlmostEqual(recovered_final - recovered_patch, 7.0)
 
 
 def assistant_text(row: dict) -> str:

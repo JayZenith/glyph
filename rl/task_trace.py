@@ -35,12 +35,12 @@ DEFAULT_REWARD_CONFIG = {
     "final_after_last_tool_bonus": 1.0,
     "missing_final_penalty": -1.0,
     "dirty_final_penalty": -0.5,
+    "recovery_read_after_fail_bonus": 0.75,
+    "recovery_second_patch_bonus": 1.5,
+    "recovery_pass_final_bonus": 4.0,
 }
 
 REWARD_CONFIG = DEFAULT_REWARD_CONFIG.copy()
-MAX_ROLLOUT_TRANSCRIPT_CHARS = 8_000
-
-
 def _set_reward_config(overrides: dict[str, float]) -> None:
     REWARD_CONFIG.clear()
     REWARD_CONFIG.update(DEFAULT_REWARD_CONFIG)
@@ -138,6 +138,56 @@ def _verifier_outcomes(calls: list[dict], tool_text: str) -> list[bool]:
             continue
         outcomes.append(bool(res.get("success", False)))
     return outcomes
+
+
+def _recovery_reward(calls: list[dict], tool_text: str, assistant_text: str, full_text: str) -> float:
+    """Reward the recovery arc: failed test -> inspect again -> patch again -> pass + FINAL."""
+    events: list[tuple[str, bool | None]] = []
+    for call in calls:
+        result = _find_result_for(call["id"], tool_text)
+        if result is None:
+            continue
+        tool = call["tool"]
+        if tool in {"read_file", "apply_patch"}:
+            events.append((tool, None))
+        elif tool in {"cargo_test", "cargo_run"}:
+            events.append((tool, bool(result.get("success", False))))
+
+    saw_read = False
+    saw_patch = False
+    fail_idx: int | None = None
+    read_again_idx: int | None = None
+    second_patch_idx: int | None = None
+    pass_after_second_patch = False
+
+    for idx, (tool, success) in enumerate(events):
+        if tool == "read_file":
+            saw_read = True
+            if fail_idx is not None and read_again_idx is None:
+                read_again_idx = idx
+        elif tool == "apply_patch":
+            if fail_idx is None:
+                saw_patch = True
+            elif read_again_idx is not None and second_patch_idx is None:
+                second_patch_idx = idx
+        elif tool in {"cargo_test", "cargo_run"}:
+            if success:
+                if second_patch_idx is not None and idx > second_patch_idx:
+                    pass_after_second_patch = True
+            elif saw_read and saw_patch and fail_idx is None:
+                fail_idx = idx
+
+    reward = 0.0
+    if read_again_idx is not None:
+        reward += REWARD_CONFIG["recovery_read_after_fail_bonus"]
+    if second_patch_idx is not None:
+        reward += REWARD_CONFIG["recovery_second_patch_bonus"]
+    if pass_after_second_patch and final_count(assistant_text) == 1:
+        last_final = full_text.rfind("FINAL:")
+        last_result = full_text.rfind("RESULT ")
+        if last_result < 0 or last_final > last_result:
+            reward += REWARD_CONFIG["recovery_pass_final_bonus"]
+    return reward
 
 
 def _completion_text(completion) -> str:
@@ -367,6 +417,8 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     if state.get("tool_budget_exhausted"):
         reward += REWARD_CONFIG["tool_budget_exhausted_penalty"]
 
+    reward += _recovery_reward(calls, tool_text, raw_assistant_trace, full_text)
+
     return reward + structure
 
 
@@ -441,9 +493,6 @@ class RustToolEnv(vf.MultiTurnEnv):
         trajectory = state.get("trajectory") or []
         if not trajectory:
             return False
-        if self._trajectory_chars(state) >= MAX_ROLLOUT_TRANSCRIPT_CHARS:
-            state["tool_budget_exhausted"] = True
-            return True
         if state.get("rounds_used", 0) >= self.max_tool_rounds:
             return True
         if len(state.get("executed_call_ids") or []) >= self.max_tool_rounds:
@@ -464,9 +513,6 @@ class RustToolEnv(vf.MultiTurnEnv):
         incoming_text = self._messages_text(messages)
         raw_text = self._raw_trace_text(state, messages)
         text = _strip_role_leak_tail(_latest_assistant_segment(raw_text))
-        if self._trajectory_chars(state) + len(text) >= MAX_ROLLOUT_TRANSCRIPT_CHARS:
-            state["tool_budget_exhausted"] = True
-            return []
         executed = set(state.get("executed_call_ids") or [])
         calls = [call for call in parse_call_blocks(text) if call["id"] not in executed]
         if not calls:

@@ -32,6 +32,7 @@ DEFAULT_REWARD_CONFIG = {
     "clean_final_after_success_bonus": 2.0,
     "missing_final_after_success_penalty": -1.0,
     "failed_terminal_penalty": -2.0,
+    "no_terminal_verifier_penalty": -2.5,
     "tool_budget_exhausted_penalty": -2.0,
     "role_leakage_penalty": -0.75,
     "post_boundary_penalty": -2.0,
@@ -313,6 +314,11 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
             reward += REWARD_CONFIG["missing_final_after_success_penalty"]
     elif saw_terminal:
         reward += REWARD_CONFIG["failed_terminal_penalty"]
+    else:
+        # Patched/acted but never ran a terminal verifier (cargo_test/cargo_run)
+        # and never reached a clean FINAL. Quitting early must cost more than
+        # trying and failing, or bailing becomes the safe policy.
+        reward += REWARD_CONFIG["no_terminal_verifier_penalty"]
 
     if state.get("tool_budget_exhausted"):
         reward += REWARD_CONFIG["tool_budget_exhausted_penalty"]

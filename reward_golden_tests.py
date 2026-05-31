@@ -87,6 +87,27 @@ def score(assistant: str, results: list[str], expected_tool: str = "read_file") 
     )
 
 
+def score_with_raw_trace(assistant: str, results: list[str], raw: str) -> float:
+    calls = [
+        {"tool": c.tool, "id": c.id, "params": c.params}
+        for c in parse_calls(assistant)
+    ]
+    return asyncio.run(
+        _rust_tool_reward(
+            [{"role": "assistant", "content": assistant}],
+            state={
+                "executed_tool_calls": calls,
+                "executed_result_blocks": results,
+                "raw_chatml_transcript": raw,
+            },
+            info={
+                "expected_tool": "read_file",
+                "expected_args": {"file_path": "src/lib.rs"},
+            },
+        )
+    )
+
+
 class RewardGoldenTests(unittest.TestCase):
     def test_finalization_terms_are_additive(self) -> None:
         read = call("read_file", "c1", file_path="src/lib.rs")
@@ -101,21 +122,67 @@ class RewardGoldenTests(unittest.TestCase):
         self.assertAlmostEqual(clean_final - dirty_final, 0.5)
         self.assertAlmostEqual(clean_final - double_final, 1.0)
 
-    def test_plain_verifier_success_does_not_add_recovery_reward(self) -> None:
+    def test_final_after_last_result_turn_gets_big_bonus(self) -> None:
+        read = call("read_file", "c1", file_path="src/lib.rs")
+        result = result_block("c1", True)
+        raw = (
+            f"{read}\n<|im_end|>\n\n<|im_start|>tool\n{result}\n<|im_end|>\n\n"
+            "<|im_start|>assistant\nFINAL: fixed\n<|im_end|>"
+        )
+
+        baseline = score(read, [result])
+        final_after_result = score_with_raw_trace("\n".join([read, "FINAL: fixed"]), [result], raw)
+
+        self.assertGreaterEqual(final_after_result - baseline, 6.0)
+
+    def test_empty_assistant_after_last_result_gets_big_penalty(self) -> None:
+        read = call("read_file", "c1", file_path="src/lib.rs")
+        result = result_block("c1", True)
+        raw_without_empty_turn = f"{read}\n<|im_end|>\n\n<|im_start|>tool\n{result}\n<|im_end|>"
+        raw_with_empty_turn = f"{raw_without_empty_turn}\n\n<|im_start|>assistant\n"
+
+        no_empty = score_with_raw_trace(read, [result], raw_without_empty_turn)
+        empty = score_with_raw_trace(read, [result], raw_with_empty_turn)
+
+        self.assertAlmostEqual(empty - no_empty, -3.0)
+
+    def test_verifier_success_final_beats_no_final(self) -> None:
         read = call("read_file", "c1", file_path="src/lib.rs")
         patch = call("apply_patch", "c2", file_path="src/lib.rs", find="bug", replace="fix")
         ok = call("cargo_test", "c3", project_path=".")
 
-        patched_no_verifier = score(
-            "\n".join([read, patch]),
-            [result_block("c1", True), result_block("c2", True)],
-        )
         verifier_no_final = score(
             "\n".join([read, patch, ok]),
             [result_block("c1", True), result_block("c2", True), result_block("c3", True)],
         )
+        verifier_final = score(
+            "\n".join([read, patch, ok, "FINAL: fixed"]),
+            [result_block("c1", True), result_block("c2", True), result_block("c3", True)],
+        )
 
-        self.assertAlmostEqual(patched_no_verifier, verifier_no_final)
+        self.assertGreaterEqual(verifier_final - verifier_no_final, 10.0)
+
+    def test_tool_use_after_successful_verifier_is_penalized(self) -> None:
+        read = call("read_file", "c1", file_path="src/lib.rs")
+        patch = call("apply_patch", "c2", file_path="src/lib.rs", find="bug", replace="fix")
+        ok = call("cargo_test", "c3", project_path=".")
+        read_again = call("read_file", "c4", file_path="src/lib.rs")
+
+        verifier_final = score(
+            "\n".join([read, patch, ok, "FINAL: fixed"]),
+            [result_block("c1", True), result_block("c2", True), result_block("c3", True)],
+        )
+        tool_after_success = score(
+            "\n".join([read, patch, ok, read_again]),
+            [
+                result_block("c1", True),
+                result_block("c2", True),
+                result_block("c3", True),
+                result_block("c4", True),
+            ],
+        )
+
+        self.assertGreaterEqual(verifier_final - tool_after_success, 13.0)
 
     def test_recovery_doorway_gets_separate_credit(self) -> None:
         read = call("read_file", "c1", file_path="src/lib.rs")
@@ -198,7 +265,7 @@ class RewardGoldenTests(unittest.TestCase):
             ],
         )
 
-        self.assertAlmostEqual(recovered_final - recovered_patch, 7.0)
+        self.assertAlmostEqual(recovered_final - recovered_patch, 12.0)
 
 
 def assistant_text(row: dict) -> str:

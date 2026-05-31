@@ -339,11 +339,13 @@ def _assistant_after_last_result(full_text: str) -> str | None:
     last_result = full_text.rfind("RESULT ")
     if last_result < 0:
         return None
-    assistant_marker = "<|im_start|>assistant\n"
+    assistant_marker = "<|im_start|>assistant"
     assistant_idx = full_text.find(assistant_marker, last_result)
     if assistant_idx < 0:
         return None
     segment = full_text[assistant_idx + len(assistant_marker) :]
+    if segment.startswith("\n"):
+        segment = segment[1:]
     next_role = segment.find("<|im_start|>")
     if next_role >= 0:
         segment = segment[:next_role]

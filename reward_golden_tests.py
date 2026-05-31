@@ -140,11 +140,14 @@ class RewardGoldenTests(unittest.TestCase):
         result = result_block("c1", True)
         raw_without_empty_turn = f"{read}\n<|im_end|>\n\n<|im_start|>tool\n{result}\n<|im_end|>"
         raw_with_empty_turn = f"{raw_without_empty_turn}\n\n<|im_start|>assistant\n"
+        raw_with_bare_empty_turn = f"{raw_without_empty_turn}\n\n<|im_start|>assistant"
 
         no_empty = score_with_raw_trace(read, [result], raw_without_empty_turn)
         empty = score_with_raw_trace(read, [result], raw_with_empty_turn)
+        bare_empty = score_with_raw_trace(read, [result], raw_with_bare_empty_turn)
 
         self.assertAlmostEqual(empty - no_empty, -8.0)
+        self.assertAlmostEqual(bare_empty - no_empty, -8.0)
 
     def test_verifier_success_final_beats_no_final(self) -> None:
         read = call("read_file", "c1", file_path="src/lib.rs")

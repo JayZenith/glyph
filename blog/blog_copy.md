@@ -58,13 +58,14 @@ the target: solve, then stop
 ```
 
 ```text
-solve + stop   = 12.0   <- maximum
-solve + churn  =  6.0   <- solved but won't stop  (the +6 gap is the whole signal)
-graceful exit  =  1.0   <- unsolved but one FINAL
-loop           = -2.0   <- unsolved, no stop
+solve + stop              = 12.0   <- maximum
+solve, no FINAL (stops)   =  6.0
+solve, churn to round cap =  1.0   <- the actual failure (-3 churn, -2 budget)
+graceful exit (unsolved)  =  1.0   <- unsolved but one FINAL
+loop (unsolved, no stop)  = -2.0
 ```
 
-The +8/+3 dominate and only fire on real success. The +6 solve-vs-churn gap is what teaches stopping. Removed all the old shaping (recovery bonuses, stacked penalties, first-call alignment) — 9 terms, nothing else.
+The +8/+3 dominate and only fire on real success. The ~11-point gap between solve+stop (12) and the real churn-to-budget failure (1) is what teaches stopping, while solving stays net-positive so the model never abandons it. Removed all the old shaping (recovery bonuses, stacked penalties, first-call alignment) — 9 terms, nothing else.
 
 ## Where we are
 

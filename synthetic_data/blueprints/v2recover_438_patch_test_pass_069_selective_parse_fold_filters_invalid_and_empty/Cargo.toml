@@ -1,0 +1,6 @@
+[package]
+name = "selective_parse_fold_filters_invalid_and_empty"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

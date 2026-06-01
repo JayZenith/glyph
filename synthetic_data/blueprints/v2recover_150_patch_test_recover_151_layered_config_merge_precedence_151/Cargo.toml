@@ -1,0 +1,8 @@
+[package]
+name = "layered_config_merge_precedence_151"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "layered_config_merge_precedence_151"
+path = "src/lib.rs"

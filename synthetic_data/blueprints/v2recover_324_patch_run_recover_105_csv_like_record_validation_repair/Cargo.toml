@@ -1,0 +1,4 @@
+[package]
+name = "csv_like_record_validation_repair"
+version = "0.1.0"
+edition = "2021"

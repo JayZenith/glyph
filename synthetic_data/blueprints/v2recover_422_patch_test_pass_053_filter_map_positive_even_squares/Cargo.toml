@@ -1,0 +1,6 @@
+[package]
+name = "filter_map_positive_even_squares"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

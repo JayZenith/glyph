@@ -1,0 +1,4 @@
+[package]
+name = "dispatch_notifications_match_branches"
+version = "0.1.0"
+edition = "2021"

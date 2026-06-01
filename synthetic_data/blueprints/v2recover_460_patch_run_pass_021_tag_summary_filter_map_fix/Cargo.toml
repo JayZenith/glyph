@@ -1,0 +1,6 @@
+[package]
+name = "tag_summary_filter_map_fix"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

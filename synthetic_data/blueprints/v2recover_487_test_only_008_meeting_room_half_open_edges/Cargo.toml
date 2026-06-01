@@ -1,0 +1,7 @@
+[package]
+name = "meeting_room_half_open_edges"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

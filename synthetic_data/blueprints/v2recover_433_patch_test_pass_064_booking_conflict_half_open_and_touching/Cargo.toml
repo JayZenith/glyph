@@ -1,0 +1,4 @@
+[package]
+name = "booking_conflict_half_open_and_touching"
+version = "0.1.0"
+edition = "2021"

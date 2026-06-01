@@ -1,0 +1,4 @@
+[package]
+name = "csv_inventory_parse_validate"
+version = "0.1.0"
+edition = "2021"

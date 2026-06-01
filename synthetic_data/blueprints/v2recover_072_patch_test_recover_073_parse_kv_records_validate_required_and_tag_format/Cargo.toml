@@ -1,0 +1,4 @@
+[package]
+name = "parse_kv_records_validate_required_and_tag_format"
+version = "0.1.0"
+edition = "2021"

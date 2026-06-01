@@ -1,0 +1,4 @@
+[package]
+name = "dispatch_enum_message_modes"
+version = "0.1.0"
+edition = "2021"

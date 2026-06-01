@@ -1,0 +1,7 @@
+[package]
+name = "kv_line_parser_recover_required_unknown"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

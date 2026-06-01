@@ -1,0 +1,6 @@
+[package]
+name = "rank_teams_points_goaldiff_name_recover"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

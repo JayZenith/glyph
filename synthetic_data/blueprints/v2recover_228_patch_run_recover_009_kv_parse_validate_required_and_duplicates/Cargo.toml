@@ -1,0 +1,4 @@
+[package]
+name = "kv_parse_validate_required_and_duplicates"
+version = "0.1.0"
+edition = "2021"

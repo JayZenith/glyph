@@ -1,0 +1,7 @@
+[package]
+name = "parse_records_require_valid_key_value_pairs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"

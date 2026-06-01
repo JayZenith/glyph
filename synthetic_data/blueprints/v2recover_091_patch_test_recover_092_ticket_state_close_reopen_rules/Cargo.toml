@@ -1,0 +1,6 @@
+[package]
+name = "ticket_state_close_reopen_rules"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

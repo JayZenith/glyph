@@ -1,0 +1,8 @@
+[package]
+name = "rank_players_multi_tiebreak_repair"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "rank_players_multi_tiebreak_repair"
+path = "src/lib.rs"

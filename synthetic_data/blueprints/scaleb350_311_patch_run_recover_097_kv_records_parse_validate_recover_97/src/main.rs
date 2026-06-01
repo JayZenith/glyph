@@ -9,7 +9,7 @@ id=1006;name=Fox;age=29;active=false
 id=1007;name=Gia;age=30;active=false;note=vip
 id=1008;name=Hal;age=30;active=true;age=31
 # ignored
-
+   
 "#;
 
 fn parse_line(line: &str) -> Option<String> {

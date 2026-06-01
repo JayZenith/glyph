@@ -1,0 +1,4 @@
+[package]
+name = "event_kind_branch_summary_fix"
+version = "0.1.0"
+edition = "2021"

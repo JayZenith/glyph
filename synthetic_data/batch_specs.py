@@ -25,6 +25,25 @@ FAMILY_SEQUENCES = {
     "test_only": ["cargo_test"],
     "run_only": ["cargo_run"],
 }
+# Recovery depth = number of FAILED verifier turns before the final success.
+# Spread it by difficulty so the model learns variable-length recovery (not just
+# the depth-1 read->patch->fail->patch->pass arc) and depth-invariant termination.
+RECOVERY_DEPTH_CYCLE = {
+    "easy": [1, 1, 2],
+    "medium": [1, 2, 2, 3],
+    "hard": [2, 3, 3, 4, 5],
+}
+
+
+def recovery_depth_for(difficulty: str, case_index: int) -> int:
+    cycle = RECOVERY_DEPTH_CYCLE.get(difficulty, [1])
+    return cycle[(case_index - 1) % len(cycle)]
+
+
+def recover_sequence(family: str, depth: int) -> list[str]:
+    verifier = "cargo_run" if "run" in family else "cargo_test"
+    # depth failed cycles + 1 success cycle
+    return ["read_file", "apply_patch", verifier] * (depth + 1)
 DEFAULT_DIFFICULTY_COUNTS = {
     "patch_test_pass": {"easy": 7, "medium": 15, "hard": 5},
     "patch_run_pass": {"easy": 4, "medium": 8, "hard": 3},
@@ -118,9 +137,9 @@ Hard constraints:
 - Do not make two apply_patch steps identical or semantically no-op.
 
 Recovery constraints:
-- For patch_test_recover and patch_run_recover, include one or more failed verifier turns before the final success.
+{recovery_depth_instructions}
 - Every verifier turn before the last must fail because the patch is incomplete, not because code does not compile.
-- Use tests/output expectations with separate requirements, so partial fixes really fail and the final fix really passes.
+- Use tests/output expectations with multiple independent requirements, so each partial fix really fails and only the final fix passes.
 
 Return exactly this schema:
 {{
@@ -203,6 +222,22 @@ def archetype_for(case_index: int) -> str:
 
 def build_prompt(family: str, case_index: int, difficulty: str) -> str:
     sequence = FAMILY_SEQUENCES[family]
+    recovery_depth_instructions = (
+        "- This family has no failed verifier turns; the single verifier must succeed."
+    )
+    if "recover" in family:
+        depth = recovery_depth_for(difficulty, case_index)
+        sequence = recover_sequence(family, depth)
+        verifier = "cargo_run" if "run" in family else "cargo_test"
+        recovery_depth_instructions = (
+            f"- This case MUST have exactly {depth} failed {verifier} turn(s) before the final "
+            f"success ({depth + 1} verifier turns total).\n"
+            "- After each failed verifier, read_file again and apply a DIFFERENT patch that fixes "
+            "one more cause revealed by that failure. Never repeat a patch, never make a no-op, and "
+            "make real diagnostic progress on every attempt.\n"
+            "- End with exactly one 'FINAL: ' immediately after the successful verifier, no matter "
+            "how many attempts it took."
+        )
     expected_output_rule = "a JSON string" if "run" in family else "JSON null"
     expected_output_json = '"exact final stdout"' if "run" in family else "null"
     source_file = "src/main.rs" if "run" in family else "src/lib.rs"
@@ -216,6 +251,7 @@ def build_prompt(family: str, case_index: int, difficulty: str) -> str:
         step_examples=STEP_EXAMPLES,
         sequence=" -> ".join(sequence),
         sequence_json=json.dumps(sequence),
+        recovery_depth_instructions=recovery_depth_instructions,
         expected_output_rule=expected_output_rule,
         expected_output_json=expected_output_json,
         source_file=source_file,
@@ -314,7 +350,7 @@ def main() -> int:
     p.add_argument("--counts-json", type=Path, default=None)
     p.add_argument("--custom-prefix", default="pilot100")
     p = sub.add_parser("preview-prompt")
-    p.add_argument("--family", choices=sorted(DEFAULT_FAMILY_COUNTS), default="patch_test_recover_twice")
+    p.add_argument("--family", choices=sorted(DEFAULT_FAMILY_COUNTS), default="patch_test_recover")
     p.add_argument("--case-index", type=int, default=1)
     p = sub.add_parser("submit")
     p.add_argument("--input", type=Path, default=Path("synthetic_data/batch_pilot_100/requests.jsonl"))

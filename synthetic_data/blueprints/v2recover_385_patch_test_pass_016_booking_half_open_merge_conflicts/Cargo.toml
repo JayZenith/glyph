@@ -1,0 +1,6 @@
+[package]
+name = "booking_half_open_merge_conflicts"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

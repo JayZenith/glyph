@@ -1,0 +1,6 @@
+[package]
+name = "keep_recent_named_scores_filter_map"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

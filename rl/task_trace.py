@@ -68,56 +68,6 @@ def _structure_reward(assistant_text: str, result_text: str, validator: SimpleTr
 # Reward scoring (operates on full transcript; no execution side-effects here)
 # ---------------------------------------------------------------------------
 
-def _normalize_expected_args(expected_args) -> dict[str, str]:
-    if not expected_args:
-        return {}
-    return {str(k): str(v) for k, v in expected_args.items()}
-
-# small shaping for model's first CALL matching expected first tool and args from RL prompt
-def _score_tool_alignment(
-    tool_call: dict,
-    expected_tool: str | None,
-    expected_args: dict[str, str],
-) -> float:
-    score = 0.0
-    actual_tool = tool_call["tool"]
-    actual_args = {str(k): str(v) for k, v in tool_call["params"].items()}
-
-    if expected_tool:
-        score += 0.45 if actual_tool == expected_tool else -0.7
-
-    matched_exact = matched_partial = missing = wrong = 0
-    for key, expected_value in expected_args.items():
-        actual_value = actual_args.get(key)
-        if actual_value is None:
-            missing += 1
-            continue
-        if actual_value == expected_value:
-            matched_exact += 1
-            continue
-        expected_name = Path(expected_value).name
-        actual_name = Path(actual_value).name
-        if expected_name and actual_name and expected_name == actual_name:
-            matched_partial += 1
-        else:
-            wrong += 1
-
-    score += matched_exact * 0.2
-    score += matched_partial * 0.08
-    score -= missing * 0.12
-    score -= wrong * 0.18
-
-    extra_args = [key for key in actual_args if key not in expected_args]
-    score -= min(len(extra_args) * 0.04, 0.12)
-
-    if expected_args and matched_exact == len(expected_args):
-        score += 0.15
-
-    if tool_call.get("id"):
-        score += 0.05
-
-    return score
-
 # VITAL, walks backward through calls and finds last cargo_test or cargo_run; if that terminal
 # verifier succeeded, rollout gets a major reward
 def _terminal_verifier_success(
@@ -351,7 +301,6 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     full_text = _append_unseen_text(_trajectory_full_text(state), text) or text
     info = kwargs.get("info") or {}
     expected_tool = info.get("expected_tool")
-    expected_args = _normalize_expected_args(info.get("expected_args"))
     validator: SimpleTraceValidator | None = kwargs.get("validator")
     raw_assistant_trace = assistant_text or text
     assistant_trace = _strip_role_leak_tail(raw_assistant_trace)
@@ -369,8 +318,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     if not calls:
         return REWARD_CONFIG["no_call_penalty"] + structure
 
-    first_call = calls[0]
-    reward = _score_tool_alignment(first_call, expected_tool, expected_args)
+    reward = 0.0
     # Malformed call keyword (e.g. "CALLTYPE" instead of "CALL ") breaks the
     # parser so no tool executes. Penalize per occurrence (capped) to train the
     # exact `CALL <tool>(...)` form.

@@ -179,6 +179,12 @@ retry_uv_pip_install 3 \
   --python "$VENV_PY" \
   -r "$ROOT_DIR/requirements-train.txt"
 
+# transformers device_map loading requires accelerate; install explicitly in case
+# a stale or partial requirements install was used.
+retry_uv_pip_install 3 \
+  --python "$VENV_PY" \
+  "accelerate==1.10.1"
+
 # extract compatibility tags needd to find correct flash-attn wheel
 # Gets Torch minor version, CUDA major version, Python ABI flag, C++ ABI mode
 read -r FLASH_TORCH_TAG FLASH_CUDA_TAG FLASH_PY_TAG FLASH_ABI_TAG <<EOF
@@ -244,6 +250,7 @@ Activate with:
 Installed:
   python=$SELECTED_PYTHON
   torch==$TORCH_VERSION from $TORCH_INDEX_URL
+  accelerate==1.10.1
   flash-attn wheel only
   rust toolchain via apt (cargo/rustc)
   pinned SFT deps from requirements-train.txt

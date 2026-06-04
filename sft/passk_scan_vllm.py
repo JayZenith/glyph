@@ -163,6 +163,7 @@ def main() -> int:
     p.add_argument("--no-resume", action="store_true")
     p.add_argument("--gpu-memory-utilization", type=float, default=0.85)
     p.add_argument("--max-model-len", type=int, default=12288)
+    p.add_argument("--dtype", default="bfloat16")
     args = p.parse_args()
 
     keep = set(args.names.split(",")) if args.names else None
@@ -191,7 +192,7 @@ def main() -> int:
     tokenizer = AutoTokenizer.from_pretrained(args.sft_model, trust_remote_code=True)
     llm = LLM(
         model=args.sft_model,
-        dtype="bfloat16",
+        dtype=args.dtype,
         gpu_memory_utilization=args.gpu_memory_utilization,
         max_model_len=args.max_model_len,
         trust_remote_code=True,

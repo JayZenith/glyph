@@ -1,126 +1,396 @@
-# SFT to RLVR
+# SFT → RLVR for a Rust tool-use agent: where supervised learning ends and RL begins
 
-Teaching `Qwen3-4B-Base` a coding-agent protocol on real Rust tasks:
+Teaching `Qwen3-4B-Base` to be a coding agent on real Rust tasks — and then running the experiment that most write-ups skip: *does reinforcement learning actually add
+anything on top of a good SFT model, and how do you tell before you burn the GPUs?*
 
-```text
-assistant -> CALL ...      (read_file, apply_patch, cargo_test, cargo_run)
-tool      -> RESULT ...    (real tool output, executed in a sandbox)
-assistant -> FINAL: ...    (stop)
-```
+The short version: SFT taught the protocol and the skill cleanly. Every RL run after
+that **regressed**. That sounds like failure, but the interesting part is *why* it was
+predictable — and the one cheap measurement (`pass@k`) that called it in advance. This
+is a negative result with a clean mechanism, which is more useful than a lucky curve.
 
-Tools run for real against sandboxed crates. `cargo_run` only counts as success if stdout exactly matches expected; `cargo_test` if tests pass. The model can't fake it.
-
-Eval = 69 held-out prompts (`eval_prompts_heldout_69.yaml`). Key metrics: **valid_traces** (solved + clean stop), **clean_end_rate**, **terminal_tool_success** (solved, ignoring stop).
-
-## SFT worked; the gap is stopping
+The model speaks a tiny tool-use protocol:
 
 ```text
-            valid  clean_end  terminal   notes
-SFT_V1      52/69    0.75       0.99     baseline (signal_1062, all recovery depth-1)
-SFT_V2      48/69    0.70       0.96     +variable-depth recovery (signal_v2)
-SFT_V3      50/69    0.725      0.99     +deep coverage, oversample clean PASS->FINAL (signal_v3)
+assistant ->  CALL read_file(id="c1", file_path="src/lib.rs")
+tool      ->  RESULT c1: status: success  stdout: ...
+assistant ->  CALL apply_patch(id="c2", ...)
+tool      ->  RESULT c2: status: success  stdout: patch applied
+assistant ->  CALL cargo_run(id="c3", project_path=".")
+tool      ->  RESULT c3: status: success  stdout: ada:4,bob:2,cy:8
+assistant ->  FINAL: patched the filter pipeline; stdout now matches.
 ```
 
-The model solves almost everything (terminal ~0.99). **The only persistent failure is termination**: it reaches a passing verifier, then keeps patching to the tool-round cap (15) and never emits `FINAL`. The trace ends on a bare `<|im_start|>assistant` opener — the round cap fires before it spends a turn on FINAL.
+Tools execute **for real** against sandboxed crates. `cargo_run` only counts as success
+if stdout exactly matches the oracle; `cargo_test` only if the tests pass. There is no
+reward model to fool — the verifier is a compiler.
 
-Three data variants, stopping plateaued at **0.72–0.75**. So it's **not a data-coverage gap** — the model has thousands of `success -> FINAL` examples and still won't stop on its *own* messy trajectories. SFT only ever shows it the teacher's clean states.
+---
 
-Important detail from the data: SFT_V2/V3 recover *deeper* but **over-recover** — they make 5 failed attempts where SFT_V1 fixes it in 1 and stops. V1→V3 just trades which deep cases stop (fixed 5 shallow, broke 7 depth-5). More recovery data makes stopping *worse* on the hardest cases.
+## 1. The stack: PRIME-RL and `verifiers`, in plain terms
 
-## Why RLVR_V1 collapsed (and what we fixed)
+Because the whole project runs on [PRIME-RL](https://github.com/PrimeIntellect-ai/prime-rl)
+and [`verifiers`](https://github.com/willccbb/verifiers), here's the mental model you
+need before any of the results make sense.
 
-First RL run regressed everything: valid 52→20, clean_end 0.75→0.33, terminal 0.99→0.70. Causes:
+### `verifiers` — the environment and the reward
 
-- **Stacked penalties** to −13..−23 vs +12 for a solve → one bad rollout dominated its GRPO group.
-- **No positive path** — clean FINAL only paid after a passing verifier, so unsolved cases were all-negative.
-- **No SFT anchor** (`teacher-tau 0.01`) → the policy drifted and collapsed.
-- **~56% zero-advantage groups** → almost no usable gradient.
+`verifiers` is the library that defines *what a rollout is* and *how it's scored*. Two
+pieces matter:
 
-That was a broken reward/recipe, not proof RL can't do this.
+- **`MultiTurnEnv`** — a multi-turn environment. You implement two methods:
+  - `env_response(messages, state)` — given what the model just produced, return the
+    next non-assistant turn. In our case: parse a `CALL`, **execute the real cargo tool**,
+    and hand back a `RESULT` block.
+  - `is_completed(state)` — decide when the episode ends (no pending calls left, or the
+    tool-round budget is exhausted).
+- **`Rubric`** — a bag of reward functions, each with a weight. The episode's scalar
+  reward is the weighted sum. Ours has exactly one: `_rust_tool_reward` at weight 1.0.
 
-## The reward now (minimal, success-anchored)
+Our environment, `rl/task_trace.py::RustToolEnv`, subclasses `MultiTurnEnv`. The loop is
+exactly the protocol above: model emits `CALL` → `env_response` copies the crate into a
+fresh per-rollout sandbox, runs `cargo`, formats the `RESULT` → repeat until `FINAL` or
+the 15-round cap.
 
-One scalar, computed **once at the end of the full rollout** (not per turn). GRPO compares rollouts in a group; the good (success→FINAL) and bad (success→another CALL) rollouts diverge at one token, so credit lands on the stop decision.
+```python
+class RustToolEnv(vf.MultiTurnEnv):
+    async def env_response(self, messages, state):
+        calls = parse_call_blocks(latest_assistant(state))      # CALL tool(id=..., ...)
+        result = execute_rust_tool(self.executor, call.tool, call.params)  # real cargo
+        return [{"role": "tool", "content": format_result_block(call.id, result)}]
+
+    async def is_completed(self, state):
+        return no_pending_calls(state) or rounds_used >= self.max_tool_rounds
+
+rubric = vf.Rubric(parser=parser)
+rubric.add_reward_func(_rust_tool_reward, weight=1.0)   # one scalar per rollout
+```
+
+This is **RLVR** — *RL with Verifiable Rewards*. The reward isn't a learned preference
+model; it's the ground-truth output of a verifier (tests pass / stdout matches). That
+makes the signal uncheatable but **sparse and binary**: you mostly get +8 or nothing.
+Hold that thought — it's the whole story later.
+
+### PRIME-RL — the asynchronous training loop
+
+PRIME-RL splits RL into three processes that run concurrently, talking over the
+filesystem:
+
+```
+                 weights (filesystem broadcast)
+   ┌──────────┐  ───────────────────────────►  ┌─────────────┐
+   │ TRAINER  │                                 │  INFERENCE  │  vLLM, serves
+   │ (FSDP,   │                                 │  (policy)   │  the current policy
+   │  GRPO)   │  ◄───────────────────────────   └─────────────┘
+   └──────────┘   training batches (rollouts)          │ generates rollouts
+        ▲                                               ▼
+        │                                        ┌──────────────┐
+        │                                        │ ORCHESTRATOR │  runs the verifiers
+        └──── KL anchor ◄──── ┌─────────┐        │  env, scores │  env, applies the
+                              │ TEACHER │ ◄───── │  & filters   │  rubric, filters
+                              │ (frozen │        └──────────────┘
+                              │  vLLM)  │
+                              └─────────┘
+```
+
+- **Orchestrator** drives the `verifiers` environment: it asks the inference engine for
+  completions, runs the multi-turn tool loop, scores each rollout with the rubric, and
+  assembles training batches. It also runs the **rollout filters**.
+- **Trainer** does the policy-gradient update (GRPO) under FSDP, then **broadcasts the
+  new weights** to the inference engine so the next rollouts are on-policy.
+- **Inference** is a vLLM server holding the current policy.
+- **Teacher** is a second, *frozen* vLLM server (here it's SFT_V1 itself). The trainer
+  adds a KL penalty pulling the policy toward the teacher's distribution — the **anchor**
+  that stops RL from wandering off a cliff.
+
+### GRPO and the zero-advantage filter (the load-bearing concept)
+
+PRIME-RL uses **GRPO** (Group Relative Policy Optimization). For each prompt it samples a
+*group* of `G` rollouts (we used 8, then 16), scores each, and computes the advantage of
+rollout *i* by normalizing within its own group:
+
+```
+A_i = (r_i − mean(r_group)) / std(r_group)
+```
+
+No value network — the group's own mean is the baseline. This has a brutal consequence:
+
+> **If every rollout in a group gets the same reward, `std = 0`, every advantage is 0,
+> and the group contributes no gradient.**
+
+PRIME-RL makes this explicit with the **`zero_advantage` filter** (enforced in
+`rl/configs/task_trace/orchestrator.toml`): groups where all rollouts scored identically
+are dropped before the trainer ever sees them. This is efficient — but it also means
+**a prompt the model already solves every time, or fails every time, teaches RL nothing.**
+The only prompts that produce a gradient are the ones with *within-group variance*: some
+rollouts pass, some don't. Remember this; it is the entire reason this project ended the
+way it did.
+
+---
+
+## 2. SFT: teaching the protocol works
+
+SFT_V1 is `Qwen3-4B-Base` fine-tuned on `signal_1062` — 1062 synthetic-but-real traces
+(GPT-authored task specs → materialized into actual crates → kept only if real tool
+execution matched the intended trajectory). Assistant-only loss masking, 3 epochs.
+
+![SFT_V1 training loss](assets/fig_sft_loss.png)
+
+On the 69 held-out prompts SFT_V1 is genuinely good at the *hard* part — solving:
+
+| metric | SFT_V1 | what it means |
+|---|---|---|
+| `terminal_tool_success` | **0.986** | reaches a passing verifier on 68/69 |
+| `valid_traces` | 52 / 69 | solved **and** stopped cleanly |
+| `clean_end_rate` | 0.754 | emitted `FINAL` right after the last tool |
+
+A real rollout, scored +8 by the verifier (4 turns, no wasted moves):
 
 ```text
-format floor
-  structure_valid            +0.5
-  no_call_penalty            -2.0    emitted no tool call
-  malformed_call_penalty     -1.0    per "CALLX" parser-breaking typo (cap 4)
-finalize
-  final_once_bonus           +1.0    exactly one FINAL
-  missing_final_penalty      -2.0    zero (or >1) FINAL
-the target: solve, then stop
-  verifier_success_bonus     +8.0    a verifier actually passed (real correctness)
-  verifier_success_clean_final +3.0  passed AND one FINAL after it AND no tools after
-  tool_after_success_penalty -3.0    any tool ran after the pass (churn = the failure)
-  tool_budget_exhausted      -2.0    hit max_tool_rounds
+CALL read_file(id="c1", file_path=".../src/main.rs")
+RESULT c1: status: success  stdout: fn main() { let records = [("ada", Some(4)), ...
+CALL apply_patch(id="c2", find=".filter(|entry| ...", replace=".filter_map(|(name, score)| ...")
+RESULT c2: status: success  stdout: patch applied
+CALL cargo_run(id="c3", project_path=".")
+RESULT c3: status: success  stdout: ada:4,bob:2,cy:8        ← exact oracle match
+FINAL: patched the filter pipeline; stdout now matches.
 ```
+
+The model reads, forms a hypothesis, patches, **verifies against the real compiler**, and
+stops. That's the capability SFT installed, and it's solid.
+
+### The one persistent gap: stopping
+
+The 0.99-vs-0.75 gap is one failure mode: the model **solves, then keeps going**. It
+reaches a passing `cargo_test`, then patches again, and again, until it hits the 15-round
+cap and the trace ends on a bare `<|im_start|>assistant` with no `FINAL`. We threw data at
+it — `signal_v2` (variable-depth recovery) and `signal_v3` (deeper coverage, oversampled
+clean `PASS→FINAL` endings):
+
+| model | data | valid | clean_end | terminal |
+|---|---|---|---|---|
+| SFT_V1 | signal_1062 (depth-1 recovery) | 52 | 0.754 | 0.986 |
+| SFT_V2 | + variable-depth recovery | 48 | 0.70 | 0.96 |
+| SFT_V3 | + deep coverage, oversample clean | 50 | 0.725 | 0.99 |
+
+Stopping **plateaued at 0.72–0.75** regardless. More recovery data even made it
+*over-recover* (5 failed attempts where V1 fixed it in 1). So we asked the obvious
+question: **is stopping an RL problem?**
+
+---
+
+## 3. Experiment 1 — RL to teach stopping, and how it collapsed
+
+`RLVR_V1` was the first attempt: shape a reward that punishes churning past a success and
+rewards the clean `FINAL`. It used a stacked-penalty reward, `teacher-tau 0.01` (almost no
+anchor), and cut exploration (temp 0.8→0.6, rollouts 8→4). The result was not a small
+regression — it was a **collapse of capability the reward never even mentioned**:
+
+![RLVR_V1 collapse](assets/fig_collapse.png)
+
+```
+held-out 69:  valid 52 → 20   clean_end 0.75 → 0.33   terminal 0.99 → 0.70   task_failure 1 → 21
+```
+
+The model got *worse at solving*, which the reward never touched. Post-mortem — four
+textbook GRPO failure modes at once:
+
+1. **Unbounded stacked penalties.** Bad rollouts scored −13 to −23 against +12 for a
+   solve. One catastrophic rollout dominated its group's advantage and dragged the update.
+2. **No positive path on failures.** On an unsolved task *every* action scored negative,
+   so the optimizer's best move was to flee the working SFT behavior entirely.
+3. **No anchor.** `teacher-tau 0.01` let the policy drift off the SFT manifold; nothing
+   pulled it back.
+4. **Starved gradient.** ~56% of groups were zero-advantage; the few that survived were
+   noisy.
+
+**Lesson:** a verifier-grounded RL reward must be **bounded, success-anchored (there is
+always a positive path), and KL-anchored to the SFT model**, with enough rollouts for
+within-group variance. Get any of those wrong and GRPO eats your SFT model.
+
+### The measurement that reframed the whole project
+
+We rebuilt the reward correctly (bounded, +8 verifier-dominant, hard anchor) and even
+tried the most aggressive credit trick — `terminal_on_success`, which ends the episode one
+turn *after* the first pass to force a clean stop/churn decision (`RLVR_B`). It **also**
+regressed (52 → 19). At which point we stopped tuning and *measured the policy itself*:
+
+> On the **training** prompts, how often does SFT_V1 actually churn?
+> - temp-0: **0 churn** (72 clean / 24 unsolved of 96)
+> - temp-0.8, depth≥3: **0 / 16 churn**
+
+It essentially **never churns in-distribution.** Churning is an **out-of-distribution tail
+of the held-out set** — a behavior the policy doesn't emit on the prompts it trains on. And
+GRPO can only reinforce variance that *exists in its rollouts*. If the model never
+samples "churn → recover → stop" on training prompts, **there is no gradient to shape**,
+no matter how clever the reward. This is independent of compute: it's true at any budget.
+
+**You cannot RL a behavior the policy never samples.** Closing the stopping gap is an
+**SFT-coverage** problem (put the hard held-out shapes into training so the model samples
+them), not an RL one. The RL runs *corroborated* this; the measurement *explained* it.
+
+---
+
+## 4. The pivot — RLVR for what it's actually good at
+
+So we pointed RL at the thing it's *designed* for: **lifting solve-rate where the policy
+partially solves**, because that's exactly where the within-group variance (some pass,
+some fail) gives GRPO a gradient.
+
+The tool to find that band is a **pass@k scan**. Run SFT_V1 on each train prompt `k=8`
+times at T=0.8 and bucket by how many rollouts solve it:
+
+- `solves == 8` → **solved** (no variance → no gradient → RL can't help)
+- `0 < solves < 8` → **rlvr-target** (variance exists → gradient → RL *might* help)
+- `solves == 0` → **capability-gap** (RL can't cross a wall the policy never clears)
+
+Here is that scan over 134 train prompts — and it's the most important figure in the
+project:
+
+![pass@k banding](assets/fig_passk_band.png)
+
+```
+capability-gap (0):  0      rlvr-target (1–7): 39      solved (8): 95
+```
+
+Read this honestly and it's already the answer. **95 of 134 prompts are fully solved.**
+The 39 "addressable" prompts are jammed against the ceiling — 27 of them are at 7/8, i.e.
+they fail once out of eight runs, usually to a *random decoding slip*, not a real skill
+gap. And there are **zero** capability-gap prompts. The model is at its ceiling for this
+data distribution. There is almost no exploitable gradient here. We ran RL anyway — partly
+to confirm the prediction, partly because "the scan says stop" is a hard thing to trust
+until you've watched it happen.
+
+---
+
+## 5. Experiment 2 — RLVR_PASSK_25, the capability-lift run
+
+We trained GRPO from SFT_V1 on the 39-prompt rlvr-target band with a **minimal,
+verifier-dominant reward** (the termination tails from Experiment 1 are zeroed — this run
+optimizes solving only):
 
 ```text
-solve + stop              = 12.0   <- maximum
-solve, no FINAL (stops)   =  6.0
-solve, churn to round cap =  1.0   <- the actual failure (-3 churn, -2 budget)
-graceful exit (unsolved)  =  1.0   <- unsolved but one FINAL
-loop (unsolved, no stop)  = -2.0
+verifier_success_bonus   +8.0    ← the whole signal (a real cargo pass)
+structure_valid_bonus    +0.5    ┐
+no_call_penalty          −2.0    ├ format floor (don't emit garbage)
+malformed_call_penalty   −1.0    ┘ per parser-breaking typo, capped at 4
+everything about stopping  0.0    ← zeroed; off-target for this run
 ```
 
-The +8/+3 dominate and only fire on real success. The ~11-point gap between solve+stop (12) and the real churn-to-budget failure (1) is what teaches stopping, while solving stays net-positive so the model never abandons it. Removed all the old shaping (recovery bonuses, stacked penalties, first-call alignment) — 9 terms, nothing else.
+Knobs from the lessons: `teacher-tau 0.2` (hard anchor), `rollouts-per-example 8`,
+`temperature 0.8`, `zero_advantage` filter enforced. Checkpoint every 25 steps.
 
-## Where we are
+**Training dynamics** tell the story before eval does:
 
-- **Diagnosis is settled:** the only gap is stopping after a self-made deep success. It's in the data, plateaus under SFT → it's a distribution-shift problem on the model's own states = **RL's job**, not more SFT.
-- **RL base = SFT_V1** (not V2/V3): it solves efficiently and its residual is *pure stopping*. V2/V3 over-recover, which RL would have to unteach first.
-- **Recipe** (`rl/scripts/launch_rlvr_v2.sh`): base+teacher SFT_V1, `teacher-tau 0.2`, temp 0.8, 8 rollouts/example, zero-advantage filter on, lr 5e-7, minimal reward above, early-stop on the 69, gate each checkpoint on a 12-prompt smoke set.
-- **Cheaper-credit option** (no reward complexity): end the episode at first success so the next turn is forced terminal — tightest possible credit on the stop decision.
+![RLVR_PASSK_25 training](assets/fig_passk25_train.png)
 
-## Kill conditions
-- clean_end or terminal_tool_success drops below the SFT_V1 baseline for 2 checkpoints → stop, it's collapsing.
-- Success bar: beat SFT_V1's 52/69. If RL can't, the problem is harder than stopping and we re-diagnose.
+The reward is **noisy and trendless**, bouncing between 0 and 7 with no convergence, and
+~36% of groups are filtered out as zero-advantage on average (often far more). That's the
+signature of a band with no stable gradient: each step a handful of high-variance prompts
+shove the weights one way, the next step shoves them back.
 
-## Then RLVR-to-stop regressed too — and that was the real finding
+**Evaluation** — and here we hit a methodology point worth its own paragraph. The "before"
+baseline and the "after" checkpoint must be measured on the **same inference engine**, or
+you're comparing the model to the harness. We scanned both SFT_V1 and the step-25
+checkpoint with the *same* vLLM scanner on the *same* 39 prompts:
 
-We wired the cheaper-credit option: `terminal_on_success` (`rl/task_trace.py`, `--terminal-on-success` in `rl/train.py`) — end the episode one turn after the first verifier pass, forcing the next turn to be terminal so credit lands exactly on the stop decision. Ran it as RLVR_B.
+![RLVR_PASSK_25 eval](assets/fig_passk25_eval.png)
 
-It collapsed on full eval: valid **52→19**, terminal 68→46 at step 25. A 12-prompt smoke set hid it (only 3 churn cases in the smoke). Exactly one case improved (`eval100_020`). What fixed shallow stopping broke depth (`eval100_087`). Same signature as RLVR_V1.
+```
+mean pass@k on 39 targets:   SFT_V1 0.907  →  RLVR_PASSK_25 0.875   (−3.2 pts, 283 → 273 solves)
+per-prompt moves:            6 up · 13 down · 20 flat
+```
 
-One caveat before the conclusion: B isn't a clean control. It changed *two* things vs RLVR_V1 — the corrected reward **and** the `terminal_on_success` horizon truncation — so it doesn't isolate "the reward was fine." It only shows that even the most aggressive credit trick for stopping still collapses. The clean "corrected reward, normal episodes" full-69 run was never taken past smoke, so it isn't evidence. The real proof isn't the run comparison at all — it's the measurement:
+It **regressed**. And the per-prompt histogram shows *why*: every win (one beautiful 4→8,
+a couple of 7→8s) is paid for by a loss (7→5, 6→4, two 8→6s among the supposedly-solved
+prompts). RL didn't *lift* the band — it **churned** it, reshuffling which prompts the dice
+favor, while quietly bleeding the already-solved prompts via parameter drift.
 
-**Churn is an out-of-distribution tail. The training prompts don't elicit it.** We measured the model's own behavior on the *train* set:
-- temp-0 train: **0 churn** (72 clean / 24 unsolved of 96)
-- temp-0.8, depth≥3 train: **0/16 churn**
+### Why it regressed (the mechanism, not the vibe)
 
-In-distribution the model terminates cleanly. It only churns on the held-out 69 — prompts whose difficulty/shape the train set never produced. So RL was being asked to install a stop behavior the policy *never samples* on the prompts it trains on. GRPO can only reinforce variance that exists in the rollouts; if the model never churns-then-recovers-then-stops on train prompts, there's no gradient to shape. **RL can't teach a behavior the policy doesn't emit.** That's scale-independent — true at any compute budget — and it's the actual ML insight of this project.
+1. **No reward variance to learn from.** The band is overwhelmingly near-ceiling — 27 of
+   the 39 are at 7/8 on the defining scan, and on the vLLM re-measurement 23 of them
+   actually hit 8/8 (which itself proves the point: a 7/8 prompt failing 1/8 is *sampling
+   noise*, not a consistent error). There's no stable direction to descend — RL just trades
+   one random slip for another.
+2. **Drift on the saturated prompts.** While the optimizer chases the handful of genuinely
+   partial prompts, it nudges shared weights, and the already-solved prompts — which have
+   no countervailing gradient — drift downward. (A follow-up run with `teacher-tau 0.3` and
+   16 rollouts tightened the anchor and *still* drifted; the untrained 8/8 prompts slid
+   1.00 → 0.96.)
+3. **Sparse binary reward + full-parameter updates.** +8-or-nothing over a 4B full
+   fine-tune produces small, noisy gradients; the *net* movement on a ceiling'd
+   distribution is down, because there's more to lose than to gain.
 
-So the earlier "stopping is RL's job" conclusion was half-right: it's a distribution-shift problem, but the shift is between *held-out* and *train*, not between teacher-clean and model-messy. You can't RL it away on train data, and you shouldn't try to RL it on the 69 (that's the measure-only set). The termination tail is an **SFT-coverage / data problem** (cover the hard held-out shapes in training), not an RL problem.
+The deeper truth is the one the pass@k scan stated up front: **for this SFT model and this
+data pool, there is no capability for RL to add.** SFT_V1 is the ceiling. That's not a
+tuning failure; it's a property of the data.
 
-## The pivot: RLVR for what it's actually good at
+---
 
-Drop the termination tail. RLVR's legitimate use on `SFT_V1` is the thing it's designed for — **lift solve-rate where the policy partially solves**:
+## 6. Bugs that would have faked a result
 
-- pass@k scan on a train slice. Band each prompt: `0 < solves < k` = **rlvr-target** (reward variance exists → gradient), `== k` = solved (no gradient), `== 0` = capability gap (RL can't cross).
-- Candidate set carved: `runs/rlvr_passk_train150/prompts.yaml` (150 mixed-difficulty train prompts, metadata: kind/difficulty/depth). Trim the 16 depth-1 trivia (pass@k=k for sure) → scan the ~134 depth≥3 (`sft/passk_scan.py`, k=8, T=0.8).
-- RL on the rlvr-target band only (`rl/scripts/launch_rlvr_v2.sh`). **Zero the termination tails** (−3 churn, −2 budget, ±finalize) for this run — they were shaped for the *stopping* goal, which we're explicitly not optimizing here, so carrying stop-pressure into a capability run is just off-target noise. Reward = **verifier (+8) + format floor only**. The +8 variance across the 8 rollouts of a partial-solve prompt is the whole signal; sparse verifier reward is *correct* for capability lift. (Note: the tails weren't what we were testing in RLVR_B — that run was reward + `terminal_on_success` together against an OOD target — and regardless, there's no reason to keep stop-pressure in a run that isn't about stopping.)
-- Artifact = **pass@1 before vs after** on the rlvr-target band, labeled in-set lift. No held-out split for v1: a small unmatched held-out is noisier than honest in-set numbers; add a stratified (kind, depth, tool, pass@k-bucket) split only when volume makes it fair.
+An evals project lives or dies on whether the numbers are real. Three bugs in this run
+would each have produced a *confidently wrong* number:
 
-## Serving + honest generalization
+- **vLLM silently zeroed pass@k.** The model emits `<|im_end|>` as a *special token*, but
+  vLLM's default `skip_special_tokens=True` strips it from the output text — so a
+  string-based stop on `"<|im_end|>"` never matched, generation ran straight past every
+  turn boundary, no tools ever executed, and the scanner reported **0/8 on prompts the
+  model actually solves 8/8.** Fix: stop on the token *id*, and re-append `<|im_end|>` so
+  the protocol parser can still segment turns. A string-vs-token-id detail that, uncaught,
+  reads as "RL destroyed the model."
+- **Teacher/trainer GPU collision.** The trainer's FSDP process bound to `cuda:0`, where
+  the frozen teacher already sat — OOM at the first forward. The earlier run hid it because
+  rollouts were failing before the trainer ever stepped.
+- **Disk exhaustion.** Every rollout copies a crate and compiles a `target/` dir; nothing
+  cleaned them. 22 GB of cargo sandboxes filled the disk mid-run and the trainer died
+  *saving a checkpoint* (`No space left on device`). The fix was a janitor deleting
+  completed sandboxes during training.
 
-Served via vLLM/TGI + a harness that replays the training protocol **byte-for-byte** (`agent_runtime/protocol.py`: parse `CALL tool(... id="cN")`, execute for real, format the `RESULT` block identically, loop, detect FINAL). Path generalization is fine — paths are copied from prompt to tool call, a new crate path is in-distribution as a token pattern. The real limits, predicted from what we measured:
+None of these are deep, but each one *looks like a model result* if you don't chase it.
+"Is this number real?" is the actual job.
 
-- narrow code distribution (synthetic single-file crates with oracle tests) → degrades on multi-file real repos with no oracle;
-- brittle to protocol drift — any formatting mismatch is instant OOD;
-- no verifier at inference — the signal RL optimized doesn't exist when serving;
-- the termination tail resurfaces the moment input looks unfamiliar.
+---
 
-This is **narrow by design** under solo/compute constraints — narrowness bought legible failure modes. The deliverable isn't "a general Rust agent"; it's the full SFT→RLVR→serve loop with a faithful harness and a measured map of where each stage breaks: SFT coverage gaps, RL's inability to install unsampled behavior, the OOD termination tail. Those are predictable because they were measured.
+## 7. What this project is
 
-## What's next
-- Run the ~134-prompt pass@k scan → freeze the rlvr-target band.
-- RLVR (GRPO) on that band; report in-set pass@1 lift.
-- (Separate track) close the termination tail the right way: add the hard held-out shapes to SFT coverage so the model samples them, *then* RL has something to reinforce.
+Not "a general Rust agent." It's the **full SFT → RLVR → serve loop with a faithful
+harness and a measured map of where each stage breaks**:
+
+- **SFT** installs the protocol and the skill, and it works (terminal 0.99). Its gaps are
+  *coverage* gaps.
+- **RL cannot install a behavior the policy never samples** (the stopping tail) — true at
+  any compute budget. That's the load-bearing ML result, and it's a *measurement*, not an
+  anecdote.
+- **RL cannot lift capability the policy has already saturated** (the pass@k band). The
+  scan predicts this before you spend a GPU-hour.
+- **`pass@k` banding is the cheap diagnostic** for "can RL help here at all?" If the band
+  is empty or jammed at the ceiling, the answer is no — and you should believe it.
+
+The honest deliverable is the diagnosis. Every RL checkpoint here is *below* SFT_V1; the
+artifact is **knowing why, in advance, from one scan** — and a harness careful enough that
+the numbers proving it are trustworthy.
+
+### What a real lift would need
+
+Not a knob. **Harder data** — prompts with a genuine, consistent skill gap (baseline
+1–3/8 from real difficulty, not decoding noise), where within-group variance reflects
+something learnable. On this pool, SFT_V1 is the answer, and RL's most useful output was
+telling us so cheaply.
+
+---
 
 ## Assets
-- Models: `JayZenith/SFT_V1` (RL base), `SFT_V2`, `SFT_V3`, `RLVR_V1` (regressed, do not use), `RLVR_B` (terminal_on_success, regressed — kept as the A/B evidence).
-- Data: `signal_1062` → `signal_v2_1323` → `signal_v3` (HF: `SFT_V1_DATASET`, `SFT_V2_DATASET`). RL prompt pool: `synthetic_data/rl_prompts_v2_1323.jsonl`. pass@k candidate set: `runs/rlvr_passk_train150/`.
-- Results: `results/SFT_V1|V2|V3`, `results/RLVR_V1`, RLVR_B eval (52→19 collapse), pass@k scan → `results/passk_train134.json`.
-- Tooling: `sft/passk_scan.py` (RLVR-addressable banding), `sft/gen_churn_traces.py` (rejection-sampling harness, shelved — train doesn't churn), `reward_golden_tests.py` (6 reward unit tests).
+
+- **Models** (Hugging Face): `JayZenith/SFT_V1` (the ceiling for this data), `SFT_V2`,
+  `SFT_V3`; `RLVR_V1` (broken-reward collapse, kept as evidence),
+  `RLVR_PASSK_25` (capability-lift attempt, regressed).
+- **Data**: `signal_1062` → `signal_v2_1323` → `signal_v3`; RL band
+  `synthetic_data/rl_prompts_passk_target.jsonl`; pass@k candidate set
+  `runs/rlvr_passk_train150/`.
+- **Code**: `rl/task_trace.py` (the `verifiers` env + reward), `sft/passk_scan.py` /
+  `sft/passk_scan_vllm.py` (the banding scan), `agent_runtime/` (real cargo execution),
+  `reward_golden_tests.py` (reward unit tests).
+- **Figures**: regenerate with `blog/make_figures.py` from `results/` (tfevents, eval
+  JSONs, rollouts).
+- **Deeper technical notes**: `rl/RLVR_NOTES.md`.

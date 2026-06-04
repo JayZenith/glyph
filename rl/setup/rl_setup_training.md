@@ -83,7 +83,7 @@ nohup env \
   PYTHONPATH=/workspace/glyph:/workspace/glyph/rl \
   /workspace/prime-rl-src/.venv/bin/python rl/train.py \
     --model JayZenith/SFT_V1 \
-    --teacher-model JayZenith/SFT_V1 --teacher-device 0 --teacher-tau 0.2 \
+    --teacher-model JayZenith/SFT_V1 --teacher-device 1 --teacher-tau 0.2 \
     --prime-rl-gpu-ids 2,3 --num-infer-gpus 1 --num-train-gpus 1 --gpus-per-node 2 \
     --data synthetic_data/rl_prompts_passk_target.jsonl \
     --output outputs/rlvr_passk \
@@ -95,6 +95,10 @@ nohup env \
     --max-tool-rounds 15 --tool-timeout 30 --port 8010 --teacher-port 8011 \
     > outputs/rlvr_passk/logs/launcher.log 2>&1 < /dev/null &
 ```
+
+# DUE TO MAX MODEL LIMIT USE 
+--max-model-len 16384
+--teacher-max-model-len 16384
 
 Settings that matter (the rest are scenery): `teacher-tau 0.2` (anchor to SFT —
 `0.01` collapsed the first run), `rollouts-per-example 8` + `temperature 0.8`

@@ -156,9 +156,10 @@ clean `PASS→FINAL` endings):
 | SFT_V2 | + variable-depth recovery | 48 | 0.70 | 0.96 |
 | SFT_V3 | + deep coverage, oversample clean | 50 | 0.725 | 0.99 |
 
-Stopping **plateaued at 0.72–0.75** regardless. More recovery data even made it
-*over-recover* (5 failed attempts where V1 fixed it in 1). So we asked the obvious
-question: **is stopping an RL problem?**
+Stopping **plateaued at 0.72–0.75** regardless. The added recovery data did not produce
+cleaner stopping; in inspected failures it could also encourage extra recovery attempts
+instead of earlier termination. So we asked the obvious question: **is stopping an RL
+problem?**
 
 ---
 
@@ -167,7 +168,7 @@ question: **is stopping an RL problem?**
 `RLVR_V1` was the first attempt: shape a reward that punishes churning past a success and
 rewards the clean `FINAL`. It used a stacked-penalty reward, `teacher-tau 0.01` (almost no
 anchor), and cut exploration (temp 0.8→0.6, rollouts 8→4). The result was not a small
-regression — it was a **collapse of capability the reward never even mentioned**:
+regression — it was a **capability collapse**, not just a finalization regression:
 
 ![RLVR_V1 collapse](assets/fig_collapse.png)
 
@@ -175,17 +176,19 @@ regression — it was a **collapse of capability the reward never even mentioned
 held-out 69:  valid 52 → 20   clean_end 0.75 → 0.33   terminal 0.99 → 0.70   task_failure 1 → 21
 ```
 
-The model got *worse at solving*, which the reward never touched. Post-mortem — four
-textbook GRPO failure modes at once:
+The model got *worse at solving*, not just worse at finalizing. The likely post-mortem
+had four GRPO failure modes stacked:
 
 1. **Unbounded stacked penalties.** Bad rollouts scored −13 to −23 against +12 for a
-   solve. One catastrophic rollout dominated its group's advantage and dragged the update.
-2. **No positive path on failures.** On an unsolved task *every* action scored negative,
-   so the optimizer's best move was to flee the working SFT behavior entirely.
+   solve. A single catastrophic rollout could dominate its group's advantage and drag the
+   update.
+2. **Weak positive path on failures.** On unsolved tasks, the reward mostly supplied
+   negative contrast, so the optimizer could push away from working SFT behavior instead
+   of toward a better repair strategy.
 3. **No anchor.** `teacher-tau 0.01` let the policy drift off the SFT manifold; nothing
    pulled it back.
-4. **Starved gradient.** ~56% of groups were zero-advantage; the few that survived were
-   noisy.
+4. **Starved gradient.** With only four rollouts per prompt, many groups had no reward
+   variance; the few that survived were noisy.
 
 **Lesson:** a verifier-grounded RL reward must be **bounded, success-anchored (there is
 always a positive path), and KL-anchored to the SFT model**, with enough rollouts for
@@ -204,7 +207,7 @@ training distribution*:
 > - temp-0.8, depth≥3: **0 / 16 churn**
 
 That measurement was real, but the stronger claim I first wanted to make from it was too
-blunt. It proves the original RL training prompts did **not** expose the churn/stopping
+blunt. It shows the original RL training prompts did **not** expose the churn/stopping
 failure, so those prompts could not provide a stop-after-success gradient. It does **not**
 prove the held-out failures were missing Rust capability.
 
@@ -307,9 +310,9 @@ favor, while quietly bleeding the already-solved prompts via parameter drift.
 
 1. **No reward variance to learn from.** The band is overwhelmingly near-ceiling — 27 of
    the 39 are at 7/8 on the defining scan, and on the vLLM re-measurement 23 of them
-   actually hit 8/8 (which itself proves the point: a 7/8 prompt failing 1/8 is *sampling
-   noise*, not a consistent error). There's no stable direction to descend — RL just trades
-   one random slip for another.
+   actually hit 8/8 (which supports the point: many 7/8 prompts were near-ceiling sampling
+   instability, not consistent errors). There's no stable direction to descend — RL just
+   trades one random slip for another.
 2. **Drift on the saturated prompts.** While the optimizer chases the handful of genuinely
    partial prompts, it nudges shared weights, and the already-solved prompts — which have
    no countervailing gradient — drift downward. (A follow-up run with `teacher-tau 0.3` and
@@ -321,8 +324,8 @@ favor, while quietly bleeding the already-solved prompts via parameter drift.
 
 The deeper truth is the one the pass@k scan stated up front: **for this SFT model and this
 134-prompt training pool, there was almost no capability for RL to add.** The 39-prompt
-band was too close to the ceiling and too noisy. That was not a tuning failure; it was a
-property of the data.
+band was too close to the ceiling and too noisy. The regression was not just a tuning
+failure; it was largely a property of the data.
 
 But it also suggested the way out: stop treating `pass@k` as a post-hoc graph, and use it
 as a **target selector**.
@@ -470,9 +473,9 @@ Per prompt:
 ```
 
 This was the RLVR artifact I was looking for, but it was only a **narrow pass@8** win.
-It did not invalidate the earlier diagnosis. It confirmed it: RLVR worked only after we
-selected the small band where the base model had latent capability and real rollout
-variance.
+It did not invalidate the earlier diagnosis. It narrowed it: the selected-band metric
+improved only after we chose the small band where the base model had latent capability and
+real rollout variance.
 
 But there was one last thing to check: does the checkpoint still hold up on the original
 69-prompt formal eval that established SFT_V1's baseline? We ran the same HF/Transformers
@@ -560,7 +563,7 @@ harness and a measured map of where each stage breaks**:
   churn was a missing-capability problem.
 - **RL cannot lift capability the policy has already saturated** (the 39-prompt pass@k
   band). The scan predicted the broad failure before we spent the GPU-hours.
-- **RL can lift reliability on a narrow, mixed band** (the 8 held-out-failure targets):
+- **RL can lift reliability on this narrow, mixed band** (the 8 held-out-failure targets):
   47/64 → 54/64 at step 25, measured with the same vLLM pass@8 harness.
 - **That lift did not survive the broad formal eval.** The same checkpoint regressed the
   original held-out 69 from 52/69 valid traces to 19/69, mostly by damaging clean protocol
@@ -569,10 +572,10 @@ harness and a measured map of where each stage breaks**:
   is empty or jammed at the ceiling, the answer is no — and you should believe it.
 
 The honest deliverable is not "RL magically makes a 4B Rust agent." It is the targeting
-rule plus the failure boundary: **RLVR helps where the base policy already has partial
-capability and verifier variance; it fails or drifts where the RL dataset lacks the
-failure mode, where the policy is saturated, or where full-parameter updates overpower
-the SFT protocol prior.**
+rule plus the failure boundary: **in these experiments, RLVR helped where the base policy
+already had partial capability and verifier variance; it failed or drifted where the RL
+dataset lacked the failure mode, where the policy was saturated, or where full-parameter
+updates overpowered the SFT protocol prior.**
 
 ### What a real lift would need
 

@@ -43,6 +43,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-completion-tokens", type=int)
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--weight-decay", type=float)
+    parser.add_argument("--activation-checkpointing", action="store_true",
+                        help="Enable PRIME-RL full activation checkpointing for long-context training.")
+    parser.add_argument("--activation-offloading", action="store_true",
+                        help="Enable PRIME-RL activation CPU offloading; also enables activation checkpointing.")
+    parser.add_argument("--optim-cpu-offload", action="store_true",
+                        help="Offload optimizer state to CPU to reduce trainer GPU memory.")
+    parser.add_argument("--fused-lm-head-token-chunk-size",
+                        help="PRIME-RL fused LM head chunk size, e.g. 'auto' or an integer.")
     parser.add_argument("--checkpoint-interval", type=int)
     parser.add_argument("--resume-step", type=int)
     parser.add_argument("--temperature", type=float)
@@ -186,6 +194,17 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
     # set trainable model name and trainer configs
     trainer_model["name"] = base_model
     maybe_set(trainer_model, "seq_len", args.seq_len)
+    if args.activation_checkpointing:
+        trainer_model["ac"] = {"mode": "full", "freq": 1}
+    if args.activation_offloading:
+        trainer_model["ac_offloading"] = {"pin_memory": True, "max_inflight_activations": 5}
+    if args.optim_cpu_offload:
+        trainer_model["optim_cpu_offload"] = True
+    if args.fused_lm_head_token_chunk_size is not None:
+        value: str | int = args.fused_lm_head_token_chunk_size
+        if value not in {"auto", "disabled"}:
+            value = int(value)
+        trainer_model["fused_lm_head_token_chunk_size"] = value
     maybe_set(trainer_optim, "lr", args.learning_rate)
     maybe_set(trainer_optim, "weight_decay", args.weight_decay)
     maybe_set(trainer_loss, "teacher_tau", args.teacher_tau)

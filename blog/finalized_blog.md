@@ -2,9 +2,9 @@
 
 Teaching `Qwen3-4B-Base` to be a coding agent on real Rust tasks led to experiments regarding — *how much can reinforcement learning add on top of a good SFT model, and how do you tell before you burn the GPUs?*
 
-The short version: SFT taught the protocol and the skill cleanly. The first RL runs after that **regressed** it. That failure split into two lessons. The stop-focused RL runs trained on prompts where SFT_V1 did not show solved-but-no-`FINAL` churn, so they had no useful gradient for the behavior we wanted to fix. Later, `pass@k` showed that the original held-out failures still had latent verifier capability under vLLM sampling. Both eval paths executed the CALL/RESULT tool protocol, but they differed in sampling and primary success metric: HF/Transformers formal eval was a single rollout judged by valid trace completion, while vLLM pass@k counted terminal verifier success across sampled rollouts. The final run targeted that mixed pass@k band directly, tightened the reward/anchor, fixed the training stack, and improved the matched vLLM metric from **47/64 → 54/64** solves on 8 prompts.
+The short version: SFT taught the protocol and the skill cleanly. The first RL runs after that **regressed** it. That failure split into two lessons. First, the stop-focused RL data did not expose the same failure mode as the formal heldout eval, so the reward had little useful contrast for fixing clean termination. Second, the eval metric itself needed auditing: `terminal_tool_success` was not always cargo verifier success, because it could be triggered by a successful non-verifier tool like `read_file`. Later, `pass@k` gave a useful matched vLLM diagnostic on the same prompts, but it used that same terminal-tool metric for banding. The final run targeted that mixed pass@k band directly, tightened the reward/anchor, fixed the training stack, and improved the matched vLLM metric from **47/64 → 54/64** on 8 prompts, while still failing the broader formal eval.
 
-Then the last check landed: the same checkpoint was run on the original 69-prompt HF/Transformers formal eval. It regressed badly: **52/69 → 19/69 valid traces** and **68/69 → 47/69 terminal tool successes**. So the final result is not "I trained a better deployable agent." It is narrower and more honest: RLVR can improve a carefully selected mixed pass@k band, but this full-parameter GRPO run still damaged the broader tool-protocol distribution.
+Then the last check landed: the same checkpoint was run on the original 69-prompt HF/Transformers formal eval. It regressed badly: **52/69 → 19/69 valid traces** and **52/69 → 19/69 actual cargo successes** on audited traces. So the final result is not "I trained a better deployable agent." It is narrower and more honest: RLVR can improve a carefully selected matched pass@k metric, but this full-parameter GRPO run still damaged the broader tool-protocol distribution.
 
 The model speaks a tiny tool-use protocol:
 
@@ -119,11 +119,12 @@ execution matched the intended trajectory). Assistant-only loss masking, 3 epoch
 
 ![SFT_V1 training loss](assets/fig_sft_loss.png)
 
-On the 69 held-out prompts SFT_V1 is genuinely good at the *hard* part — solving:
+On the 69 held-out prompts SFT_V1 is genuinely useful, but the later audit makes the
+score split sharper:
 
 | metric | SFT_V1 | what it means |
 |---|---|---|
-| `terminal_tool_success` | **0.986** | reaches a passing verifier on 68/69 |
+| `terminal_tool_success` | **0.986** | terminal tool-status metric; later audit showed this was not always cargo verifier success |
 | `valid_traces` | 52 / 69 | solved **and** stopped cleanly |
 | `clean_end_rate` | 0.754 | emitted `FINAL` right after the last tool |
 
@@ -173,7 +174,7 @@ regression — it was a **capability collapse**, not just a finalization regress
 ![RLVR_V1 collapse](assets/fig_collapse.png)
 
 ```
-held-out 69:  valid 52 → 20   clean_end 0.75 → 0.33   terminal 0.99 → 0.70   task_failure 1 → 21
+held-out 69:  valid 52 → 20   clean_end 0.75 → 0.33   terminal-tool metric 0.99 → 0.70
 ```
 
 The model got *worse at solving*, not just worse at finalizing. The likely post-mortem
@@ -211,23 +212,23 @@ blunt. It shows the original RL training prompts did **not** expose the churn/st
 failure, so those prompts could not provide a stop-after-success gradient. It does **not**
 prove the held-out failures were missing Rust capability.
 
-The later pass@8 scan corrected the story. The 17 SFT_V1 formal failures were almost all
-already successful at the verifier level: in the original HF/Transformers formal eval,
-16/17 had `terminal_tool_success=True` but no clean `FINAL`; only one was a true task
-failure. When the **same prompts/cases** were rescanned with the vLLM pass@8 harness,
-those same 17 became 9 prompts at 8/8 and 8 mixed prompts, with **0 capability gaps**. So
-the "stopping gap" was not simply "the model cannot solve these tasks." It was
-protocol-termination instability that appeared under the HF/Transformers formal eval but
-was much less absolute under the vLLM pass@8 diagnostic. The prompts were the same; the
-difference was inference harness, sampling, and scoring criterion.
+The later pass@8 scan changed the story, but not in the simple way I first thought. The
+17 SFT_V1 formal failures were not clean solved-but-no-`FINAL` traces. Manual inspection
+showed **0/17 actual cargo verifier successes** in those invalid formal traces. The reason
+the summary said 16/17 had `terminal_tool_success=True` is a scoring bug/caveat:
+`terminal_tool_success` looked at the last successful tool status, and many traces ended
+after a successful `read_file`, even though every visible `cargo_run` or `cargo_test` had
+failed. When the **same prompts/cases** were rescanned with the vLLM pass@8 harness, the
+same terminal-tool metric reported 9 prompts at 8/8 and 8 mixed prompts. That is still a
+useful matched diagnostic for the RL run, but it is not proof that those rollouts all had
+clean cargo verifier success unless the rollouts themselves are audited.
 
 The usable RL lesson is narrower: do not assume a reward can fix a failure just because
 that failure appears in one eval. First check whether the same failure mode appears under
-the RL rollout harness and scoring rule. In the stop-focused runs, the training rollouts
-did not expose solved-but-no-`FINAL` behavior, so the stop reward had little useful
-contrast to reinforce. Later, pass@8 showed the same held-out prompts had verifier-success
-capability under vLLM sampling, which changed the story from "missing Rust capability" to
-"termination/protocol stability differs by harness and scoring."
+the RL rollout harness and whether the metric really measures the behavior you think it
+does. In this project, both issues mattered: the stop-focused train rollouts did not expose
+the formal heldout failure mode, and the pass@k banding metric was a terminal-tool-status
+metric rather than a strict cargo-verifier-success metric.
 
 ---
 
@@ -342,18 +343,18 @@ held-out failure, but the model was worse overall, so it was not a clean win. Th
 honest path left was narrower:
 
 1. Re-run SFT_V1 with `pass@8` on the **original 17 held-out failures**.
-2. Keep only prompts where SFT_V1 already showed latent capability (`0 < solves < 8`).
+2. Keep only prompts where SFT_V1 already showed pass@k metric variance (`0 < solves < 8`).
 3. Train RLVR only on those mixed prompts.
 4. Re-evaluate the same 8 prompts with the same vLLM pass@8 harness.
 
 That scan changed the interpretation of the held-out failures. SFT_V1 was not 0/8 on
-them. It had latent capability: on the 17 original failures, 9 were already 8/8 under
-the vLLM pass@8 harness and 8 were mixed. This is an engine/harness caveat, not a
+them by the pass@k metric: on the 17 original failures, 9 were reported as 8/8 under
+the vLLM pass@8 harness and 8 were mixed. This is an engine/harness/scoring caveat, not a
 footnote: the original failures came from the HF/Transformers formal eval, while this
-diagnostic was vLLM at T=0.8 and counted `terminal_tool_success`, not necessarily clean
-`FINAL`. Still, for RLVR targeting, it identified which prompts had within-group verifier
-variance. The final RL dataset became exactly those **8 mixed held-out-failure prompts**,
-stored as:
+diagnostic was vLLM at T=0.8 and counted `terminal_tool_success`, which in the current
+scorer is terminal tool status, not guaranteed clean `FINAL` or guaranteed cargo success.
+Still, for RLVR targeting, it identified prompts with within-group metric variance. The
+final RL dataset became exactly those **8 mixed held-out-failure prompts**, stored as:
 
 ```text
 synthetic_data/rl_prompts_heldout69_passk_targets.jsonl
@@ -474,10 +475,10 @@ Per prompt:
 7 -> 7  eval100_037...weekly_region_summary               (+0)
 ```
 
-This was the RLVR artifact I was looking for, but it was only a **narrow pass@8** win.
-It did not invalidate the earlier diagnosis. It narrowed it: the selected-band metric
-improved only after we chose the small band where the base model had latent capability and
-real rollout variance.
+This was the RLVR artifact I was looking for, but it was only a **narrow pass@8 metric**
+win. It did not invalidate the earlier diagnosis. It narrowed it: the selected-band metric
+improved only after we chose the small band with real rollout variance under the same
+scanner and scoring rule.
 
 But there was one last thing to check: does the checkpoint still hold up on the original
 69-prompt formal eval that established SFT_V1's baseline? We ran the same HF/Transformers
@@ -499,8 +500,8 @@ python -m sft.eval_formal \
 It failed the robustness check:
 
 ```text
-SFT_V1 baseline: valid 52/69, terminal_tool_success 68/69
-step_25:         valid 19/69, terminal_tool_success 47/69
+SFT_V1 baseline: valid 52/69, terminal_tool_success metric 68/69, actual cargo successes 52/69
+step_25:         valid 19/69, terminal_tool_success metric 47/69, actual cargo successes 19/69
 
 step_25 failure buckets:
 missing_final / dirty_final / final_before_tool_completion: 48
@@ -556,17 +557,18 @@ None of these are deep, but each one *looks like a model result* if you don't ch
 Not "a general Rust agent." It's the **full SFT → RLVR → serve loop with a faithful
 harness and a measured map of where each stage breaks**:
 
-- **SFT** installs the protocol and the skill, and it works at the verifier level
-  (terminal 0.99). Its weakest part is clean protocol termination under the HF/Transformers
-  formal eval; the same prompts showed much more verifier success under vLLM pass@8.
+- **SFT** installs the protocol and much of the skill, but the original
+  `terminal_tool_success=0.99` headline was inflated by the terminal-tool-status scoring
+  caveat. Audited actual cargo success on the HF formal eval matched valid traces: 52/69.
 - **RL cannot install a behavior absent from its own rollouts.** The original stop-focused
   RL runs trained on prompts where SFT_V1 showed ~0 churn, so the reward had no reliable
   stop-after-success contrast to reinforce. That is narrower than saying the held-out
   churn was a missing-capability problem.
 - **RL cannot lift capability the policy has already saturated** (the 39-prompt pass@k
   band). The scan predicted the broad failure before we spent the GPU-hours.
-- **RL can lift reliability on this narrow, mixed band** (the 8 held-out-failure targets):
-  47/64 → 54/64 at step 25, measured with the same vLLM pass@8 harness.
+- **RL can lift the matched pass@8 metric on this narrow, mixed band** (the 8
+  held-out-failure targets): 47/64 → 54/64 at step 25, measured with the same vLLM scanner
+  and the same terminal-tool-status metric.
 - **That lift did not survive the broad formal eval.** The same checkpoint regressed the
   original held-out 69 from 52/69 valid traces to 19/69, mostly by damaging clean protocol
   completion and multi-turn stability.

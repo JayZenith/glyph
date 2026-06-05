@@ -10,6 +10,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PRIME_RL_DIR="${1:-${PRIME_RL_DIR:-/workspace/prime-rl-src}}"
 PRIME_PYTHON_VERSION="${PRIME_PYTHON_VERSION:-3.12}"
+PRIME_RL_ENABLE_LORA="${PRIME_RL_ENABLE_LORA:-0}"
 # Last commit before the student/teacher inference-pool refactor (d25184e06).
 # Our patcher targets the older flat `inference_pool` layout.
 PRIME_RL_COMMIT="${PRIME_RL_COMMIT:-97872d3e0}"
@@ -174,6 +175,10 @@ uv sync --python "$PRIME_PYTHON_VERSION"
 
 install_flash_attn_wheel "$PRIME_RL_DIR/.venv/bin/python"
 
+if [ "$PRIME_RL_ENABLE_LORA" = "1" ]; then
+  uv pip install --python "$PRIME_RL_DIR/.venv/bin/python" peft
+fi
+
 SITE_PACKAGES_DIR="$("$PRIME_RL_DIR/.venv/bin/python" - <<'PY'
 import importlib.util
 import pathlib
@@ -189,7 +194,11 @@ else:
     raise RuntimeError("Could not resolve prime_rl package path")
 PY
 )"
-"$PRIME_RL_DIR/.venv/bin/python" "$ROOT_DIR/rl/setup/patch_install.py" "$SITE_PACKAGES_DIR"
+if [ "$PRIME_RL_ENABLE_LORA" = "1" ]; then
+  "$PRIME_RL_DIR/.venv/bin/python" "$ROOT_DIR/rl/setup/archive_adapter_setup/patch_install.py" "$SITE_PACKAGES_DIR"
+else
+  "$PRIME_RL_DIR/.venv/bin/python" "$ROOT_DIR/rl/setup/patch_install.py" "$SITE_PACKAGES_DIR"
+fi
 
 cat <<EOF
 PRIME-RL ready at: $PRIME_RL_DIR

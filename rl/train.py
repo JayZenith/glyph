@@ -10,6 +10,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoTokenizer
 import tomli_w
 
@@ -32,6 +33,26 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch PRIME-RL.")
     parser.add_argument("--model", default="JayZenith/SFT_V1",
                         help="HF repo id for trainer and rollout initialization.")
+    parser.add_argument("--adapter", default=None,
+                        help="HF repo id for a PEFT adapter to initialize LoRA training.")
+    parser.add_argument("--base-model",
+                        help="Override adapter base model. Only used with --adapter.")
+    parser.add_argument("--lora-rank", type=int,
+                        help="Train a fresh LoRA adapter on --model/--base-model.")
+    parser.add_argument("--lora-alpha", type=float,
+                        help="LoRA alpha for --lora-rank. Defaults to 2 * rank.")
+    parser.add_argument("--lora-dropout", type=float, default=0.0)
+    parser.add_argument("--lora-target-modules",
+                        default="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj")
+    parser.add_argument("--lora-modules-to-save", default="")
+    parser.add_argument("--lora-name",
+                        help="Served adapter name for fresh LoRA mode.")
+    parser.add_argument("--rollout-init-model",
+                        help="HF repo id for rollout inference. Defaults to the base model.")
+    parser.add_argument("--disable-orchestrator-lora", action="store_true",
+                        help="Do not attach LoRA metadata to the orchestrator student model.")
+    parser.add_argument("--served-model-name", action="append",
+                        help="Extra served model alias for vLLM.")
     parser.add_argument("--data", type=Path, default=Path("synthetic_data/rl_prompts_1062.jsonl"), help="Prompt dataset path.")
     parser.add_argument("--output", type=Path, default=Path("outputs/prime_rl"))
     parser.add_argument("--max-steps", type=int)
@@ -94,6 +115,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--dump-config", type=Path)
     return parser.parse_args()
+
+
+def resolve_adapter_dir(adapter: str) -> Path:
+    local_path = Path(adapter)
+    if local_path.exists():
+        return local_path.resolve()
+    return Path(snapshot_download(repo_id=adapter, repo_type="model"))
+
+
+def load_adapter_config(adapter_dir: Path) -> dict[str, Any]:
+    path = adapter_dir / "adapter_config.json"
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 # Reads one TOML file into Python dict
@@ -174,7 +208,7 @@ def build_teacher_inference_config(
 
 # loads 3 TOML files and deletes trainer["buffer"] as this wrapper wants
 # PRIME-RL's current config shape, not old buffer block
-def build_config(args: argparse.Namespace) -> dict[str, Any]:
+def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -> dict[str, Any]:
     trainer, orchestrator, inference = load_templates()
     trainer.pop("buffer", None)
     orchestrator.pop("model", None)
@@ -182,8 +216,33 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
     # resolve paths and  model names
     output_dir = args.output.resolve()
     data_path = args.data.resolve() if args.data else None
-    base_model = args.model
-    rollout_model = base_model
+    if args.adapter and args.lora_rank is not None:
+        raise ValueError("Use either --adapter or --lora-rank, not both.")
+    use_lora = adapter_cfg is not None or args.lora_rank is not None
+    adapter_name = None
+    auto_lora_name = None
+    if adapter_cfg is not None:
+        base_model = args.base_model or adapter_cfg["base_model_name_or_path"]
+        rank = int(adapter_cfg["r"])
+        alpha = float(adapter_cfg["lora_alpha"])
+        dropout = float(adapter_cfg.get("lora_dropout", 0.0))
+        target_modules = list(adapter_cfg["target_modules"])
+        modules_to_save = list(adapter_cfg.get("modules_to_save") or [])
+        adapter_label = str(args.adapter).replace("/", "__")
+        adapter_name = f"{adapter_label}-r{rank}-a{int(alpha)}"
+        auto_lora_name = f"r{rank}-a{float(alpha)}"
+    elif args.lora_rank is not None:
+        base_model = args.base_model or args.model
+        rank = args.lora_rank
+        alpha = float(args.lora_alpha if args.lora_alpha is not None else 2 * rank)
+        dropout = float(args.lora_dropout)
+        target_modules = [m.strip() for m in args.lora_target_modules.split(",") if m.strip()]
+        modules_to_save = [m.strip() for m in args.lora_modules_to_save.split(",") if m.strip()]
+        adapter_name = args.lora_name or f"glyph-rlvr-r{rank}-a{int(alpha)}"
+        auto_lora_name = f"r{rank}-a{float(alpha)}"
+    else:
+        base_model = args.model
+    rollout_model = args.rollout_init_model or base_model
     teacher_model_name = args.teacher_model or rollout_model
 
     trainer_model = trainer.setdefault("model", {})
@@ -193,6 +252,14 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
 
     # set trainable model name and trainer configs
     trainer_model["name"] = base_model
+    if use_lora:
+        trainer_model["lora"] = {
+            "rank": rank,
+            "alpha": alpha,
+            "dropout": dropout,
+            "target_modules": target_modules,
+            "modules_to_save": modules_to_save,
+        }
     maybe_set(trainer_model, "seq_len", args.seq_len)
     if args.activation_checkpointing:
         trainer_model["ac"] = {"mode": "full", "freq": 1}
@@ -221,7 +288,14 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
     orch_ckpt = orchestrator.setdefault("ckpt", {})
 
     # set rollout model and related configs
-    orch_student.setdefault("model", {})["name"] = rollout_model
+    orch_student_model = orch_student.setdefault("model", {})
+    orch_student_model["name"] = rollout_model
+    if use_lora and not args.disable_orchestrator_lora:
+        orch_student_model["lora"] = {
+            "name": adapter_name,
+            "rank": rank,
+            "alpha": alpha,
+        }
     orch_student_client["base_url"] = [f"http://localhost:{args.port}/v1"]
     maybe_set(orchestrator, "batch_size", args.batch_size)
     maybe_set(orchestrator, "rollouts_per_example", args.rollouts_per_example)
@@ -262,7 +336,15 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
     maybe_set(infer_model, "max_model_len", args.max_model_len)
     maybe_set(infer_server, "port", args.port)
     maybe_set(inference, "gpu_memory_utilization", args.gpu_memory_utilization)
-    inference.setdefault("vllm_extra", {})["served_model_name"] = [rollout_model]
+    served_aliases: list[str] = []
+    candidates = [rollout_model, base_model]
+    if use_lora:
+        candidates += [adapter_name, auto_lora_name]
+    candidates += list(args.served_model_name or [])
+    for name in candidates:
+        if name and name not in served_aliases:
+            served_aliases.append(name)
+    inference.setdefault("vllm_extra", {})["served_model_name"] = served_aliases
 
     # teacher section
     training_mode = "opd"
@@ -384,11 +466,25 @@ def launch_teacher_inference(raw_config: dict[str, Any], args: argparse.Namespac
 
 def main() -> None:
     args = parse_args()
-    raw_config = build_config(args)
+    if args.adapter:
+        adapter_dir = resolve_adapter_dir(args.adapter)
+        adapter_cfg = load_adapter_config(adapter_dir)
+    else:
+        adapter_dir = None
+        adapter_cfg = None
+    raw_config = build_config(args, adapter_cfg)
     raw_config["metadata"] = {
-        "mode": "full_finetune",
-        "init_model": args.model,
+        "mode": "lora" if adapter_cfg else "full_finetune",
+        "init_model": args.adapter or args.model,
     }
+    if args.lora_rank is not None:
+        raw_config["metadata"]["mode"] = "lora"
+        raw_config["metadata"]["init_model"] = args.model
+        raw_config["metadata"]["fresh_lora"] = True
+    if adapter_dir is not None:
+        raw_config["metadata"]["init_adapter_resolved_dir"] = str(adapter_dir)
+    if args.rollout_init_model:
+        raw_config["metadata"]["rollout_init_model_source"] = args.rollout_init_model
     if args.dump_config:
         args.dump_config.parent.mkdir(parents=True, exist_ok=True)
         args.dump_config.write_text(json.dumps(raw_config, indent=2) + "\n", encoding="utf-8")
@@ -396,6 +492,10 @@ def main() -> None:
     print(json.dumps(raw_config, indent=2))
     if args.dry_run:
         return
+
+    if adapter_dir is not None:
+        os.environ["PRIME_RL_INIT_ADAPTER"] = str(adapter_dir)
+        os.environ["PRIME_RL_INFERENCE_FULL_WEIGHTS"] = "1"
 
     cwd = str(Path.cwd())
     rl_dir = str(Path.cwd() / "rl")

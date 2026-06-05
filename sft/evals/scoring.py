@@ -55,6 +55,8 @@ def _extract_result_body(tool_bodies: list[str], call_id: str) -> str | None:
 
 
 def _tool_succeeded(tool_name: str, result_body: str | None, expected_output: str | None) -> bool:
+    if tool_name not in {"cargo_run", "cargo_test"}:
+        return False
     if not result_body:
         return False
     if re.search(r"^status:\s*success\b", result_body, re.MULTILINE) is None:

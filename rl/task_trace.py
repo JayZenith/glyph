@@ -6,7 +6,7 @@ from pathlib import Path
 from datasets import Dataset
 
 import verifiers as vf
-from agent_runtime.protocol import SimpleTraceValidator, ended_cleanly_after_final, final_count
+from agent_runtime.protocol import ROLE_LEAK_RE, SimpleTraceValidator, ended_cleanly_after_final, final_count
 from rl.task_format import load_prompts
 from agent_runtime.rust.executor import ExecutionResult, RustExecutor, create_executor
 from agent_runtime.rust.runtime import ensure_sandbox_copy, execute_rust_tool, rewrite_params_for_sandbox
@@ -24,11 +24,12 @@ RUST_TOOL_NAMES = {
 RUST_TOOL_NAMES.discard(None)
 
 DEBUG_PARSE = False
-# Bounded, outcome-first reward for reliability lift. A real verifier pass is
-# still the dominant signal, but successful rollouts that stop cleanly and reach
-# the pass with fewer failed verifier attempts are preferred. Penalties are
-# deliberately small/capped so recovery traces with one or two failed attempts
-# remain strongly positive instead of teaching the model to avoid exploration.
+# Bounded, outcome-first reward for reliability lift. A real verifier pass still
+# earns partial reward, but the top reward is reserved for the heldout-style
+# valid trace: cargo verifier pass, no later tools, exactly one clean FINAL after
+# the passing result. Penalties stay small/capped so recovery traces with one or
+# two failed attempts remain positive instead of teaching the model to avoid
+# exploration.
 DEFAULT_REWARD_CONFIG = {
     # format floor
     "structure_valid_bonus": 0.5,
@@ -218,13 +219,31 @@ def _result_offset(call_id: str, full_text: str) -> int:
     return full_text.find(f"RESULT {call_id}:")
 
 
-def _outcome_reward(calls: list[dict], tool_text: str, assistant_text: str, full_text: str) -> float:
-    """Primary signal: reaching a passing verifier, then stopping with one FINAL.
+def _heldout_style_success(
+    assistant_text: str,
+    full_text: str,
+    success_pos: int,
+    later_tools: list[dict],
+) -> bool:
+    if success_pos < 0 or later_tools:
+        return False
+    if final_count(assistant_text) != 1:
+        return False
+    if not ended_cleanly_after_final(assistant_text):
+        return False
+    if ROLE_LEAK_RE.search(assistant_text):
+        return False
+    final_pos = full_text.rfind("FINAL:")
+    return final_pos > success_pos
 
-    Bounded and additive with `_finalization_reward`. No huge no-FINAL penalty
-    lives here anymore — the missing-FINAL case is handled once, mildly, in
-    `_finalization_reward`. This only rewards real task success and lightly
-    discourages wandering with more tools after you already passed.
+
+def _outcome_reward(calls: list[dict], tool_text: str, assistant_text: str, full_text: str) -> float:
+    """Primary signal: cargo verifier success, then heldout-style stopping.
+
+    Any real cargo_test/cargo_run pass earns partial reward. The clean-success
+    bonus is only paid for the same stop behavior the heldout eval counts:
+    exactly one FINAL, clean ending, FINAL after the passing verifier result,
+    and no executed tools after that success.
     """
     success_idx: int | None = None
     success_pos = -1
@@ -259,9 +278,7 @@ def _outcome_reward(calls: list[dict], tool_text: str, assistant_text: str, full
     if later_tools:
         reward += REWARD_CONFIG["tool_after_success_penalty"]
 
-    final_pos = full_text.rfind("FINAL:")
-    clean_final_after_success = final_count(assistant_text) >= 1 and final_pos > success_pos >= 0
-    if clean_final_after_success and not later_tools:
+    if _heldout_style_success(assistant_text, full_text, success_pos, later_tools):
         reward += REWARD_CONFIG["verifier_success_clean_final_bonus"]
     return reward
 
@@ -363,7 +380,6 @@ class RustToolEnv(vf.MultiTurnEnv):
         max_tool_rounds: int = 5,
         sandbox_root: Path | None = None,
         trace_infos: dict[str, dict] | None = None,
-        terminal_on_success: bool = False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -371,12 +387,6 @@ class RustToolEnv(vf.MultiTurnEnv):
         self.max_tool_rounds = max_tool_rounds
         self.sandbox_root = Path(sandbox_root) if sandbox_root else Path("runs/rlvr1/sandboxes")
         self.trace_infos = trace_infos or {}
-        # Opt-in: end the episode one turn after the verifier first passes, so the
-        # post-success turn is forced terminal. Manufactures the FINAL-vs-churn
-        # divergence point (tightest credit on the stop decision) instead of
-        # relying on the policy to sample FINAL on its own. A/B against the plain
-        # corrected run. See rl/RLVR_NOTES.md.
-        self.terminal_on_success = terminal_on_success
 
     def _ensure_sandbox(self, state: dict, blueprint_root: str) -> str:
         """Per-rollout copy of a blueprint project. Idempotent within a rollout."""
@@ -426,17 +436,6 @@ class RustToolEnv(vf.MultiTurnEnv):
             state["tool_budget_exhausted"] = True
             return True
         if state.get("tool_budget_exhausted"):
-            return True
-        # Opt-in: one post-success turn, then stop. success_round is set during the
-        # env_response that executed the passing verifier; rounds_used was then
-        # incremented, so by the time the model has taken its next turn
-        # rounds_used > success_round and we end here -- whether that turn was a
-        # clean FINAL or another (now-unexecuted) churn call.
-        if (
-            self.terminal_on_success
-            and state.get("verifier_passed")
-            and state.get("rounds_used", 0) > state.get("success_round", 0)
-        ):
             return True
         text = _strip_role_leak_tail(
             _latest_assistant_segment(
@@ -490,16 +489,6 @@ class RustToolEnv(vf.MultiTurnEnv):
                     expected_output=info.get("expected_output") if call["tool"] == "cargo_run" else None,
                 )
             executed.add(cid)
-            if (
-                self.terminal_on_success
-                and not state.get("verifier_passed")
-                and call["tool"] in {"cargo_test", "cargo_run"}
-                and er.success
-            ):
-                # First real pass. Record the round it happened on; is_completed
-                # ends the episode after the model's next (post-success) turn.
-                state["verifier_passed"] = True
-                state["success_round"] = state.get("rounds_used", 0)
             result_block = format_result_block(cid, er)
             tool_turn = _format_chatml_tool_turn(result_block)
             state.setdefault("executed_tool_calls", []).append(call)
@@ -543,7 +532,6 @@ def load_environment(
     nsjail_path: str | None = None,
     timeout: int = 30,
     max_tool_rounds: int = 5,
-    terminal_on_success: bool = False,
     structure_valid_bonus: float | None = None,
     no_call_penalty: float | None = None,
     malformed_call_penalty: float | None = None,
@@ -615,6 +603,5 @@ def load_environment(
         executor=executor,
         max_tool_rounds=max_tool_rounds,
         trace_infos=trace_infos,
-        terminal_on_success=terminal_on_success,
     )
     return env

@@ -104,8 +104,8 @@ Settings that matter (the rest are scenery): `teacher-tau 0.2` (anchor to SFT �
 `0.01` collapsed the first run), `rollouts-per-example 8` + `temperature 0.8`
 (within-group variance is the whole gradient on a partial-solve prompt;
 4 / 0.6 starved it), `zero_advantage` filter on
-(`rl/configs/task_trace/orchestrator.toml`). Do NOT use `--terminal-on-success`
-(that was the stopping experiment; see Lessons).
+(`rl/configs/task_trace/orchestrator.toml`). The old post-success horizon
+shortcut was removed; stopping is now trained through the reward itself.
 
 Logs: `tail -f outputs/rlvr_passk/logs/{launcher,orchestrator,trainer}.log`
 
@@ -155,8 +155,8 @@ GPU box billed hourly — stop it when idle (`vastai stop instance <id>`).
 
 - **RL can't fix a failure mode absent from its own rollouts.** Two stop-targeted
   variants regressed full eval: RLVR_V1 (stacked-penalty reward, 52→20) and
-  RLVR_B (corrected bounded reward **+** `--terminal-on-success` horizon
-  truncation, 52→19). B changes two things at once, so it's *not* a clean reward
+  RLVR_B (corrected bounded reward plus post-success horizon truncation, 52→19).
+  B changes two things at once, so it's *not* a clean reward
   control. The key measurement: train prompts emitted ~0 churn (temp-0: 0 churn;
   temp-0.8 depth≥3: 0/16), so the RL rollout harness lacked solved-but-no-`FINAL`
   contrast. Later pass@8 showed the same held-out failures had verifier-success

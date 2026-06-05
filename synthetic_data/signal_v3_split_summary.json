@@ -1,0 +1,183 @@
+{
+  "leakage_checks": {
+    "case_id_overlap": 0,
+    "trace_overlap": 0
+  },
+  "method": "deterministic stratified case_id-group split; strata=(family,difficulty,expected_tool_sequence_length,run_or_test); duplicate case_id/trace rows kept together to avoid SFT/RL leakage",
+  "outputs": {
+    "rl_pool_b_prompts": "synthetic_data/rl_prompts_signal_v3_pool_b.jsonl",
+    "rl_pool_b_traces": "synthetic_data/signal_v3_rl_pool_b.jsonl",
+    "sft_half_a": "synthetic_data/signal_v3_sft_half_a.jsonl",
+    "summary_json": "synthetic_data/signal_v3_split_summary.json",
+    "summary_md": "synthetic_data/signal_v3_split_summary.md"
+  },
+  "seed": "glyph-signal-v3-clean-sft-rlvr-split-v1",
+  "source": "synthetic_data/signal_v3.jsonl",
+  "source_counts": {
+    "rows": 2083,
+    "unique_case_ids": 1522,
+    "unique_traces": 1522
+  },
+  "splits": {
+    "RL_POOL_B": {
+      "by_depth": {
+        "1": 50,
+        "12": 70,
+        "15": 33,
+        "18": 16,
+        "3": 562,
+        "6": 283,
+        "9": 27
+      },
+      "by_difficulty": {
+        "easy": 235,
+        "hard": 229,
+        "medium": 577
+      },
+      "by_family": {
+        "patch_run_pass": 200,
+        "patch_run_recover": 148,
+        "patch_test_pass": 362,
+        "patch_test_recover": 281,
+        "run_only": 15,
+        "test_only": 35
+      },
+      "by_family_difficulty_depth": {
+        "patch_run_pass|easy|3|run": 58,
+        "patch_run_pass|hard|3|run": 20,
+        "patch_run_pass|medium|3|run": 122,
+        "patch_run_recover|easy|12|run": 1,
+        "patch_run_recover|easy|6|run": 11,
+        "patch_run_recover|hard|12|run": 9,
+        "patch_run_recover|hard|15|run": 3,
+        "patch_run_recover|hard|18|run": 5,
+        "patch_run_recover|hard|6|run": 43,
+        "patch_run_recover|hard|9|run": 3,
+        "patch_run_recover|medium|12|run": 10,
+        "patch_run_recover|medium|15|run": 4,
+        "patch_run_recover|medium|6|run": 52,
+        "patch_run_recover|medium|9|run": 7,
+        "patch_test_pass|easy|3|test": 98,
+        "patch_test_pass|hard|3|test": 64,
+        "patch_test_pass|medium|3|test": 200,
+        "patch_test_recover|easy|12|test": 9,
+        "patch_test_recover|easy|6|test": 25,
+        "patch_test_recover|easy|9|test": 2,
+        "patch_test_recover|hard|12|test": 12,
+        "patch_test_recover|hard|15|test": 10,
+        "patch_test_recover|hard|18|test": 11,
+        "patch_test_recover|hard|6|test": 45,
+        "patch_test_recover|hard|9|test": 4,
+        "patch_test_recover|medium|12|test": 29,
+        "patch_test_recover|medium|15|test": 16,
+        "patch_test_recover|medium|6|test": 107,
+        "patch_test_recover|medium|9|test": 11,
+        "run_only|easy|1|run": 9,
+        "run_only|medium|1|run": 6,
+        "test_only|easy|1|test": 22,
+        "test_only|medium|1|test": 13
+      },
+      "by_verifier_family": {
+        "run": 363,
+        "test": 678
+      },
+      "rows": 1041,
+      "unique_case_ids": 760
+    },
+    "RL_POOL_B_PROMPTS": {
+      "by_depth": {
+        "1": 50,
+        "12": 70,
+        "15": 33,
+        "18": 16,
+        "3": 281,
+        "6": 283,
+        "9": 27
+      },
+      "by_difficulty": {
+        "easy": 157,
+        "hard": 187,
+        "medium": 416
+      },
+      "by_kind": {
+        "patch_run_pass": 100,
+        "patch_run_recover": 148,
+        "patch_test_pass": 181,
+        "patch_test_recover": 281,
+        "run_only": 15,
+        "test_only": 35
+      },
+      "by_verifier_family": {
+        "run": 263,
+        "test": 497
+      },
+      "rows": 760,
+      "unique_case_ids": 760
+    },
+    "SFT_HALF_A": {
+      "by_depth": {
+        "1": 52,
+        "12": 69,
+        "15": 34,
+        "18": 15,
+        "3": 560,
+        "6": 284,
+        "9": 28
+      },
+      "by_difficulty": {
+        "easy": 234,
+        "hard": 229,
+        "medium": 579
+      },
+      "by_family": {
+        "patch_run_pass": 194,
+        "patch_run_recover": 150,
+        "patch_test_pass": 366,
+        "patch_test_recover": 280,
+        "run_only": 16,
+        "test_only": 36
+      },
+      "by_family_difficulty_depth": {
+        "patch_run_pass|easy|3|run": 56,
+        "patch_run_pass|hard|3|run": 18,
+        "patch_run_pass|medium|3|run": 120,
+        "patch_run_recover|easy|12|run": 2,
+        "patch_run_recover|easy|6|run": 11,
+        "patch_run_recover|hard|12|run": 9,
+        "patch_run_recover|hard|15|run": 3,
+        "patch_run_recover|hard|18|run": 5,
+        "patch_run_recover|hard|6|run": 44,
+        "patch_run_recover|hard|9|run": 2,
+        "patch_run_recover|medium|12|run": 10,
+        "patch_run_recover|medium|15|run": 4,
+        "patch_run_recover|medium|6|run": 52,
+        "patch_run_recover|medium|9|run": 8,
+        "patch_test_pass|easy|3|test": 98,
+        "patch_test_pass|hard|3|test": 66,
+        "patch_test_pass|medium|3|test": 202,
+        "patch_test_recover|easy|12|test": 8,
+        "patch_test_recover|easy|6|test": 25,
+        "patch_test_recover|easy|9|test": 3,
+        "patch_test_recover|hard|12|test": 12,
+        "patch_test_recover|hard|15|test": 11,
+        "patch_test_recover|hard|18|test": 10,
+        "patch_test_recover|hard|6|test": 46,
+        "patch_test_recover|hard|9|test": 3,
+        "patch_test_recover|medium|12|test": 28,
+        "patch_test_recover|medium|15|test": 16,
+        "patch_test_recover|medium|6|test": 106,
+        "patch_test_recover|medium|9|test": 12,
+        "run_only|easy|1|run": 9,
+        "run_only|medium|1|run": 7,
+        "test_only|easy|1|test": 22,
+        "test_only|medium|1|test": 14
+      },
+      "by_verifier_family": {
+        "run": 360,
+        "test": 682
+      },
+      "rows": 1042,
+      "unique_case_ids": 762
+    }
+  }
+}

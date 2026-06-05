@@ -175,7 +175,7 @@ from dataclasses import dataclass, field
 
 SCHEDULER_INIT_OLD = """        self.enable_policy_updates = enable_policy_updates
         self.lora_name = lora_name
-        self.model_name = self.config.model.name
+        self.model_name = self.config.student.model.name
         self.json_logging = config.log.json_logging
 """
 
@@ -186,7 +186,7 @@ SCHEDULER_INIT_NEW = """        self.enable_policy_updates = enable_policy_updat
             "true",
             "yes",
         }
-        self.model_name = self.config.model.name
+        self.model_name = self.config.student.model.name
         self.json_logging = config.log.json_logging
 """
 
@@ -198,8 +198,8 @@ SCHEDULER_UPDATE_OLD = """        update_weights_start_time = time.perf_counter(
 
         self.ckpt_step = next_ckpt_step
         if self.lora_name is not None:
+            self.inference_pool.update_model_name(self.lora_name)
             self.model_name = self.lora_name
-            self.inference_pool.update_model_name(self.model_name)
 """
 
 SCHEDULER_UPDATE_NEW = """        update_weights_start_time = time.perf_counter()
@@ -211,8 +211,8 @@ SCHEDULER_UPDATE_NEW = """        update_weights_start_time = time.perf_counter(
 
         self.ckpt_step = next_ckpt_step
         if self.lora_name is not None and not self.inference_uses_full_weights:
+            self.inference_pool.update_model_name(self.lora_name)
             self.model_name = self.lora_name
-            self.inference_pool.update_model_name(self.model_name)
 """
 
 ENTRYPOINTS_IMPORT_ANCHOR = "TEACHER_INFERENCE_TOML = \"teacher_inference.toml\"\n"
@@ -290,8 +290,11 @@ ENTRYPOINTS_TRAINER_ENV_NEW = """                env=_with_forwarded_prime_rl_en
 ORCHESTRATOR_RESUME_OLD = """            weights_path = get_weight_dir(
                 config.output_dir, scheduler.ckpt_step, check_exists=check_exists, wait_timeout=wait_timeout
             )
-            lora_name = config.model.lora.name if config.model.lora else None
+            lora_name = config.student.model.lora.name if config.student.model.lora else None
             await inference_pool.update_weights(weights_path, lora_name=lora_name, step=scheduler.ckpt_step)
+            if lora_name is not None:
+                inference_pool.update_model_name(lora_name)
+                scheduler.model_name = lora_name
     else:
         logger.info("Training from scratch")
 """
@@ -304,8 +307,13 @@ ORCHESTRATOR_RESUME_NEW = """            weights_path = get_weight_dir(
                 "true",
                 "yes",
             }
-            lora_name = None if use_full_inference_weights else (config.model.lora.name if config.model.lora else None)
+            lora_name = None if use_full_inference_weights else (
+                config.student.model.lora.name if config.student.model.lora else None
+            )
             await inference_pool.update_weights(weights_path, lora_name=lora_name, step=scheduler.ckpt_step)
+            if lora_name is not None:
+                inference_pool.update_model_name(lora_name)
+                scheduler.model_name = lora_name
     else:
         logger.info("Training from scratch")
 """

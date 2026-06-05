@@ -1,5 +1,5 @@
 # Crates 
-Model never touches real crate, its trained on a canonical path for simplicty but during RL, every rollout gets its own private sandbox copy of the crate. 
+Model never touches real crate, its trained on a canonical path for simplicty but during RL, every rollout gets its own private sandbox copy of the crate.  Preventing rollouts from corrupting each other. 
 
 ```bash
 blueprint crate
@@ -9,21 +9,15 @@ blueprint crate
        └── rollout 3 → sandbox_c/
 ```
 
-This prevents rollouts from corrupting each other. 
-
-
-
 PRIME-RL -> verifiers -> RustToolEnv 
 * trainer -> env/reward framework -> custom Rust world
 
 PRIME-RL
 * Generates rollouts, asks env what happens next, received reward, updates model
 
-
 # Reward seperate from execution
 - `RustToolEnv` does not assign reward, it just produces the env trajecotry. 
-- `_rust_tool_reward` grades teh trajectory after a rollout 
-
+- `_rust_tool_reward` grades the trajectory after a rollout 
 
 
 # Naive RL loop vs asynchronous RL loop
@@ -39,3 +33,16 @@ PRIME-RL
 # How GRPO works 
 - increses probability of actions in positive-advantage rollotus
 - Decreases those in negative-advantage rollouts
+
+# FSDP mean Fully Sharded Data Parallel 
+* Trainer splits model params, gradient,s, and optimizer states across trainer GPU.
+* GPUs 0,1,2 are PRIME-RL managed, with 2 trainer GPUs + 1 inference GPU
+* GPU 3 ran the frozen teacher 
+
+
+# Teacher KL
+During GRPO, trainer compared current policy's token distr against teacher dist and adds KL penalty so RL cannot drift far from SFT behaivor. 
+
+
+# NCCL is GPU comms
+Collectives are coordinated group comm: all-reduce, broadcast, reduce-scatter, all-gather. GPUs use to share param/gradient data to train sharded model.

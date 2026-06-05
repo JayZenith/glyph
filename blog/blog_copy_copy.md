@@ -2,14 +2,9 @@
 
 Teaching `Qwen3-4B-Base` to be a coding agent on real Rust tasks led to experiments regarding — *how much can reinforcement learning add on top of a good SFT model, and how do you tell before you burn the GPUs?*
 
-The short version: SFT taught the protocol and the skill cleanly. The first RL runs after that **regressed** it. That was not a useless failure: it exposed exactly where RLVR has no gradient. The final run only worked after we stopped asking RL to fix everything, used `pass@k` to find the few prompts where the policy already had partial capability, tightened the reward/anchor, fixed the training stack, and evaluated the checkpoint on the same vLLM harness as the baseline. On that narrow 8-prompt band, step 25 moved **47/64 → 54/64** solves.
+The short version: SFT taught the protocol and the skill cleanly. The first RL runs after that **regressed** it. That was not a useless failure: it exposed exactly where RLVR has no gradient and where our eval harnesses were measuring different things. The final run only worked after we stopped asking RL to fix everything, used `pass@k` to find the few prompts where the policy already had partial capability, tightened the reward/anchor, fixed the training stack, and evaluated the checkpoint on the same vLLM harness as the baseline. On that narrow 8-prompt band, step 25 moved **47/64 → 54/64** solves.
 
-Then the last check landed: the same checkpoint was run on the original 69-prompt
-HF/Transformers formal eval. It regressed badly: **52/69 → 19/69 valid traces** and
-**68/69 → 47/69 terminal tool successes**. So the final result is not "we trained a
-better deployable agent." It is narrower and more honest: RLVR can improve a carefully
-selected mixed pass@k band, but this full-parameter GRPO run still damaged the broader
-tool-protocol distribution.
+Then the last check landed: the same checkpoint was run on the original 69-prompt HF/Transformers formal eval. It regressed badly: **52/69 → 19/69 valid traces** and **68/69 → 47/69 terminal tool successes**. So the final result is not "I trained a better deployable agent." It is narrower and more honest: RLVR can improve a carefully selected mixed pass@k band, but this full-parameter GRPO run still damaged the broader tool-protocol distribution.
 
 The model speaks a tiny tool-use protocol:
 
@@ -65,13 +60,13 @@ PRIME-RL splits RL into three processes that run concurrently, talking over the
 filesystem:
 
 ```
-                 weights (filesystem broadcast)
+                 weights (checkpoint/weight sync via filesystem)
    ┌──────────┐  ───────────────────────────►  ┌─────────────┐
    │ TRAINER  │                                 │  INFERENCE  │  vLLM, serves
    │ (FSDP,   │                                 │  (policy)   │  the current policy
    │  GRPO)   │  ◄───────────────────────────   └─────────────┘
    └──────────┘   training batches (rollouts)          │ generates rollouts
-        ▲                                               ▼
+        ▲                                              ▼
         │                                        ┌──────────────┐
         │                                        │ ORCHESTRATOR │  runs the verifiers
         └──── KL anchor ◄──── ┌─────────┐        │  env, scores │  env, applies the
@@ -161,9 +156,10 @@ clean `PASS→FINAL` endings):
 | SFT_V2 | + variable-depth recovery | 48 | 0.70 | 0.96 |
 | SFT_V3 | + deep coverage, oversample clean | 50 | 0.725 | 0.99 |
 
-Stopping **plateaued at 0.72–0.75** regardless. More recovery data even made it
-*over-recover* (5 failed attempts where V1 fixed it in 1). So we asked the obvious
-question: **is stopping an RL problem?**
+Stopping **plateaued at 0.72–0.75** regardless. The added recovery data did not produce
+cleaner stopping; in inspected failures it could also encourage extra recovery attempts
+instead of earlier termination. So we asked the obvious question: **is stopping an RL
+problem?**
 
 ---
 
@@ -172,7 +168,7 @@ question: **is stopping an RL problem?**
 `RLVR_V1` was the first attempt: shape a reward that punishes churning past a success and
 rewards the clean `FINAL`. It used a stacked-penalty reward, `teacher-tau 0.01` (almost no
 anchor), and cut exploration (temp 0.8→0.6, rollouts 8→4). The result was not a small
-regression — it was a **collapse of capability the reward never even mentioned**:
+regression — it was a **capability collapse**, not just a finalization regression:
 
 ![RLVR_V1 collapse](assets/fig_collapse.png)
 
@@ -180,17 +176,19 @@ regression — it was a **collapse of capability the reward never even mentioned
 held-out 69:  valid 52 → 20   clean_end 0.75 → 0.33   terminal 0.99 → 0.70   task_failure 1 → 21
 ```
 
-The model got *worse at solving*, which the reward never touched. Post-mortem — four
-textbook GRPO failure modes at once:
+The model got *worse at solving*, not just worse at finalizing. The likely post-mortem
+had four GRPO failure modes stacked:
 
 1. **Unbounded stacked penalties.** Bad rollouts scored −13 to −23 against +12 for a
-   solve. One catastrophic rollout dominated its group's advantage and dragged the update.
-2. **No positive path on failures.** On an unsolved task *every* action scored negative,
-   so the optimizer's best move was to flee the working SFT behavior entirely.
+   solve. A single catastrophic rollout could dominate its group's advantage and drag the
+   update.
+2. **Weak positive path on failures.** On unsolved tasks, the reward mostly supplied
+   negative contrast, so the optimizer could push away from working SFT behavior instead
+   of toward a better repair strategy.
 3. **No anchor.** `teacher-tau 0.01` let the policy drift off the SFT manifold; nothing
    pulled it back.
-4. **Starved gradient.** ~56% of groups were zero-advantage; the few that survived were
-   noisy.
+4. **Starved gradient.** With only four rollouts per prompt, many groups had no reward
+   variance; the few that survived were noisy.
 
 **Lesson:** a verifier-grounded RL reward must be **bounded, success-anchored (there is
 always a positive path), and KL-anchored to the SFT model**, with enough rollouts for
@@ -201,23 +199,27 @@ within-group variance. Get any of those wrong and GRPO eats your SFT model.
 We rebuilt the reward correctly (bounded, +8 verifier-dominant, hard anchor) and even
 tried the most aggressive credit trick — `terminal_on_success`, which ends the episode one
 turn *after* the first pass to force a clean stop/churn decision (`RLVR_B`). It **also**
-regressed (52 → 19). At which point we stopped tuning and *measured the policy itself*:
+regressed (52 → 19). At which point we stopped tuning and *measured the policy on the
+training distribution*:
 
 > On the **training** prompts, how often does SFT_V1 actually churn?
 > - temp-0: **0 churn** (72 clean / 24 unsolved of 96)
 > - temp-0.8, depth≥3: **0 / 16 churn**
 
-That measurement was real, but it only proves the original RL training prompts did **not**
-expose the churn/stopping failure. It does not prove the held-out failures were missing
-Rust capability.
+That measurement was real, but the stronger claim I first wanted to make from it was too
+blunt. It shows the original RL training prompts did **not** expose the churn/stopping
+failure, so those prompts could not provide a stop-after-success gradient. It does **not**
+prove the held-out failures were missing Rust capability.
 
 The later pass@8 scan corrected the story. The 17 SFT_V1 formal failures were almost all
 already successful at the verifier level: in the original HF/Transformers formal eval,
 16/17 had `terminal_tool_success=True` but no clean `FINAL`; only one was a true task
 failure. When the **same prompts/cases** were rescanned with the vLLM pass@8 harness,
-those same 17 became 9 prompts at 8/8 and 8 mixed prompts, with **0 capability gaps**.
-The difference was inference harness, sampling, and scoring criterion, not different
-prompts.
+those same 17 became 9 prompts at 8/8 and 8 mixed prompts, with **0 capability gaps**. So
+the "stopping gap" was not simply "the model cannot solve these tasks." It was
+protocol-termination instability that appeared under the HF/Transformers formal eval but
+was much less absolute under the vLLM pass@8 diagnostic. The prompts were the same; the
+difference was inference harness, sampling, and scoring criterion.
 
 The usable RL lesson is narrower: do not assume a reward can fix a failure just because
 that failure appears in one eval. First check whether the same failure mode appears under
@@ -308,9 +310,9 @@ favor, while quietly bleeding the already-solved prompts via parameter drift.
 
 1. **No reward variance to learn from.** The band is overwhelmingly near-ceiling — 27 of
    the 39 are at 7/8 on the defining scan, and on the vLLM re-measurement 23 of them
-   actually hit 8/8 (which itself proves the point: a 7/8 prompt failing 1/8 is *sampling
-   noise*, not a consistent error). There's no stable direction to descend — RL just trades
-   one random slip for another.
+   actually hit 8/8 (which supports the point: many 7/8 prompts were near-ceiling sampling
+   instability, not consistent errors). There's no stable direction to descend — RL just
+   trades one random slip for another.
 2. **Drift on the saturated prompts.** While the optimizer chases the handful of genuinely
    partial prompts, it nudges shared weights, and the already-solved prompts — which have
    no countervailing gradient — drift downward. (A follow-up run with `teacher-tau 0.3` and
@@ -322,8 +324,8 @@ favor, while quietly bleeding the already-solved prompts via parameter drift.
 
 The deeper truth is the one the pass@k scan stated up front: **for this SFT model and this
 134-prompt training pool, there was almost no capability for RL to add.** The 39-prompt
-band was too close to the ceiling and too noisy. That was not a tuning failure; it was a
-property of the data.
+band was too close to the ceiling and too noisy. The regression was not just a tuning
+failure; it was largely a property of the data.
 
 But it also suggested the way out: stop treating `pass@k` as a post-hoc graph, and use it
 as a **target selector**.
@@ -346,11 +348,12 @@ honest path left was narrower:
 
 That scan changed the interpretation of the held-out failures. SFT_V1 was not 0/8 on
 them. It had latent capability: on the 17 original failures, 9 were already 8/8 under
-the vLLM pass@8 harness and 8 were mixed. This is an engine/harness caveat: the original
-failures came from the HF/Transformers formal eval, while this diagnostic was vLLM at
-T=0.8 and counted `terminal_tool_success`, not necessarily clean `FINAL`. Still, for RLVR
-targeting, it identified which prompts had within-group verifier variance. The final RL
-dataset became exactly those **8 mixed held-out-failure prompts**, stored as:
+the vLLM pass@8 harness and 8 were mixed. This is an engine/harness caveat, not a
+footnote: the original failures came from the HF/Transformers formal eval, while this
+diagnostic was vLLM at T=0.8 and counted `terminal_tool_success`, not necessarily clean
+`FINAL`. Still, for RLVR targeting, it identified which prompts had within-group verifier
+variance. The final RL dataset became exactly those **8 mixed held-out-failure prompts**,
+stored as:
 
 ```text
 synthetic_data/rl_prompts_heldout69_passk_targets.jsonl
@@ -429,6 +432,8 @@ This was run on a 4xA100 instance. GPUs `0,1,2` were assigned to PRIME-RL
 Then we stopped training at step 25 and ran the matched vLLM pass@8 sweep on the same 8
 targets:
 
+![narrow RLVR step-25 run](assets/fig_heldout69_step25.png)
+
 ```bash
 NAMES=$(paste -sd, synthetic_data/heldout69_passk_target_names.txt)
 PYTHONPATH=/workspace/glyph python sft/passk_scan_vllm.py \
@@ -470,9 +475,9 @@ Per prompt:
 ```
 
 This was the RLVR artifact I was looking for, but it was only a **narrow pass@8** win.
-It did not invalidate the earlier diagnosis. It confirmed it: RLVR worked only after we
-selected the small band where the base model had latent capability and real rollout
-variance.
+It did not invalidate the earlier diagnosis. It narrowed it: the selected-band metric
+improved only after we chose the small band where the base model had latent capability and
+real rollout variance.
 
 But there was one last thing to check: does the checkpoint still hold up on the original
 69-prompt formal eval that established SFT_V1's baseline? We ran the same HF/Transformers
@@ -556,10 +561,11 @@ harness and a measured map of where each stage breaks**:
   formal eval; the same prompts showed much more verifier success under vLLM pass@8.
 - **RL cannot install a behavior absent from its own rollouts.** The original stop-focused
   RL runs trained on prompts where SFT_V1 showed ~0 churn, so the reward had no reliable
-  stop-after-success contrast to reinforce.
+  stop-after-success contrast to reinforce. That is narrower than saying the held-out
+  churn was a missing-capability problem.
 - **RL cannot lift capability the policy has already saturated** (the 39-prompt pass@k
   band). The scan predicted the broad failure before we spent the GPU-hours.
-- **RL can lift reliability on a narrow, mixed band** (the 8 held-out-failure targets):
+- **RL can lift reliability on this narrow, mixed band** (the 8 held-out-failure targets):
   47/64 → 54/64 at step 25, measured with the same vLLM pass@8 harness.
 - **That lift did not survive the broad formal eval.** The same checkpoint regressed the
   original held-out 69 from 52/69 valid traces to 19/69, mostly by damaging clean protocol
@@ -568,10 +574,10 @@ harness and a measured map of where each stage breaks**:
   is empty or jammed at the ceiling, the answer is no — and you should believe it.
 
 The honest deliverable is not "RL magically makes a 4B Rust agent." It is the targeting
-rule plus the failure boundary: **RLVR helps where the base policy already has partial
-capability and verifier variance; it fails or drifts where the RL dataset lacks the
-failure mode, where the policy is saturated, or where full-parameter updates overpower
-the SFT protocol prior.**
+rule plus the failure boundary: **in these experiments, RLVR helped where the base policy
+already had partial capability and verifier variance; it failed or drifted where the RL
+dataset lacked the failure mode, where the policy was saturated, or where full-parameter
+updates overpowered the SFT protocol prior.**
 
 ### What a real lift would need
 
@@ -580,6 +586,11 @@ capability (baseline 1–6/8 from real difficulty, not just 7/8 decoding noise),
 within-group variance reflects something learnable. The final run was small because the
 dataset only had 8 such prompts. Scaling the win requires generating more prompts with
 that same property, then holding back a matched eval set.
+
+Full-parameter GRPO may also have been the wrong adaptation mechanism for an 8-prompt
+target set. A natural follow-up is LoRA-based RLVR, or an auxiliary SFT/protocol loss
+during RL, so the update can specialize the narrow pass@8 band without moving the whole
+model away from the broader tool-use distribution SFT_V1 learned.
 
 ---
 

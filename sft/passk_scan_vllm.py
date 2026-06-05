@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -51,6 +52,18 @@ def write_results(path: Path, results: list[dict]) -> None:
     tmp.replace(path)
 
 
+def _cargo_verifier_success(trace: str) -> bool:
+    for _tool, call_id in re.findall(r'CALL\s+(cargo_run|cargo_test)\(.*?\bid\s*=\s*"([^"]+)"', trace, re.DOTALL):
+        match = re.search(
+            r"RESULT\s+" + re.escape(call_id) + r":\n(.*?)(?=\n<\|im_end\|>|\nRESULT\s+[A-Za-z0-9_\-]+:|\Z)",
+            trace,
+            re.DOTALL,
+        )
+        if match and re.search(r"^status:\s*success\b", match.group(1), re.MULTILINE):
+            return True
+    return False
+
+
 def _exec_round(rollout: Rollout, executor, expected_output: str | None) -> bool:
     """Run pending tool calls for one rollout, inject results. Return True if the
     rollout should continue (had pending calls), False if it is finished."""
@@ -86,7 +99,7 @@ def _exec_round(rollout: Rollout, executor, expected_output: str | None) -> bool
 
 
 def run_prompt(llm, tokenizer, sampling_cls, item, k, max_new_tokens, max_tool_rounds,
-               temperature, executor, sandbox_root) -> int:
+               temperature, executor, sandbox_root, save_rollouts: bool = False):
     blueprint_root = item.get("blueprint_root")
     trace_prefix = item.get("trace_prefix") or blueprint_root
     expected_output = item.get("expected_output")
@@ -141,10 +154,23 @@ def run_prompt(llm, tokenizer, sampling_cls, item, k, max_new_tokens, max_tool_r
                 r.done = True
 
     solves = 0
+    rollout_rows = []
     for r in rollouts:
+        trace = r.prompt + r.accumulated.strip()
         m = score_output(r.prompt, r.accumulated.strip(), item, r.new_tokens, max_new_tokens)
-        solves += int(bool(m["terminal_tool_success"]))
-    return solves
+        cargo_success = _cargo_verifier_success(trace)
+        solves += int(cargo_success)
+        if save_rollouts:
+            rollout_rows.append({
+                "cargo_verifier_success": cargo_success,
+                "terminal_tool_success_metric": bool(m["terminal_tool_success"]),
+                "valid_trace": bool(m["valid_trace"]),
+                "clean_end": bool(m["clean_end"]),
+                "call_sequence": m["call_sequence"],
+                "new_tokens": r.new_tokens,
+                "trace": trace,
+            })
+    return solves, rollout_rows
 
 
 def main() -> int:
@@ -164,6 +190,8 @@ def main() -> int:
     p.add_argument("--gpu-memory-utilization", type=float, default=0.85)
     p.add_argument("--max-model-len", type=int, default=12288)
     p.add_argument("--dtype", default="bfloat16")
+    p.add_argument("--save-rollouts", action="store_true",
+                   help="Store per-rollout traces and strict cargo-verifier metrics.")
     args = p.parse_args()
 
     keep = set(args.names.split(",")) if args.names else None
@@ -202,13 +230,17 @@ def main() -> int:
     sandbox_root = Path(args.cases_root) / "_sandboxes"
 
     for i, item in enumerate(prompts):
-        solves = run_prompt(
+        solves, rollout_rows = run_prompt(
             llm, tokenizer, SamplingParams, item, args.samples, args.max_new_tokens,
-            args.max_tool_rounds, args.temperature, executor, sandbox_root,
+            args.max_tool_rounds, args.temperature, executor, sandbox_root, args.save_rollouts,
         )
         band = "rlvr-target" if 0 < solves < args.samples else ("solved" if solves else "capability-gap")
-        results.append({"name": item["name"], "solves": solves, "k": args.samples,
-                        "pass_at_k": solves / args.samples, "band": band})
+        row = {"name": item["name"], "solves": solves, "k": args.samples,
+               "pass_at_k": solves / args.samples, "band": band,
+               "solve_metric": "cargo_verifier_success"}
+        if args.save_rollouts:
+            row["rollouts"] = rollout_rows
+        results.append(row)
         write_results(output_path, results)
         done = len(completed) + i + 1
         print(f"[{done}/{total}] {item['name']} -> {solves}/{args.samples} {band}", flush=True)

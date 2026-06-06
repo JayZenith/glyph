@@ -4,13 +4,17 @@ from __future__ import annotations
 import re
 from collections import Counter, defaultdict
 
+from agent_runtime.protocol import (
+    GIBBERISH_RE,
+    REPETITION_RE,
+    call_syntax_errors,
+    final_hygiene_errors,
+    parse_calls,
+)
 from agent_runtime.rust.results import parse_call_blocks
 
 
-REPETITION_PATTERN = re.compile(r"(.{20,200}?)\1{4,}", re.DOTALL)
 SEG_RE = re.compile(r"<\|im_start\|>(\w+)\n(.*?)<\|im_end\|>", re.DOTALL)
-CALL_BLOCK_RE = re.compile(r"^\s*CALL\s+([A-Za-z_]\w*)\((.*?)\)\s*$", re.MULTILINE | re.DOTALL)
-CALL_ID_RE = re.compile(r'\bid\s*=\s*"([^"]+)"')
 RESULT_ID_RE = re.compile(r"^\s*RESULT\s+([A-Za-z0-9_\-]+):", re.MULTILINE)
 ROLE_LEAK_RE = re.compile(r"(<\|im_start\|>|<\|im_end\|>|^\s*(system|user|assistant|tool)\s*$)", re.MULTILINE)
 
@@ -30,11 +34,19 @@ def _tool_bodies(full_trace: str) -> list[str]:
 def _extract_calls(assistant_bodies: list[str]) -> list[tuple[str, str]]:
     calls: list[tuple[str, str]] = []
     for body in assistant_bodies:
-        for tool_name, arg_blob in CALL_BLOCK_RE.findall(body):
-            match = CALL_ID_RE.search(arg_blob)
-            if match:
-                calls.append((tool_name, match.group(1)))
+        calls.extend((call.tool, call.id) for call in parse_calls(body))
     return calls
+
+
+def _cargo_project_path_errors(calls: list[dict]) -> list[str]:
+    errors: list[str] = []
+    for call in calls:
+        if call["tool"] not in {"cargo_run", "cargo_test"}:
+            continue
+        project_path = str(call.get("params", {}).get("project_path", ""))
+        if re.search(r"/src/(?:main|lib)\.rs$", project_path):
+            errors.append(f"{call['id']}: cargo project_path points at source file")
+    return errors
 
 
 def _extract_result_ids(tool_bodies: list[str]) -> list[str]:
@@ -78,10 +90,18 @@ def _failure_buckets(metrics: dict) -> list[str]:
         buckets.append("wrong_result_mapping")
     if not metrics["all_calls_have_ids"]:
         buckets.append("missing_call_ids")
+    if not metrics["exact_call_syntax"]:
+        buckets.append("malformed_call_syntax")
+    if not metrics["final_hygiene"]:
+        buckets.append("bad_final_hygiene")
+    if not metrics["cargo_project_paths_valid"]:
+        buckets.append("bad_cargo_project_path")
     if metrics["role_marker_leakage"]:
         buckets.append("role_marker_leakage")
     if not metrics["no_repetition"]:
         buckets.append("repetition")
+    if not metrics["no_gibberish"]:
+        buckets.append("gibberish")
     if not metrics["not_truncated"]:
         buckets.append("truncated")
     if not metrics["final_after_last_tool"]:
@@ -125,6 +145,9 @@ def score_output(
     call_ids = [call_id for _, call_id in calls]
     result_ids = _extract_result_ids(tool_bodies)
     parsed_calls = parse_call_blocks(assistant_text)
+    syntax_errors = call_syntax_errors(assistant_text)
+    final_errors = final_hygiene_errors(assistant_text)
+    cargo_path_errors = _cargo_project_path_errors(parsed_calls)
     expected_tool_sequence = item.get("expected_tool_sequence", [])
     kind = item.get("kind", "other")
     final_blocks = [body for body in assistant_bodies if body.strip().startswith("FINAL:")]
@@ -150,7 +173,11 @@ def score_output(
         "result_ids_match_call_ids": result_ids == call_ids[: len(result_ids)],
         "all_calls_have_ids": len(call_ids) == len(calls),
         "role_marker_leakage": bool(ROLE_LEAK_RE.search(assistant_text)),
-        "no_repetition": REPETITION_PATTERN.search(assistant_text) is None,
+        "exact_call_syntax": not syntax_errors,
+        "final_hygiene": not final_errors,
+        "cargo_project_paths_valid": not cargo_path_errors,
+        "no_repetition": REPETITION_RE.search(assistant_text) is None,
+        "no_gibberish": GIBBERISH_RE.search(assistant_text) is None and "<|endoftext|>" not in assistant_text,
         "not_truncated": new_token_count < max_new_tokens - 10,
         "terminal_tool_success": terminal_tool_success,
         "new_token_count": new_token_count,
@@ -161,7 +188,7 @@ def score_output(
 
     if final_blocks:
         last_final_idx = max(i for i, body in enumerate(assistant_bodies) if body.strip().startswith("FINAL:"))
-        last_call_idx = max((i for i, body in enumerate(assistant_bodies) if CALL_BLOCK_RE.search(body)), default=-1)
+        last_call_idx = max((i for i, body in enumerate(assistant_bodies) if parse_calls(body)), default=-1)
         metrics["final_after_last_tool"] = last_final_idx > last_call_idx
     else:
         metrics["final_after_last_tool"] = False
@@ -172,8 +199,13 @@ def score_output(
         and metrics["clean_end"]
         and metrics["result_ids_match_call_ids"]
         and metrics["all_calls_have_ids"]
+        and metrics["exact_call_syntax"]
+        and metrics["final_hygiene"]
+        and metrics["cargo_project_paths_valid"]
         and metrics["final_after_last_tool"]
         and metrics["terminal_tool_success"]
+        and metrics["no_gibberish"]
+        and metrics["no_repetition"]
         and not metrics["role_marker_leakage"]
     )
 
@@ -182,8 +214,11 @@ def score_output(
     score += 4 if metrics["terminal_tool_success"] else 0
     score += 2 if metrics["result_ids_match_call_ids"] else 0
     score += 1 if metrics["all_calls_have_ids"] else 0
+    score += 1 if metrics["exact_call_syntax"] else 0
+    score += 1 if metrics["final_hygiene"] else 0
     score += 1 if metrics["final_after_last_tool"] else 0
     score += 1 if metrics["no_repetition"] else 0
+    score += 1 if metrics["no_gibberish"] else 0
     score += 1 if metrics["not_truncated"] else 0
     metrics["score"] = score
     metrics["failure_buckets"] = _failure_buckets(metrics)
@@ -208,6 +243,9 @@ def summarize(name: str, rows: list[dict]) -> dict:
             "clean_end_rate": sum(r["metrics"]["clean_end"] for r in kind_rows) / n,
             "expected_tool_sequence_rate": sum(r["metrics"]["expected_tool_sequence_exact"] for r in kind_rows) / n,
             "result_id_match_rate": sum(r["metrics"]["result_ids_match_call_ids"] for r in kind_rows) / n,
+            "exact_call_syntax_rate": sum(r["metrics"]["exact_call_syntax"] for r in kind_rows) / n,
+            "final_hygiene_rate": sum(r["metrics"]["final_hygiene"] for r in kind_rows) / n,
+            "no_gibberish_rate": sum(r["metrics"]["no_gibberish"] for r in kind_rows) / n,
             "final_after_last_tool_rate": sum(r["metrics"]["final_after_last_tool"] for r in kind_rows) / n,
             "terminal_tool_success_rate": sum(r["metrics"]["terminal_tool_success"] for r in kind_rows) / n,
         }
@@ -220,9 +258,12 @@ def summarize(name: str, rows: list[dict]) -> dict:
         "clean_end_rate": sum(1 for row in rows if row["metrics"]["clean_end"]) / total,
         "expected_tool_sequence_rate": sum(1 for row in rows if row["metrics"]["expected_tool_sequence_exact"]) / total,
         "result_id_match_rate": sum(1 for row in rows if row["metrics"]["result_ids_match_call_ids"]) / total,
+        "exact_call_syntax_rate": sum(1 for row in rows if row["metrics"]["exact_call_syntax"]) / total,
+        "final_hygiene_rate": sum(1 for row in rows if row["metrics"]["final_hygiene"]) / total,
         "final_after_last_tool_rate": sum(1 for row in rows if row["metrics"]["final_after_last_tool"]) / total,
         "terminal_tool_success_rate": sum(1 for row in rows if row["metrics"]["terminal_tool_success"]) / total,
         "no_repetition_rate": sum(1 for row in rows if row["metrics"]["no_repetition"]) / total,
+        "no_gibberish_rate": sum(1 for row in rows if row["metrics"]["no_gibberish"]) / total,
         "not_truncated_rate": sum(1 for row in rows if row["metrics"]["not_truncated"]) / total,
         "failure_buckets": dict(sorted(failure_counts.items())),
         "by_kind": kinds,

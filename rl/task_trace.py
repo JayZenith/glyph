@@ -6,7 +6,16 @@ from pathlib import Path
 from datasets import Dataset
 
 import verifiers as vf
-from agent_runtime.protocol import ROLE_LEAK_RE, SimpleTraceValidator, ended_cleanly_after_final, final_count
+from agent_runtime.protocol import (
+    GIBBERISH_RE,
+    REPETITION_RE,
+    ROLE_LEAK_RE,
+    SimpleTraceValidator,
+    call_syntax_errors,
+    ended_cleanly_after_final,
+    final_count,
+    final_hygiene_errors,
+)
 from rl.task_format import load_prompts
 from agent_runtime.rust.executor import ExecutionResult, RustExecutor, create_executor
 from agent_runtime.rust.runtime import ensure_sandbox_copy, execute_rust_tool, rewrite_params_for_sandbox
@@ -33,20 +42,23 @@ DEBUG_PARSE = False
 DEFAULT_REWARD_CONFIG = {
     # format floor
     "structure_valid_bonus": 0.5,
-    "no_call_penalty": -2.0,
-    "malformed_call_penalty": -1.0,
+    "no_call_penalty": -5.0,
+    "malformed_call_penalty": -4.0,
+    "bad_cargo_project_path_penalty": -4.0,
+    "gibberish_penalty": -5.0,
+    "bad_final_hygiene_penalty": -2.0,
     # clean completion
     "final_once_bonus": 0.2,
-    "missing_final_penalty": -1.0,
+    "missing_final_penalty": -3.0,
     # Clean heldout-style solve dominates. A cargo pass without the exact stop
     # contract is only a weak partial signal; heldout marks those traces wrong.
     "verifier_success_bonus": 1.5,
     "verifier_success_clean_final_bonus": 8.5,
     # bounded anti-churn / anti-thrash shaping
-    "tool_after_success_penalty": -3.0,
-    "tool_budget_exhausted_penalty": -1.5,
-    "failed_verifier_penalty": -0.25,
-    "max_failed_verifier_penalty": -1.5,
+    "tool_after_success_penalty": -6.0,
+    "tool_budget_exhausted_penalty": -5.0,
+    "failed_verifier_penalty": -1.0,
+    "max_failed_verifier_penalty": -4.0,
 }
 
 REWARD_CONFIG = DEFAULT_REWARD_CONFIG.copy()
@@ -246,7 +258,10 @@ def _heldout_style_success(
     full_text: str,
     success_pos: int,
     later_tools: list[dict],
+    protocol_errors: list[str] | None = None,
 ) -> bool:
+    if protocol_errors:
+        return False
     if success_pos < 0 or later_tools:
         return False
     if final_count(assistant_text) != 1:
@@ -255,11 +270,54 @@ def _heldout_style_success(
         return False
     if ROLE_LEAK_RE.search(assistant_text):
         return False
+    if final_hygiene_errors(assistant_text):
+        return False
     final_pos = full_text.rfind("FINAL:")
     return final_pos > success_pos
 
 
-def _outcome_reward(calls: list[dict], tool_text: str, assistant_text: str, full_text: str) -> float:
+def _cargo_project_path_errors(calls: list[dict]) -> list[str]:
+    errors: list[str] = []
+    for call in calls:
+        if call["tool"] not in {"cargo_run", "cargo_test"}:
+            continue
+        project_path = str(call.get("params", {}).get("project_path", ""))
+        if re.search(r"/src/(?:main|lib)\.rs$", project_path):
+            errors.append(f"{call['id']}: cargo project_path points at source file")
+    return errors
+
+
+def _protocol_reward_penalty(assistant_text: str, calls: list[dict], state: dict) -> tuple[float, list[str]]:
+    errors: list[str] = []
+    errors.extend(call_syntax_errors(assistant_text))
+    errors.extend(_cargo_project_path_errors(calls))
+    if state.get("malformed_call_errors"):
+        errors.extend(str(e) for e in state["malformed_call_errors"])
+    penalty = 0.0
+    if any("CALL" in e or "argument" in e for e in errors):
+        penalty += REWARD_CONFIG["malformed_call_penalty"]
+    if any("project_path" in e for e in errors):
+        penalty += REWARD_CONFIG["bad_cargo_project_path_penalty"]
+    if GIBBERISH_RE.search(assistant_text) or "<|endoftext|>" in assistant_text or "\ufffd" in assistant_text:
+        errors.append("Detected gibberish")
+        penalty += REWARD_CONFIG["gibberish_penalty"]
+    if REPETITION_RE.search(assistant_text):
+        errors.append("Detected repetition")
+        penalty += REWARD_CONFIG["gibberish_penalty"]
+    final_errors = final_hygiene_errors(assistant_text)
+    if final_errors:
+        errors.extend(final_errors)
+        penalty += REWARD_CONFIG["bad_final_hygiene_penalty"]
+    return penalty, errors
+
+
+def _outcome_reward(
+    calls: list[dict],
+    tool_text: str,
+    assistant_text: str,
+    full_text: str,
+    protocol_errors: list[str] | None = None,
+) -> float:
     """Primary signal: cargo verifier success, then heldout-style stopping.
 
     Any real cargo_test/cargo_run pass earns partial reward. The clean-success
@@ -300,7 +358,7 @@ def _outcome_reward(calls: list[dict], tool_text: str, assistant_text: str, full
     if later_tools:
         reward += REWARD_CONFIG["tool_after_success_penalty"]
 
-    if _heldout_style_success(assistant_text, full_text, success_pos, later_tools):
+    if _heldout_style_success(assistant_text, full_text, success_pos, later_tools, protocol_errors):
         reward += REWARD_CONFIG["verifier_success_clean_final_bonus"]
     return reward
 
@@ -363,7 +421,8 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     # do not count.
     calls = executed_calls or parse_call_blocks(assistant_trace)
     if not calls:
-        return REWARD_CONFIG["no_call_penalty"] + structure
+        protocol_penalty, _ = _protocol_reward_penalty(reward_assistant_trace, [], state)
+        return REWARD_CONFIG["no_call_penalty"] + protocol_penalty + structure
 
     reward = 0.0
     # Malformed call keyword (e.g. "CALLTYPE" instead of "CALL ") breaks the
@@ -371,9 +430,15 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     # exact `CALL <tool>(...)` form.
     malformed = len(re.findall(r"\bCALL[A-Z]", raw_assistant_trace))
     reward += min(malformed, 4) * REWARD_CONFIG["malformed_call_penalty"]
+    protocol_penalty, protocol_errors = _protocol_reward_penalty(
+        reward_assistant_trace,
+        calls,
+        state,
+    )
+    reward += protocol_penalty
 
     reward += _finalization_reward(reward_assistant_trace)
-    reward += _outcome_reward(calls, tool_text, reward_assistant_trace, full_text)
+    reward += _outcome_reward(calls, tool_text, reward_assistant_trace, full_text, protocol_errors)
 
     if state.get("tool_budget_exhausted"):
         reward += REWARD_CONFIG["tool_budget_exhausted_penalty"]
@@ -461,6 +526,10 @@ class RustToolEnv(vf.MultiTurnEnv):
                 self._raw_trace_text(state, trajectory[-1]["completion"])
             )
         )
+        errors = call_syntax_errors(text)
+        if errors:
+            state["malformed_call_errors"] = errors
+            return True
         executed = set(state.get("executed_call_ids") or [])
         calls = parse_call_blocks(text)
         return not any(call["id"] not in executed for call in calls)
@@ -470,6 +539,10 @@ class RustToolEnv(vf.MultiTurnEnv):
         incoming_text = self._messages_text(messages)
         raw_text = self._raw_trace_text(state, messages)
         text = _strip_role_leak_tail(_latest_assistant_segment(raw_text))
+        errors = call_syntax_errors(text)
+        if errors:
+            state["malformed_call_errors"] = errors
+            return []
         executed = set(state.get("executed_call_ids") or [])
         calls = [call for call in parse_call_blocks(text) if call["id"] not in executed]
         if not calls:
@@ -554,6 +627,9 @@ def load_environment(
     structure_valid_bonus: float | None = None,
     no_call_penalty: float | None = None,
     malformed_call_penalty: float | None = None,
+    bad_cargo_project_path_penalty: float | None = None,
+    gibberish_penalty: float | None = None,
+    bad_final_hygiene_penalty: float | None = None,
     tool_budget_exhausted_penalty: float | None = None,
     final_once_bonus: float | None = None,
     missing_final_penalty: float | None = None,
@@ -569,6 +645,9 @@ def load_environment(
             "structure_valid_bonus": structure_valid_bonus,
             "no_call_penalty": no_call_penalty,
             "malformed_call_penalty": malformed_call_penalty,
+            "bad_cargo_project_path_penalty": bad_cargo_project_path_penalty,
+            "gibberish_penalty": gibberish_penalty,
+            "bad_final_hygiene_penalty": bad_final_hygiene_penalty,
             "tool_budget_exhausted_penalty": tool_budget_exhausted_penalty,
             "final_once_bonus": final_once_bonus,
             "missing_final_penalty": missing_final_penalty,

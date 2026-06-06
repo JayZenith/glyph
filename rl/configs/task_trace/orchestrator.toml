@@ -23,11 +23,11 @@ args = { data_path = "synthetic_data/rl_prompts_v2_1323.jsonl", timeout = 30, ma
 
 [[filters]]
 type = "gibberish"
-enforce = false
+enforce = true
 
 [[filters]]
 type = "repetition"
-enforce = false
+enforce = true
 
 # Enforce: drop all-identical-reward groups so easy prompts can't waste compute
 # or dominate, and only informative (variance-bearing) groups produce gradient.

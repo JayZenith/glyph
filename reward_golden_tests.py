@@ -13,7 +13,7 @@ import unittest
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from agent_runtime.protocol import ended_cleanly_after_final, parse_calls
+from agent_runtime.protocol import call_syntax_errors, ended_cleanly_after_final, parse_calls
 
 
 ROLLOUT_PATHS = [
@@ -176,8 +176,8 @@ class RewardGoldenTests(unittest.TestCase):
         self.assertLess(no_call, self._loop())
 
     def test_worst_case_is_bounded(self) -> None:
-        self.assertGreater(self._loop(), -4.0)
-        self.assertGreater(score("FINAL: done", []), -4.0)
+        self.assertGreater(self._loop(), -8.0)
+        self.assertGreater(score("FINAL: done", []), -8.0)
 
     def test_failed_verifier_retries_are_bounded(self) -> None:
         fail1 = call("cargo_test", "c3", project_path=".")
@@ -195,6 +195,34 @@ class RewardGoldenTests(unittest.TestCase):
         )
         self.assertLess(one_fail_then_pass, self._solve_stop())
         self.assertGreater(one_fail_then_pass, 6.0)
+
+    def test_malformed_call_syntax_cannot_parse_or_score_well(self) -> None:
+        malformed = 'CALL read_file(id="c1", file_path="src/lib.rs"))'
+        self.assertEqual(parse_calls(malformed), [])
+        self.assertTrue(call_syntax_errors(malformed))
+        self.assertLess(score(malformed + "\nFINAL: done", []), self._loop())
+
+    def test_bad_cargo_project_path_blocks_top_reward(self) -> None:
+        bad_cargo = call("cargo_test", "c3", project_path="/tmp/case/src/main.rs")
+        reward = score(
+            "\n".join([self.READ, self.PATCH, bad_cargo, "FINAL: done"]),
+            self.SOLVED,
+        )
+        self.assertLess(reward, self._solve_nostop())
+
+    def test_garbage_final_does_not_get_clean_solve_reward(self) -> None:
+        garbage_final = score(
+            "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done", ".waitKey" * 9]),
+            self.SOLVED,
+        )
+        self.assertLess(garbage_final, self._solve_nostop())
+
+    def test_generated_token_final_tail_is_not_clean(self) -> None:
+        dirty_final = score(
+            "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done<|endoftext|>"]),
+            self.SOLVED,
+        )
+        self.assertLess(dirty_final, self._solve_nostop())
 
 
 def assistant_text(row: dict) -> str:

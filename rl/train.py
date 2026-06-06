@@ -104,6 +104,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--structure-valid-bonus", type=float)
     parser.add_argument("--no-call-penalty", type=float)
     parser.add_argument("--malformed-call-penalty", type=float)
+    parser.add_argument("--bad-cargo-project-path-penalty", type=float)
+    parser.add_argument("--gibberish-penalty", type=float)
+    parser.add_argument("--bad-final-hygiene-penalty", type=float)
     parser.add_argument("--tool-budget-exhausted-penalty", type=float)
     parser.add_argument("--final-once-bonus", type=float)
     parser.add_argument("--missing-final-penalty", type=float)
@@ -122,6 +125,10 @@ def parse_args() -> argparse.Namespace:
     # and collapsed (clean_end 0.75->0.33, terminal success 0.99->0.70). RL here
     # is a nudge, not a rewrite -- keep it close to SFT.
     parser.add_argument("--teacher-tau", type=float, default=0.2)
+    parser.add_argument("--enforce-gibberish-filter", action="store_true",
+                        help="Drop gibberish-filtered rollout groups instead of only monitoring them.")
+    parser.add_argument("--enforce-repetition-filter", action="store_true",
+                        help="Drop repetition-filtered rollout groups instead of only monitoring them.")
     parser.add_argument("--prime-rl-gpu-ids", type=parse_int_list,
                         help="Comma-separated physical GPU ids managed by PRIME-RL. "
                              "Inference uses the first N infer GPUs; training uses the remaining train GPUs.")
@@ -208,6 +215,16 @@ def materialize_glyph_chat_model(model_name: str, output_dir: Path) -> str:
 def maybe_set(container: dict[str, Any], key: str, value: Any) -> None:
     if value is not None:
         container[key] = value
+
+
+def set_filter_enforcement(orchestrator: dict[str, Any], filter_type: str, enforce: bool) -> None:
+    filters = orchestrator.setdefault("filters", [])
+    for item in filters:
+        if item.get("type") == filter_type:
+            item["enforce"] = enforce
+            return
+    filters.append({"type": filter_type, "enforce": enforce})
+
 
 # loads model config + tokenizer, if model vocab > tokenizer vocab we ban extra token IDs with logit bias -100
 # prevents vLLM from sampling garbage invalid tokens
@@ -368,6 +385,10 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -
     maybe_set(orchestrator, "max_steps", args.max_steps)
     maybe_set(orch_ckpt, "interval", args.checkpoint_interval)
     maybe_set(orch_ckpt, "resume_step", args.resume_step)
+    if args.enforce_gibberish_filter:
+        set_filter_enforcement(orchestrator, "gibberish", True)
+    if args.enforce_repetition_filter:
+        set_filter_enforcement(orchestrator, "repetition", True)
     maybe_set(orch_sampling, "temperature", args.temperature)
     maybe_set(orch_sampling, "max_completion_tokens", args.max_completion_tokens)
     add_invalid_token_logit_bias(orch_sampling, rollout_model)
@@ -383,6 +404,9 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -
     maybe_set(env_args, "structure_valid_bonus", args.structure_valid_bonus)
     maybe_set(env_args, "no_call_penalty", args.no_call_penalty)
     maybe_set(env_args, "malformed_call_penalty", args.malformed_call_penalty)
+    maybe_set(env_args, "bad_cargo_project_path_penalty", args.bad_cargo_project_path_penalty)
+    maybe_set(env_args, "gibberish_penalty", args.gibberish_penalty)
+    maybe_set(env_args, "bad_final_hygiene_penalty", args.bad_final_hygiene_penalty)
     maybe_set(env_args, "tool_budget_exhausted_penalty", args.tool_budget_exhausted_penalty)
     maybe_set(env_args, "final_once_bonus", args.final_once_bonus)
     maybe_set(env_args, "missing_final_penalty", args.missing_final_penalty)

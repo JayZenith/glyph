@@ -202,6 +202,10 @@ class RewardGoldenTests(unittest.TestCase):
         self.assertTrue(call_syntax_errors(malformed))
         self.assertLess(score(malformed + "\nFINAL: done", []), self._loop())
 
+    def test_malformed_call_with_chatml_end_cannot_score_well(self) -> None:
+        malformed = 'CALL read_file(id="c1", file_path="src/lib.rs"))<|im_end|>'
+        self.assertLess(score(malformed, []), self._loop())
+
     def test_bad_cargo_project_path_blocks_top_reward(self) -> None:
         bad_cargo = call("cargo_test", "c3", project_path="/tmp/case/src/main.rs")
         reward = score(

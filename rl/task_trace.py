@@ -15,6 +15,7 @@ from agent_runtime.protocol import (
     ended_cleanly_after_final,
     final_count,
     final_hygiene_errors,
+    strip_terminal_chatml_end,
 )
 from rl.task_format import load_prompts
 from agent_runtime.rust.executor import ExecutionResult, RustExecutor, create_executor
@@ -140,7 +141,7 @@ def _message_content(message) -> str:
 def _completion_role_text(completion, role: str) -> str:
     if isinstance(completion, list):
         return "\n".join(
-            _message_content(m)
+            strip_terminal_chatml_end(_message_content(m)) if role == "assistant" else _message_content(m)
             for m in completion
             if _message_role(m) == role
         )
@@ -177,8 +178,8 @@ def _strip_role_leak_tail(text: str) -> str:
 
 
 def _normalize_assistant_for_reward(text: str) -> str:
-    """Match eval scoring, where assistant body text excludes ChatML end tags."""
-    return text.replace("<|im_end|>", "").strip()
+    """Match eval scoring: only a terminal ChatML end marker is outside content."""
+    return strip_terminal_chatml_end(text).strip()
 
 
 def _latest_assistant_segment(text: str) -> str:
@@ -213,7 +214,7 @@ def _trajectory_generated_text(state: dict) -> str:
     for step in state.get("trajectory") or []:
         for message in step.get("completion") or []:
             if _message_role(message) == "assistant":
-                parts.append(_message_content(message))
+                parts.append(strip_terminal_chatml_end(_message_content(message)))
     return "\n".join(parts)
 
 
@@ -526,6 +527,7 @@ class RustToolEnv(vf.MultiTurnEnv):
                 self._raw_trace_text(state, trajectory[-1]["completion"])
             )
         )
+        text = strip_terminal_chatml_end(text)
         errors = call_syntax_errors(text)
         if errors:
             state["malformed_call_errors"] = errors
@@ -538,7 +540,7 @@ class RustToolEnv(vf.MultiTurnEnv):
         prior_trace = state.get("raw_chatml_transcript", "")
         incoming_text = self._messages_text(messages)
         raw_text = self._raw_trace_text(state, messages)
-        text = _strip_role_leak_tail(_latest_assistant_segment(raw_text))
+        text = strip_terminal_chatml_end(_strip_role_leak_tail(_latest_assistant_segment(raw_text)))
         errors = call_syntax_errors(text)
         if errors:
             state["malformed_call_errors"] = errors

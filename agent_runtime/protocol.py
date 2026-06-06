@@ -14,6 +14,7 @@ GIBBERISH_RE = re.compile(
     r"(\.waitKey|\.invokeLater|\.onreadystatechange|typealias|endphp|firebaseio|noreferrer|::::){8,}"
 )
 FINAL_MAX_CHARS = 512
+CHATML_END = "<|im_end|>"
 
 
 @dataclass
@@ -41,6 +42,13 @@ def assistant_text(text: str) -> str:
 
 def tool_text(text: str) -> str:
     return _joined_role_text(text, "tool")
+
+
+def strip_terminal_chatml_end(text: str) -> str:
+    stripped = text.rstrip()
+    if stripped.endswith(CHATML_END):
+        stripped = stripped[: -len(CHATML_END)].rstrip()
+    return stripped
 
 
 def _parse_arg_blob(blob: str) -> tuple[dict[str, str], list[str]]:

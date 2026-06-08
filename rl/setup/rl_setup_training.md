@@ -166,3 +166,41 @@ GPU box billed hourly — stop it when idle (`vastai stop instance <id>`).
 - **Reward: verifier-dominant + bounded.** RLVR_V1 collapsed on stacked −13..−23
   penalties with no positive path; the fix is sparse +8-on-success, format floor,
   no stacking. Termination tails zeroed for this run (off-target).
+
+
+```bash
+python rl/train.py \
+  --model JayZenith/SFT_HALF_A \
+  --teacher-model JayZenith/SFT_HALF_A \
+  --lora-rank 16 --lora-alpha 32 --lora-dropout 0.0 \
+  --lora-name glyph-signal-v3-pool-b-formatfix-canary \
+  --data synthetic_data/rl_prompts_signal_v3_pool_b.jsonl \
+  --output outputs/RLVR_POOL_B_FORMATFIX_CANARY \
+  --max-steps 5 \
+  --batch-size 48 \
+  --rollouts-per-example 8 \
+  --seq-len 8192 \
+  --max-model-len 16384 \
+  --teacher-max-model-len 16384 \
+  --max-completion-tokens 4000 \
+  --learning-rate 5e-7 \
+  --weight-decay 0.01 \
+  --checkpoint-interval 5 \
+  --temperature 0.8 \
+  --teacher-tau 0.2 \
+  --max-tool-rounds 15 \
+  --tool-timeout 30 \
+  --activation-checkpointing \
+  --fused-lm-head-token-chunk-size auto \
+  --gpu-memory-utilization 0.70 \
+  --teacher-gpu-memory-utilization 0.50 \
+  --prime-rl-gpu-ids 0,1,2 \
+  --num-infer-gpus 1 \
+  --num-train-gpus 2 \
+  --gpus-per-node 3 \
+  --port 8000 \
+  --teacher-port 8001 \
+  --teacher-device 3
+
+
+```

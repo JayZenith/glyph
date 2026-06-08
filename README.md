@@ -1,10 +1,6 @@
 # SFT → RLVR for a Rust tool-use agent
 
-# SFT 
-```bash
-git clone https://github.com/JayZenith/glyph.git && cd glyph
-bash sft/setup/install_sft_env.sh && source /workspace/.venv/bin/activate
-```
+
 
 **SFT (SFT_V1 recipe):** but make sure we train above the max sequence length within the dataset!
 ```bash
@@ -19,7 +15,7 @@ python -m sft.train \
 
 **Held-out eval (any SFT or RLVR checkpoint):**
 ```bash
-python -m sft.eval_formal --sft-model <model-or-path> \
+python -m sft.eval_formal --sft-model runs/SIGNAL_1062_SFT_E3_LR2E5/final \
   --prompt-file sft/evals/eval_prompts_heldout_69.yaml --prompt-section post_eval_heldout_69 \
   --cases-root runs/rlvr1/rust_cases/eval_heldout_69 \
   --output out.json --max-new-tokens 4000 --max-tool-rounds 20

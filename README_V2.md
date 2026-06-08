@@ -187,8 +187,19 @@ structure, stop the run.
 
 ## RLVR Held-Out Eval
 
-After uploading a merged checkpoint, evaluate it exactly like the SFT baseline.
-This example assumes the step-25 merged model was pushed to
+Merge and upload RLVR checkpoints from the PRIME broadcast adapter, not from
+`weights/step_*`. The broadcast adapter is the artifact actually used by the
+LoRA policy, and this direct merge avoids silent full-weight export drift.
+
+```bash
+python rl/scripts/merge_prime_lora.py \
+  --base-model JayZenith/SFT_HALF_A \
+  --adapter-dir outputs/RLVR_SIGNAL_V3_POOL_B_LORA_R16_A32/run_default/broadcasts/step_25 \
+  --output outputs/RLVR_SIGNAL_V3_POOL_B_LORA_R16_A32/merged_step_25
+```
+
+Upload `merged_step_25` to Hugging Face, then evaluate it exactly like the SFT
+baseline. This example assumes the step-25 merged model was pushed to
 `JayZenith/RLVR_POOL_B_STEP25_NEXT`.
 
 ```bash

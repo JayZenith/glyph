@@ -138,24 +138,24 @@ source /workspace/prime-rl-src/.venv/bin/activate
 python rl/train.py \
   --model JayZenith/SFT_HALF_A \
   --teacher-model JayZenith/SFT_HALF_A \
-  --lora-rank 16 \
-  --lora-alpha 32 \
+  --lora-rank 64 \
+  --lora-alpha 128 \
   --lora-dropout 0.0 \
-  --lora-name glyph-signal-v3-pool-b-r16-a32 \
+  --lora-name glyph-signal-v3-pool-b-r64-a128 \
   --data synthetic_data/rl_prompts_signal_v3_pool_b.jsonl \
-  --output outputs/RLVR_SIGNAL_V3_POOL_B_LORA_R16_A32 \
-  --max-steps 50 \
+  --output outputs/RLVR_SIGNAL_V3_POOL_B_LORA_R64_A128 \
+  --max-steps 40 \
   --batch-size 48 \
   --rollouts-per-example 8 \
   --seq-len 8192 \
   --max-model-len 16384 \
   --teacher-max-model-len 16384 \
   --max-completion-tokens 4000 \
-  --learning-rate 5e-7 \
+  --learning-rate 2e-7 \
   --weight-decay 0.01 \
-  --checkpoint-interval 25 \
+  --checkpoint-interval 5 \
   --temperature 0.8 \
-  --teacher-tau 0.5 \
+  --teacher-tau 0.8 \
   --max-tool-rounds 15 \
   --tool-timeout 30 \
   --activation-checkpointing \
@@ -194,8 +194,8 @@ LoRA policy, and this direct merge avoids silent full-weight export drift.
 ```bash
 python rl/scripts/merge_prime_lora.py \
   --base-model JayZenith/SFT_HALF_A \
-  --adapter-dir outputs/RLVR_SIGNAL_V3_POOL_B_LORA_R16_A32/run_default/broadcasts/step_25 \
-  --output outputs/RLVR_SIGNAL_V3_POOL_B_LORA_R16_A32/merged_step_25
+  --adapter-dir outputs/RLVR_SIGNAL_V3_POOL_B_LORA_R64_A128/run_default/broadcasts/step_25 \
+  --output outputs/RLVR_SIGNAL_V3_POOL_B_LORA_R64_A128/merged_step_25
 ```
 
 Upload `merged_step_25` to Hugging Face, then evaluate it exactly like the SFT

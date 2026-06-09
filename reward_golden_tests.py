@@ -163,12 +163,21 @@ class RewardGoldenTests(unittest.TestCase):
         self.assertLess(more, self._solve_stop())
         self.assertLess(more, self._solve_nostop())
 
-    def test_cargo_only_is_weak_partial_credit(self) -> None:
+    def test_cargo_success_without_clean_final_is_not_positive(self) -> None:
         # Heldout counts cargo success without clean FINAL as invalid. It may
-        # be less bad than a failed verifier trace, but it must not be positive.
+        # be less bad than a failed verifier trace, but it must not be a
+        # positive optimization target.
+        self.assertEqual(REWARD_CONFIG["verifier_success_bonus"], 0.0)
         self.assertGreater(self._solve_nostop(), self._loop())
-        self.assertLess(self._solve_nostop(), 0.0)
+        self.assertLessEqual(self._solve_nostop(), 0.0)
         self.assertGreater(self._solve_stop(), 8.0)
+
+    def test_dirty_final_after_cargo_success_is_not_positive(self) -> None:
+        dirty = score(
+            "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done", "extra tokens"]),
+            self.SOLVED,
+        )
+        self.assertLessEqual(dirty, 0.0)
 
     def test_format_floor_still_applies(self) -> None:
         # Emitting no tool call at all is still discouraged (format floor).

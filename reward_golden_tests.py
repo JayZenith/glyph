@@ -226,6 +226,36 @@ class RewardGoldenTests(unittest.TestCase):
         self.assertTrue(_role_marker_errors(leaked))
         self.assertLessEqual(score(leaked, self.SOLVED), 0.0)
 
+    def test_generated_chatml_boundaries_across_message_turns_are_invalid(self) -> None:
+        completion = [
+            {"role": "assistant", "content": self.READ + "<|im_end|>"},
+            {"role": "assistant", "content": self.PATCH + "<|im_end|>"},
+            {"role": "assistant", "content": self.OK + "<|im_end|>"},
+            {"role": "assistant", "content": "FINAL: done"},
+        ]
+        calls = [
+            {"tool": c.tool, "id": c.id, "params": c.params}
+            for c in parse_calls("\n".join(m["content"] for m in completion))
+        ]
+        reward = asyncio.run(
+            _rust_tool_reward(
+                completion,
+                state={
+                    "executed_tool_calls": calls,
+                    "executed_result_blocks": self.SOLVED,
+                    "raw_chatml_transcript": raw_trace(
+                        "\n".join(m["content"] for m in completion),
+                        self.SOLVED,
+                    ),
+                },
+                info={
+                    "expected_tool": "read_file",
+                    "expected_args": {"file_path": "src/lib.rs"},
+                },
+            )
+        )
+        self.assertLessEqual(reward, 0.0)
+
     def test_rendered_terminal_chatml_end_after_final_is_allowed(self) -> None:
         clean = "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done<|im_end|>"])
         self.assertFalse(_role_marker_errors(clean))

@@ -542,8 +542,8 @@ class RustToolEnv(vf.MultiTurnEnv):
                 self._raw_trace_text(state, trajectory[-1]["completion"])
             )
         )
-        raw_latest = _latest_assistant_segment(self._raw_trace_text(state, trajectory[-1]["completion"]))
-        marker_errors = _role_marker_errors(raw_latest)
+        latest_content = _completion_role_text(trajectory[-1]["completion"], "assistant")
+        marker_errors = _role_marker_errors(latest_content)
         text = strip_terminal_chatml_end(text)
         if marker_errors:
             state["malformed_call_errors"] = marker_errors
@@ -561,7 +561,8 @@ class RustToolEnv(vf.MultiTurnEnv):
         incoming_text = self._messages_text(messages)
         raw_text = self._raw_trace_text(state, messages)
         raw_latest = _latest_assistant_segment(raw_text)
-        marker_errors = _role_marker_errors(raw_latest)
+        latest_content = _completion_role_text(messages, "assistant")
+        marker_errors = _role_marker_errors(latest_content)
         text = strip_terminal_chatml_end(_strip_role_leak_tail(raw_latest))
         if marker_errors:
             state["malformed_call_errors"] = marker_errors

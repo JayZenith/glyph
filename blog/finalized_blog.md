@@ -103,6 +103,14 @@ That was the first important tradeoff. Deeper recovery data gave the model more
 hard-tail capability, but it cost broad reliability. More difficult traces were
 not just "more data." They shifted the policy.
 
+The `SFT_HALF_A` run itself looked normal. Loss came down quickly and the
+learning-rate schedule decayed as expected:
+
+![SFT_HALF_A training curves](assets/final_sft_training_curves.svg)
+
+That matters because the baseline was not a broken or undertrained model. RLVR
+was starting from a competent SFT policy.
+
 ## The Clean Split
 
 To make the RLVR experiment fair, I split `synthetic_data/signal_v3.jsonl` into
@@ -317,6 +325,19 @@ V3000 step 15 adapter: 43/69
 
 Step 10 was better than step 5 and step 15, but still below the baseline. The
 run was not an improvement.
+
+The RL training curves also explain why the held-out result should not be
+oversold. Reward bounced around rather than showing a clean upward trend:
+
+![RLVR rollout reward curves](assets/final_rlvr_reward_curves.svg)
+
+Sequence length was volatile too:
+
+![RLVR rollout length curves](assets/final_rlvr_length_curves.svg)
+
+For this task, long rollouts are not automatically good. They often mean the
+model is grinding through recovery attempts. A reward spike inside RL is only
+useful if it transfers to the strict held-out trace metric, and here it did not.
 
 The important part is that this time the failure was not obviously a parser
 bug, reward hack, or bad export. It looked more like real policy drift and

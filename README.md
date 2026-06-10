@@ -1,147 +1,423 @@
-# SFT → RLVR for a Rust tool-use agent
+# Glyph
 
+Glyph is a Rust tool-use agent experiment.
 
+The model emits `CALL tool(...)` blocks, tools execute against real Rust crates,
+and the model is expected to stop with a clean `FINAL`. The main lesson from
+this repo is that verifier RL is only meaningful when the reward, tool protocol,
+model export, and held-out eval all enforce the same trace contract.
 
-**SFT (SFT_V1 recipe):** but make sure we train above the max sequence length within the dataset!
+## Final Status
+
+The SFT model is the strongest aggregate result.
+
+| Model / checkpoint | Held-out-69 strict `valid_trace` | Notes |
+| --- | ---: | --- |
+| `SFT_V1` | 52/69 | Best broad SFT result |
+| `SFT_V2` | 48/69 | More recovery data, worse broad score |
+| `SFT_V3` | 50/69 | More hard-tail capability, no broad improvement |
+| `SFT_HALF_A` | 51/69 | Clean split baseline |
+| `RLVR_V1000` step 25 direct merge | 50/69 | One SFT miss flipped to pass, two SFT solves regressed |
+| `RLVR_V3000` step 5 adapter | 44/69 | Clean adapter eval, regressed |
+| `RLVR_V3000` step 10 adapter | 47/69 | Best V3000 checkpoint checked locally |
+| `RLVR_V3000` step 15 adapter | 43/69 | Drifted down |
+
+The honest RLVR finding:
+
+```text
+RLVR showed one strict held-out recovery signal absent from SFT_HALF_A greedy
+behavior, but aggregate reliability regressed.
+```
+
+The case-level signal was:
+
+```text
+eval100_039_select_event_codes_partial_then_full_fix
+```
+
+`SFT_HALF_A` looped through repeated repair attempts and exhausted the budget.
+`RLVR_V1000` step 25 made a better fourth patch, passed `cargo_test`, and
+emitted a clean final. Two other recovery cases regressed, so this is a signal
+that needs verification, not a win.
+
+## Strict Success Metric
+
+The metric that matters is strict held-out `valid_trace`.
+
+```text
+valid_trace =
+  terminal cargo_test or cargo_run success
+  + clean FINAL after that verifier success
+  + exact CALL syntax
+  + no role-marker leakage
+  + no repetition or gibberish
+  + no extra tool use after successful verification
+```
+
+Do not use loose terminal-tool success as the main claim. It can count
+successful non-verifier tools and overstate progress.
+
+## Data
+
+The clean experiment split `synthetic_data/signal_v3.jsonl` into two
+deterministic, non-overlapping halves.
+
+| File | Purpose | Size |
+| --- | --- | ---: |
+| `synthetic_data/signal_v3_sft_half_a.jsonl` | SFT traces | 1,042 rows, 762 unique cases |
+| `synthetic_data/signal_v3_rl_pool_b.jsonl` | held-out RL trace pool | 1,041 rows, 760 unique cases |
+| `synthetic_data/rl_prompts_signal_v3_pool_b.jsonl` | RL prompt manifest for `rl/train.py` | 760 prompts |
+| `synthetic_data/signal_v3_rl_pool_b_prompts.yaml` | pass@k-compatible prompt manifest | 760 prompts |
+| `synthetic_data/signal_v3_split_summary.json` | split audit | summary |
+| `synthetic_data/signal_v3_split_summary.md` | split audit | summary |
+
+Leakage checks:
+
+```text
+case_id_overlap = 0
+trace_overlap = 0
+```
+
+Important: `rl/train.py` takes the RL prompt manifest, not the SFT trace JSONL.
+
+```text
+Use:       synthetic_data/rl_prompts_signal_v3_pool_b.jsonl
+Do not use synthetic_data/signal_v3_rl_pool_b.jsonl directly for RL.
+```
+
+## SFT Setup
+
+Tested SFT/eval setup is the repo venv created by:
+
+```bash
+git clone https://github.com/JayZenith/glyph.git
+cd glyph
+git pull --ff-only
+
+bash sft/setup/install_sft_env.sh
+source .venv/bin/activate
+```
+
+The installer pins a CUDA Torch/vLLM-compatible environment for SFT and formal
+eval.
+
+## Train `SFT_HALF_A`
+
 ```bash
 python -m sft.train \
-  --model Qwen/Qwen3-4B-Base --tokenizer Qwen/Qwen3-4B-Base \
-  --data synthetic_data/signal_1062.jsonl \
-  --output runs/SIGNAL_1062_SFT_E3_LR2E5 \
-  --epochs 3 --batch-size 1 --grad-accum 8 --lr 2e-5 \
-  --max-seq-length 4096 --no-train-split
-# deep data (v2/v3): --max-seq-length 11000 --gradient-checkpointing  (traces reach ~10.4k tok)
+  --model Qwen/Qwen3-4B-Base \
+  --tokenizer Qwen/Qwen3-4B-Base \
+  --data synthetic_data/signal_v3_sft_half_a.jsonl \
+  --output runs/SIGNAL_v3_HALF_A_SFT_E3_LR2E5 \
+  --epochs 3 \
+  --batch-size 1 \
+  --grad-accum 8 \
+  --lr 2e-5 \
+  --max-seq-length 12000 \
+  --no-train-split \
+  --gradient-checkpointing
 ```
 
-**Held-out eval (any SFT or RLVR checkpoint):**
-```bash
-python -m sft.eval_formal --sft-model runs/SIGNAL_1062_SFT_E3_LR2E5/final \
-  --prompt-file sft/evals/eval_prompts_heldout_69.yaml --prompt-section post_eval_heldout_69 \
-  --cases-root runs/rlvr1/rust_cases/eval_heldout_69 \
-  --output out.json --max-new-tokens 4000 --max-tool-rounds 20
+Observed result:
+
+```text
+SFT_HALF_A strict held-out-69 valid_trace = 51/69
 ```
 
-**pass@k scan (the diagnostic — may run this before any RLVR):**
+## Eval `SFT_HALF_A`
+
+This is the baseline held-out command. The eval uses greedy decoding and real
+tool execution.
+
 ```bash
-python sft/passk_scan_vllm.py --sft-model JayZenith/SFT_V1 \
-  --prompt-file runs/rlvr_passk_train150/prompts.yaml --prompt-section train_passk_scan_134 \
-  --cases-root runs/rlvr_passk_train150/cases -k 8 --temperature 0.8 \
-  --output results/passk_train134.json
-# band: 0<solves<k = rlvr-target (gradient) | ==k = solved | ==0 = capability-gap
+mkdir -p results/SFT_HALF_A
+
+python -m sft.eval_formal \
+  --sft-model runs/SIGNAL_v3_HALF_A_SFT_E3_LR2E5/final \
+  --train-data synthetic_data/signal_v3_sft_half_a.jsonl \
+  --prompt-file sft/evals/eval_prompts_heldout_69.yaml \
+  --prompt-section post_eval_heldout_69 \
+  --cases-root runs/heldout69_sft_half_a \
+  --output results/SFT_HALF_A/eval_formal_heldout_69.json \
+  --max-new-tokens 4000 \
+  --max-tool-rounds 20 \
+  --prompt-batch-size 4 \
+  --tool-workers 8
 ```
 
-> **vLLM scan gotcha (cost us a day):** vLLM defaults to `skip_special_tokens=True`, which
-> strips `<|im_end|>` from the output text. A *string* stop on `"<|im_end|>"` then never
-> matches, generation runs past every turn boundary, no tools execute, and the scan reports
-> **0/8 on prompts the model actually solves**. Stop on the token **id**
-> (`tokenizer.convert_tokens_to_ids("<|im_end|>")`) and re-append `<|im_end|>` so the
-> protocol parser can segment turns. Always compare before/after on the **same** engine.
+`--max-new-tokens 4000` is the per-assistant-turn generation cap. The trace can
+span multiple assistant turns up to `--max-tool-rounds`.
 
-**RLVR example run:**
+If VRAM is tight, reduce `--prompt-batch-size` to `2` or omit batching.
 
-Training environment:
+## Optional Pass@k Diagnostics
+
+RL pool pass@4:
+
 ```bash
-git clone https://github.com/JayZenith/glyph.git && cd glyph
-bash rl/setup/install_prime_rl.sh
+python -m sft.passk_scan_vllm \
+  --sft-model runs/SIGNAL_v3_HALF_A_SFT_E3_LR2E5/final \
+  --prompt-file synthetic_data/signal_v3_rl_pool_b_prompts.yaml \
+  --prompt-section rl_pool_b \
+  --cases-root runs/passk_signal_v3_rl_pool_b_sft_half_a \
+  -k 4 \
+  --temperature 0.8 \
+  --max-new-tokens 4000 \
+  --max-tool-rounds 15 \
+  --output results/SFT_HALF_A/passk_rl_pool_b_k4.json \
+  --save-rollouts
+```
+
+Held-out-69 pass@4:
+
+```bash
+python -m sft.passk_scan_vllm \
+  --sft-model runs/SIGNAL_v3_HALF_A_SFT_E3_LR2E5/final \
+  --prompt-file sft/evals/eval_prompts_heldout_69.yaml \
+  --prompt-section post_eval_heldout_69 \
+  --cases-root runs/passk_heldout69_sft_half_a \
+  -k 4 \
+  --temperature 0.8 \
+  --max-new-tokens 4000 \
+  --max-tool-rounds 20 \
+  --output results/SFT_HALF_A/passk_heldout69_k4.json \
+  --save-rollouts
+```
+
+## RLVR Setup
+
+The RLVR runs used a 4-GPU node:
+
+```text
+GPU 0,1,2: PRIME-RL worker pool
+GPU 3:     teacher model
+```
+
+The command topology was:
+
+```text
+--prime-rl-gpu-ids 0,1,2
+--num-infer-gpus 1
+--num-train-gpus 2
+--teacher-device 3
+--gpus-per-node 3
+```
+
+Install:
+
+```bash
+git clone https://github.com/JayZenith/glyph.git
+cd glyph
+git pull --ff-only
+
+PRIME_RL_ENABLE_LORA=1 bash rl/setup/install_prime_rl.sh
 source /workspace/prime-rl-src/.venv/bin/activate
 ```
 
-Example  launch:
+Sanity requirements before a real run:
+
+```text
+1. W&B samples show literal <|im_start|>assistant / CALL / tool / RESULT format.
+2. Logs show zero_advantage, gibberish, and repetition filters enabled.
+3. The reward gives top score only to held-out-style valid traces.
+4. Checkpoints are exported from run_default/broadcasts/step_N, not weights/step_N.
+```
+
+## Final RLVR Command Used For V3000
+
 ```bash
 python rl/train.py \
-  --data synthetic_data/rl_prompts_heldout69_passk_targets.jsonl \
-  --output outputs/rlvr_heldout69_passk8_targets_seq8192_mlen12288_train2_memfix \
-  --max-steps 50 \
-  --batch-size 8 \
+  --model JayZenith/SFT_HALF_A \
+  --teacher-model JayZenith/SFT_HALF_A \
+  --lora-rank 64 \
+  --lora-alpha 128 \
+  --lora-dropout 0.0 \
+  --lora-name glyph-signal-v3000-pool-b-r64-a128 \
+  --data synthetic_data/rl_prompts_signal_v3_pool_b.jsonl \
+  --output outputs/RLVR_SIGNAL_V3000_POOL_B_LORA_R64_A128 \
+  --max-steps 40 \
+  --batch-size 48 \
   --rollouts-per-example 8 \
   --seq-len 8192 \
-  --max-model-len 12288 \
-  --teacher-max-model-len 12288 \
-  --max-completion-tokens 1536 \
+  --max-model-len 16384 \
+  --teacher-max-model-len 16384 \
+  --max-completion-tokens 4000 \
   --learning-rate 2e-7 \
-  --checkpoint-interval 25 \
+  --weight-decay 0.01 \
+  --checkpoint-interval 5 \
   --temperature 0.8 \
+  --teacher-tau 0.8 \
   --max-tool-rounds 15 \
   --tool-timeout 30 \
-  --teacher-tau 0.4 \
   --activation-checkpointing \
   --fused-lm-head-token-chunk-size auto \
+  --gpu-memory-utilization 0.70 \
+  --teacher-gpu-memory-utilization 0.50 \
   --prime-rl-gpu-ids 0,1,2 \
   --num-infer-gpus 1 \
   --num-train-gpus 2 \
   --gpus-per-node 3 \
   --port 8000 \
-  --teacher-device 3
+  --teacher-port 8001 \
+  --teacher-device 3 \
+  --enforce-gibberish-filter \
+  --enforce-repetition-filter
 ```
 
-This was run on a 4xA100 instance. GPUs `0,1,2` were assigned to PRIME-RL
-(trainer + inference); GPU `3` was reserved for the frozen teacher via
-`--teacher-device 3`, so it is intentionally outside `--prime-rl-gpu-ids`.
+This run did not improve over SFT. The best checked V3000 checkpoint was step 10 at
+`47/69`.
 
+## Export RLVR Checkpoints
 
-Matched pass@8 eval on checkpoint 25:
+Use PEFT adapter export from the broadcast adapter.
+
+Do not treat `weights/step_N` as the official model artifact. It is a trainer
+checkpoint, not the clean served policy.
+
 ```bash
-NAMES=$(paste -sd, synthetic_data/heldout69_passk_target_names.txt)
-PYTHONPATH=/workspace/glyph python sft/passk_scan_vllm.py \
-  --sft-model outputs/rlvr_heldout69_passk8_targets_seq8192_mlen12288_train2_memfix/weights/step_25 \
-  --prompt-file sft/evals/eval_prompts_heldout_69.yaml \
-  --prompt-section post_eval_heldout_69 \
-  --cases-root synthetic_data/eval_blueprints \
-  --names "$NAMES" \
-  -k 8 \
-  --temperature 0.8 \
-  --max-new-tokens 4000 \
-  --max-tool-rounds 15 \
-  --tool-timeout 30 \
-  --max-model-len 12288 \
-  --dtype bfloat16 \
-  --output results/RLVR_HELDOUT69_PASSK_STEP25/passk8_step25_8targets.json \
-  --no-resume
+python rl/scripts/export_prime_lora_adapter.py \
+  --base-model JayZenith/SFT_HALF_A \
+  --adapter-dir outputs/RLVR_SIGNAL_V3000_POOL_B_LORA_R64_A128/run_default/broadcasts/step_10 \
+  --output outputs/RLVR_SIGNAL_V3000_POOL_B_LORA_R64_A128/adapter_step_10
 ```
 
-Result:
+Upload the exported adapter directory:
+
+```bash
+huggingface-cli upload JayZenith/RLVR_V3000_STEP10 \
+  outputs/RLVR_SIGNAL_V3000_POOL_B_LORA_R64_A128/adapter_step_10 .
+```
+
+The adapter export should contain:
+
 ```text
-SFT_V1:   47/64 = 0.734
-step_25:  54/64 = 0.844
-delta:    +7 solves, +10.9 pts
+adapter_config.json
+adapter_model.safetensors
+prime_lora_adapter_export.json
 ```
 
-Full original held-out 69 formal eval on the same checkpoint:
+## Eval RLVR Adapters
+
+Evaluate adapters by loading the SFT base plus `--sft-adapter`.
+
 ```bash
+mkdir -p results/RLVR_V3000_STEP10
+
 python -m sft.eval_formal \
-  --sft-model JayZenith/RLVR_HELDOUT69_PASSK_STEP25 \
+  --sft-model JayZenith/SFT_HALF_A \
+  --sft-adapter JayZenith/RLVR_V3000_STEP10 \
+  --train-data synthetic_data/signal_v3_sft_half_a.jsonl \
   --prompt-file sft/evals/eval_prompts_heldout_69.yaml \
   --prompt-section post_eval_heldout_69 \
-  --train-data synthetic_data/signal_1062.jsonl \
-  --cases-root runs/rlvr1/rust_cases/eval_heldout_69 \
-  --output results/RLVR_HELDOUT69_FORMAL_STEP25/eval_formal_heldout_69_step25.json \
+  --cases-root runs/heldout69_rlvr_v3000_step10_adapter \
+  --output results/RLVR_V3000_STEP10/eval_formal_heldout_69.json \
   --max-new-tokens 4000 \
-  --max-tool-rounds 15 \
-  --tool-timeout 30
+  --max-tool-rounds 20 \
+  --prompt-batch-size 8 \
+  --tool-workers 16
 ```
 
-## Repo map
+Use the same command for step 5, 15, 20, etc. Change only:
 
-```
-synthetic_data/   data generation + datasets (data_lineage.md), pass@k band, RL prompts
-sft/              SFT train (train.py), eval (eval_formal.py), pass@k scan (passk_scan*.py)
-rl/               PRIME-RL env + reward (task_trace.py), configs/, train.py wrapper, RLVR_NOTES.md
-agent_runtime/    protocol parser + real cargo execution / per-rollout sandboxing
-results/          eval JSON + tensorboard/W&B/logs/rollouts, including final step-25 artifact
-blog/             blog_copy_copy.md (current narrative + primer), make_figures.py, assets/*.png
-reward_golden_tests.py   reward unit tests (solving dominates, bounded, format floor)
+```text
+--sft-adapter
+--cases-root
+--output
 ```
 
-## Datasets (`synthetic_data/`)
+## Canary Eval During RLVR
 
-GPT-authored task specs → materialized into **real crates** → kept only if real tool
-execution matched the intended trajectory (`data_lineage.md`).
+For future runs, export and canary every checkpoint interval.
 
-- `signal_1062.jsonl` — 1062 traces; all recovery is depth-1 (one fail, one fix).
-- `signal_v2_1323.jsonl` — + 261 variable-depth (1–5) recovery cases.
-- `signal_v3.jsonl` — + 199 depth-3..5 cases, oversampling clean `PASS→FINAL` (2083 rows / 1522 unique).
-- `rl_prompts_passk_target.jsonl` — the 39 rlvr-target prompts (the RLVR_PASSK band).
-- `rl_prompts_heldout69_passk_targets.jsonl` — the final 8 mixed held-out-failure prompts.
+```bash
+python rl/scripts/export_prime_lora_adapter.py \
+  --base-model JayZenith/SFT_HALF_A \
+  --adapter-dir outputs/<RUN>/run_default/broadcasts/step_<N> \
+  --output outputs/<RUN>/adapter_step_<N>
 
-Train↔eval audited at 0.92 source similarity, 0 near-duplicates
-(`synthetic_data/audit_blueprint_similarity.py`).
+python -m sft.eval_formal \
+  --sft-model JayZenith/SFT_HALF_A \
+  --sft-adapter outputs/<RUN>/adapter_step_<N> \
+  --train-data synthetic_data/signal_v3_sft_half_a.jsonl \
+  --prompt-file sft/evals/eval_prompts_heldout_69.yaml \
+  --prompt-section post_eval_heldout_69 \
+  --cases-root runs/canary_step_<N> \
+  --output results/canary_step_<N>.json \
+  --max-new-tokens 4000 \
+  --max-tool-rounds 20 \
+  --limit 16 \
+  --prompt-batch-size 4 \
+  --tool-workers 8
+```
+
+Gate on:
+
+```text
+exact CALL syntax remains clean
+valid_trace does not fall below best-so-far by more than two cases twice in a row
+```
+
+## Known Traps
+
+Do not use `weights/step_N` for the official checkpoint. Use
+`run_default/broadcasts/step_N` and export a PEFT adapter.
+
+Do not claim success from `terminal_tool_success`. Use strict `valid_trace`.
+
+Do not change the chat/tool protocol between SFT, RL, and eval. The model is
+trained on the literal format.
+
+Do not evaluate a full merged model unless you also smoke-test exact call syntax
+and diff it against a known-good adapter export. The safest path is base model
+plus PEFT adapter.
+
+Do not confuse eval defaults with the official held-out command. The reported
+held-out results here used `--max-tool-rounds 20` and `--max-new-tokens 4000`.
+
+## Next Experiment, If This Continues
+
+Do not run more blind RL on the full pool.
+
+The next credible attempt should:
+
+```text
+1. Run pass@k over RL_POOL_B using SFT_HALF_A.
+2. Keep examples with mixed outcomes under the same eval budget.
+3. Drop always-solved and always-failed examples.
+4. Train with frequent adapter canaries.
+5. Stop early on held-out degradation.
+```
+
+The likely missing ingredient is better RL signal selection, not simply more
+steps.
+
+## Artifact Pointers
+
+Important local artifacts:
+
+```text
+new_results/SFT_HALF_A/eval_formal_heldout_69.json
+results/RLVR_V1000/eval/eval_formal_heldout_69_direct_merged.json
+new_results/RLVR_V3000_STEP10/
+new_results/RLVR_V3000_STEP15/
+new_results/RLVR_V3000_STEP20/
+blog/finalized_blog.md
+```
+
+Important Hugging Face repos:
+
+```text
+JayZenith/SFT_HALF_A
+JayZenith/SFT_HALF_A_DATASET
+JayZenith/RLVR_V3000_STEP5_ADAPTER
+JayZenith/RLVR_V3000_STEP10
+JayZenith/RLVR_V3000_STEP15
+JayZenith/RLVR_V3000_STEP20
+```
+
+## Final Takeaway
+
+SFT made a real Rust tool-use agent. RLVR showed it could change a hard
+recovery trajectory into a strict held-out success, but it did not improve the
+overall model. The main engineering value was forcing the reward, protocol,
+export path, and eval to become exact.

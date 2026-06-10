@@ -1,148 +1,97 @@
-# SFT worked. RLVR found every mismatch in the harness.
+# SFT Worked. RLVR Showed One Hard Signal, Then Taught Me Where the Harness Was Lying.
 
-This project started with a simple question:
+This is where I am ending this round of Glyph.
 
-```text
-Can verifier RL improve a small Rust tool-use agent after SFT?
-```
+Glyph is a Rust tool-use agent. The model is not just answering coding
+questions. It emits `CALL tool(...)` blocks, the tools run against real Rust
+crates, and then the model is supposed to stop with a clean `FINAL`.
 
-The agent is a `Qwen3-4B-Base` model fine-tuned to edit and verify real Rust
-crates. It emits tool calls, the tools execute for real, and then the model is
-supposed to stop with one final answer.
-
-The clean target behavior looks like this:
+The target trace is simple:
 
 ```text
-<|im_start|>assistant
-CALL read_file(id="c1", file_path=".../src/lib.rs")
-<|im_end|>
-
-<|im_start|>tool
-RESULT c1:
-status: success
-stdout:
-...
-<|im_end|>
-
-<|im_start|>assistant
-CALL apply_patch(id="c2", file_path=".../src/lib.rs", find="...", replace="...")
-<|im_end|>
-
-<|im_start|>tool
-RESULT c2:
-status: success
-stdout:
-patch applied
-<|im_end|>
-
-<|im_start|>assistant
-CALL cargo_test(id="c3", project_path="...")
-<|im_end|>
-
-<|im_start|>tool
-RESULT c3:
-status: success
-stdout:
-running 3 tests
-...
-<|im_end|>
-
-<|im_start|>assistant
-FINAL: Fixed the logic and verified the tests pass.
-<|im_end|>
+CALL read_file(...)
+RESULT ...
+CALL apply_patch(...)
+RESULT ...
+CALL cargo_test(...) or CALL cargo_run(...)
+RESULT status: success
+FINAL: ...
 ```
 
-The important part is that `cargo_test` and `cargo_run` are not simulated
-rewards. They run against sandboxed Rust crates. A pass means the code compiled
-and the verifier accepted it.
+The whole experiment was: can I take a strong SFT model and use verifier RL to
+make it better on a held-out Rust tool-use eval?
 
-The first version of the story would have been easy to tell: SFT made the model
-use tools, RLVR improved it, ship the result. That is not what happened.
+The final answer is not the clean RLVR result I wanted.
 
-The real story is more useful:
+It is this:
 
 ```text
-SFT produced a real Rust tool-use model.
-RLVR repeatedly regressed it.
-Each regression exposed a hidden mismatch between training and evaluation.
+SFT built the agent.
+RLVR produced one real held-out signal: a strict solve that SFT missed.
+RLVR did not improve aggregate held-out reliability.
+The most valuable part of RLVR was exposing every mismatch in the training and
+eval plumbing.
 ```
 
-This writeup is the audit trail so far.
+That sounds less glamorous than "RL solved coding." It is also the result I
+trust.
 
----
+## The Metric Had To Get Strict
 
-## The metric that matters
+Early on, I had a metric called `terminal_tool_success`.
 
-At first, we looked at a loose metric called `terminal_tool_success`.
+That was too loose. It could give credit to traces where the last successful
+tool was something like `read_file`. That is not a coding-agent success. The
+agent needs to make the crate pass.
 
-That was wrong.
-
-It could count a successful terminal non-verifier tool, such as `read_file`, as
-success. For a coding agent, that is not the task. The model has to make the
-crate pass.
-
-The strict metric became:
+The metric that mattered became:
 
 ```text
 valid_trace =
-  successful cargo_test or cargo_run
-  + exactly one clean FINAL after that successful verifier
-  + no malformed CALL syntax
+  terminal cargo_test or cargo_run success
+  + clean FINAL after that verifier success
+  + exact CALL syntax
   + no role-marker leakage
   + no repetition or gibberish
-  + no extra tool use after finalization
+  + no extra tool use after the successful verifier
 ```
 
-That sounds picky, but it is the actual deployment contract. A tool-use model
-that passes tests but emits malformed calls, leaks chat markers, or never
-finalizes is not reliably usable.
+This is picky on purpose. If the model passes tests but then keeps patching, or
+emits malformed `CALL` syntax, or never finalizes, it is not a usable tool-use
+agent.
 
----
+That metric shaped the rest of the work.
 
-## SFT_V1: the first real artifact
+## SFT Was the Real Breakthrough
 
-The first successful SFT model was `SFT_V1`.
-
-On the held-out 69-problem eval, strict scoring gave:
+The first strong SFT model, `SFT_V1`, scored:
 
 ```text
-SFT_V1: 52/69 valid traces
+SFT_V1 strict held-out-69: 52/69
 ```
 
-That is the first important result. A 4B base model learned a real Rust
-CALL/RESULT/FINAL protocol and solved most of a held-out tool-use eval.
+That was the first real result. A 4B base model learned the
+CALL/RESULT/FINAL protocol well enough to edit Rust projects, run real cargo
+verifiers, and solve most of the held-out set.
 
-The failures were not just "the model cannot call tools." The model could read
-files, patch code, and run cargo. The hard cases were a mixture of:
+Then I tried deeper SFT data.
 
-- longer recovery traces,
-- failed-test repair loops,
-- run-vs-test verifier differences,
-- missing or dirty final responses,
-- protocol sensitivity under different inference harnesses.
+`SFT_V2` used `signal_v2_1323` with more variable-depth recovery. `SFT_V3` used
+`signal_v3` with deeper recovery and oversampled clean PASS -> FINAL traces.
 
-SFT worked, but it left a hard tail.
+The broad held-out scores were:
 
----
-
-## SFT_V2 and SFT_V3: hard-tail capability vs broad reliability
-
-The next SFT datasets added deeper recovery traces.
-
-The hope was that more variable-depth recovery data would help the model solve
-the difficult cases that SFT_V1 missed.
-
-The held-out-69 results were:
+![Strict held-out-69 scores for SFT models](assets/final_sft_scores.svg)
 
 ```text
-SFT_V1: 52/69
-SFT_V2: 48/69
-SFT_V3: 50/69
+SFT_V1:     52/69
+SFT_V2:     48/69
+SFT_V3:     50/69
+SFT_HALF_A: 51/69
 ```
 
-So the broad held-out score did not improve.
-
-But on the original 17 problems SFT_V1 failed:
+But the hard-tail story was different. On the original 17 held-out problems
+that `SFT_V1` failed:
 
 ```text
 SFT_V1: 0/17
@@ -150,37 +99,23 @@ SFT_V2: 4/17
 SFT_V3: 5/17
 ```
 
-That was a useful clue. The deeper SFT data did add hard-tail capability, but it
-also disturbed broad reliability. More difficult traces were not simply better;
-they shifted the model.
+That was the first important tradeoff. Deeper recovery data gave the model more
+hard-tail capability, but it cost broad reliability. More difficult traces were
+not just "more data." They shifted the policy.
 
-This pushed the project toward a cleaner SFT -> RLVR experiment:
+## The Clean Split
 
-1. Train SFT on one half of the best synthetic dataset.
-2. Keep the other half for RLVR.
-3. Evaluate both SFT and RLVR on the same held-out 69.
-4. Judge only strict `valid_trace`.
-
----
-
-## The clean split
-
-The dataset `synthetic_data/signal_v3.jsonl` was split deterministically:
+To make the RLVR experiment fair, I split `synthetic_data/signal_v3.jsonl` into
+two deterministic halves:
 
 ```text
-SFT_HALF_A: 1042 rows, 762 unique case_ids
-RL_POOL_B:  1041 rows, 760 unique case_ids
+SFT_HALF_A: 1,042 rows, 762 unique case_ids
+RL_POOL_B:  1,041 rows, 760 unique case_ids
 ```
 
-The split was stratified by:
-
-- family,
-- difficulty,
-- expected tool-sequence length,
-- run vs test verifier family.
-
-It was also grouped by `case_id`, so duplicate traces for the same case could
-not leak across SFT and RL.
+The split preserved family, difficulty, expected tool-sequence length, and
+run-vs-test balance as much as possible. It was grouped by `case_id`, so
+oversampled traces for the same case could not land on both sides.
 
 The leakage checks were clean:
 
@@ -189,340 +124,261 @@ case_id overlap: 0
 trace overlap:   0
 ```
 
-The RL prompt set derived from pool B had:
+I trained `SFT_HALF_A` only on half A. It got:
 
 ```text
-RL_POOL_B_PROMPTS: 760 prompts
+SFT_HALF_A strict held-out-69: 51/69
 ```
 
-This was the right setup in principle. The SFT and RL training sets did not
-overlap, and RLVR had many more prompts than the earlier 11- or 39-prompt
-experiments.
-
-The SFT model trained on half A scored:
+That was close enough to `SFT_V1` to be a good baseline. The plan was then to
+run LoRA RLVR from `SFT_HALF_A` on `RL_POOL_B` and ask one question:
 
 ```text
-SFT_HALF_A: 51/69 valid traces
+Does RLVR exceed 51/69 on the same strict held-out eval?
 ```
 
-That was close enough to SFT_V1 to be a fair baseline.
+## The RLVR Attempts Mostly Failed
 
----
+The first RLVR attempts were not clean.
 
-## Early RLVR attempts: too small, too destructive, or flat
+Full-finetune RLVR was too destructive. It damaged the SFT prior.
 
-Before the clean split, several RLVR attempts had already failed.
+A tiny target set was not enough. The strict 11-prompt LoRA run was basically
+flat: `31/88 -> 32/88`.
 
-Full-finetune RLVR regressed badly. It damaged the SFT protocol prior.
+Then I moved to the cleaner `RL_POOL_B` setup. That exposed the real failure
+modes.
 
-A 39-prompt pass@k target set also regressed. The set was too narrow and mostly
-near-saturated. GRPO needs within-group reward contrast; prompts that are always
-solved or always failed do not provide useful advantage.
+## Failure Mode 1: Reward Was Easier Than Eval
 
-A stricter LoRA run on 11 held-out mixed prompts was almost flat:
+The RL reward initially gave too much credit for "cargo passed somewhere in the
+trace." The held-out eval wanted cargo success and a clean final stop.
+
+That mismatch matters. If the reward says "good enough" before the eval would
+say "valid trace," RL optimizes the wrong behavior.
+
+The reward was patched so the top score matched held-out success:
 
 ```text
-SFT_V1 baseline: 31/88 valid traces
-LoRA step 25:    32/88 valid traces
+top reward = held-out-style valid trace
 ```
 
-That was not a meaningful win.
+Partial rewards for verifier success without a clean final were removed or
+clamped so they could not become the main optimization target. Protocol errors,
+malformed calls, role leakage, gibberish, repetition, and extra tool use after a
+passing verifier block the top reward.
 
-The lesson at that stage was:
+That did not make RLVR better, but it removed one source of fake progress.
 
-```text
-Tiny target sets are unstable.
-Full finetuning is too destructive.
-LoRA reduces blast radius, but it does not create signal from nothing.
-```
+## Failure Mode 2: The Model Format Had To Be Exact
 
-That is why the clean SFT_HALF_A / RL_POOL_B experiment mattered.
-
----
-
-## RL_POOL_B: the first large clean run still collapsed
-
-The first LoRA RLVR run from `SFT_HALF_A` trained on `RL_POOL_B`.
-
-The high-level command shape was:
-
-```text
-base model:    JayZenith/SFT_HALF_A
-teacher/KL:    JayZenith/SFT_HALF_A
-data:          synthetic_data/rl_prompts_signal_v3_pool_b.jsonl
-LoRA:          rank 16, alpha 32
-rollouts:      8 per example
-batch size:    48
-max tokens:    4000 completion tokens
-zero-advantage filtering: on
-```
-
-This should have had a fair chance. It was LoRA, it used the SFT model as the
-teacher anchor, and the RL pool was the held-out half of the synthetic training
-distribution.
-
-But the held-out result was terrible:
-
-```text
-SFT_HALF_A:              51/69
-RL_POOL_B step 25 V2:    15/69
-```
-
-That was not noise. It was a collapse.
-
-The failure buckets showed the model had stopped behaving like the eval model:
-
-```text
-task_failure:                 54
-missing_final:                53
-dirty_final:                  53
-final_before_tool_completion: 53
-truncated:                     5
-```
-
-The RL run had optimized something, but not the held-out behavior.
-
----
-
-## The first hidden mismatch: reward shape
-
-The original RL reward gave partial positive credit for verifier success even
-without a clean final answer.
-
-That sounds reasonable until you remember the eval:
-
-```text
-cargo success without clean FINAL is not a valid trace
-```
-
-If RL gets positive reward for "cargo passed, but the transcript is invalid",
-then the optimizer is allowed to move probability mass toward outputs that the
-held-out eval rejects.
-
-So the reward was changed:
-
-```text
-only exact heldout-style success is positive
-```
-
-Cargo success without clean `FINAL` can be less bad than total failure, but it
-must not be a positive optimization target.
-
-That change was locked with golden tests. The reward now requires:
-
-- successful terminal `cargo_test` or `cargo_run`,
-- no later tools after the passing verifier,
-- exactly one clean `FINAL`,
-- no malformed CALL syntax,
-- no bad cargo project paths,
-- no role marker leakage,
-- no gibberish or repetition.
-
-This aligned the top reward with the held-out metric.
-
----
-
-## The second hidden mismatch: the model was not seeing the same chat format
-
-The SFT model was trained on a specific ChatML-style protocol:
+The model was trained to see literal ChatML-style turns:
 
 ```text
 <|im_start|>assistant
 CALL ...
 <|im_end|>
-
 <|im_start|>tool
 RESULT ...
 <|im_end|>
-
-<|im_start|>assistant
-...
 ```
 
-During RL debugging, W&B samples exposed a dangerous ambiguity: some internal
-views showed role strings that looked different from the actual tokens the model
-should see.
+Any deviation changes the task. During the RL runs, I had to inspect W&B
+samples and raw trajectories to make sure the model was seeing the same
+protocol during RL that it saw during SFT and eval.
 
-For this kind of model, that matters. The model is not learning an abstract API;
-it is learning an exact token protocol. If RL renders turns differently from SFT
-or eval, the policy can drift immediately.
+This is one of the most annoying lessons of tool-use training: if your protocol
+is part of the learned behavior, the protocol is not boilerplate. It is the
+task.
 
-The RL code was patched to force the Glyph chat template and to keep the model's
-training-time structure aligned with eval.
+## Failure Mode 3: Bad Exports Looked Like Bad Models
 
-This fixed one class of mismatch, but not the whole problem.
+This was the nastiest bug.
 
----
-
-## The third hidden mismatch: malformed CALLs worked during RL
-
-The next collapse was the most revealing.
-
-After tightening reward and chat formatting, an RL checkpoint evaluated at:
+Two RLVR checkpoints appeared to collapse to `0/69`. The traces were not random
+garbage. They all looked like this:
 
 ```text
-RLVR_V888 step 25: 0/69 valid traces
+CALL read_file(id="c1", file_path="..."))
 ```
 
-The key summary was:
+One extra `)`.
+
+The strict parser rejected every malformed call, no tools ran, no final answer
+was emitted, and the eval went to zero.
+
+At first glance, that looks like RL destroyed the model. It did not.
+
+The bad `0/69` models came from non-canonical full-weight export paths. The
+policy served during RL was base model plus the broadcast LoRA adapter. The
+trainer's `weights/step_N` directory was not the same thing as a clean
+serveable Hugging Face model. Assembling or merging the wrong artifact produced
+a model that was close enough to look plausible but different enough to flip a
+low-margin token after the call line.
+
+The fix was to make the official artifact the PEFT adapter exported from:
 
 ```text
-exact_call_syntax_rate: 0.0
-terminal_tool_success_rate: 0.0
-valid_traces: 0
+outputs/<RUN>/run_default/broadcasts/step_N/
 ```
 
-Every held-out trace failed strict syntax.
+and evaluate it as:
 
-The underlying issue was that RL execution was more permissive than eval. During
-RL, malformed calls could still be parsed well enough to execute tools. During
-eval, exact syntax was required.
+```bash
+python -m sft.eval_formal \
+  --sft-model JayZenith/SFT_HALF_A \
+  --sft-adapter JayZenith/<RLVR_ADAPTER_REPO> \
+  ...
+```
 
-A representative bad pattern is:
+That removed the export-collapse story from the final analysis.
+
+## The One Real RLVR Signal
+
+The cleanest RLVR signal is `RLVR_V1000` step 25, evaluated through a direct
+local merge of the broadcast adapter.
+
+The result:
 
 ```text
-CALL read_file(id="c1", file_path="src/lib.rs"))<|im_end|>
+SFT_HALF_A:                         51/69
+RLVR_V1000 step25 direct merge:     50/69
 ```
 
-That has an extra `)`. A permissive extractor can still see something that looks
-like a `read_file` call and execute it. The strict eval rejects it as malformed
-CALL syntax.
+So it did not improve overall.
 
-So RL had discovered a local optimum:
+But it did solve one held-out problem that `SFT_HALF_A` failed:
+
+![V1000 case-level diff](assets/final_v1000_case_diff.svg)
+
+The case-level signal was:
 
 ```text
-emit sloppy tool calls that the RL environment still executes,
-get useful tool feedback,
-but fail the real evaluator.
+eval100_039_select_event_codes_partial_then_full_fix
+kind: patch_test_recover
 ```
 
-This is why greedy held-out decoding looked so bad. Greedy decoding removed the
-sampling noise and showed the actual policy mode after RL: the highest
-probability behavior had shifted toward malformed-but-executable calls.
-
-That is not a model mystery. It is reward hacking against a permissive
-environment.
-
----
-
-## The fixes now in place
-
-The current code has been tightened around the real contract.
-
-The protocol parser now rejects malformed CALL lines that eval rejects. Examples
-like extra parentheses, bad separators, duplicate arguments, missing ids, bad
-terminators, and generated special-token tails cannot become high-reward tool
-trajectories.
-
-The RL reward now uses exact held-out-style success as the only positive reward.
-
-The RL chat rendering is forced to the Glyph protocol the SFT model was trained
-on.
-
-The canary path exists so a run can be stopped early if greedy eval behavior
-collapses.
-
-The reward golden tests encode the key invariants:
-
-- exact solve + clean final gets the top reward,
-- cargo success without clean final is not positive,
-- malformed calls score poorly,
-- bad cargo project paths block top reward,
-- garbage after final is not clean success,
-- failed verifier retries are bounded,
-- no-call outputs are discouraged.
-
-These changes do not prove RLVR will now work. They only remove known invalid
-training signals.
-
----
-
-## Current scoreboard
-
-Strict held-out-69 `valid_trace`:
+`SFT_HALF_A` failed with:
 
 ```text
-SFT_V1:                 52/69
-SFT_V2:                 48/69
-SFT_V3:                 50/69
-SFT_HALF_A:             51/69
-RL_POOL_B step 25 V2:   15/69
-RLVR_V888 step 25:       0/69
+missing_final
+dirty_final
+final_before_tool_completion
+task_failure
 ```
 
-The 0/69 result is not because the base model forgot Rust from one LoRA step in
-some mysterious way. It is because the RL environment allowed behavior the eval
-forbids, and the optimizer found it.
+The SFT model got stuck in a repeated read -> patch -> test loop. It made 21
+tool calls, never got the tests to pass, exhausted the budget, and emitted no
+clean final.
 
-That is the central lesson of the project so far.
+`RLVR_V1000` solved it. It made a better fourth patch, got `cargo_test` passing
+at call `c12`, and emitted a clean one-line `FINAL`.
 
----
+That is a real held-out solve. It is not an export artifact. It is not lenient
+scoring. It passed the strict eval. It is still only a signal, because the same
+checkpoint regressed two other cases.
 
-## What this project can honestly claim
-
-The project supports these claims:
-
-- SFT can teach a 4B base model a real Rust tool-use protocol.
-- Strict eval must require verifier success, not generic terminal tool success.
-- Harder SFT traces can improve hard-tail cases while lowering broad reliability.
-- SFT/RL data splits need case-level deduplication, not just row-level shuffling.
-- RLVR on tool-use agents is extremely sensitive to protocol equivalence.
-- A verifier environment must reject the same malformed actions that eval rejects.
-- Positive reward must match the final eval success condition exactly.
-- Greedy canaries are useful because they reveal policy drift quickly.
-
-The project does not currently support this claim:
+But two cases flipped the other way:
 
 ```text
-RLVR has improved the held-out Rust tool-use eval over SFT_HALF_A.
+eval100_048_dispatch_action_match_branch_repair
+eval100_085_log_window_filter_map_recover
 ```
 
-It has not.
+Both were solved by `SFT_HALF_A` and failed by `RLVR_V1000`. These were not
+finalization-only regressions. They were patching regressions: the RLVR policy
+followed a different greedy recovery path and failed to converge.
 
----
-
-## The practical lesson
-
-For normal benchmark RLVR, the action is usually just "generate text" and the
-grader consumes the final answer.
-
-For tool-use RLVR, the action space is structured. The model is not just solving
-Rust; it is speaking a protocol that controls a real environment.
-
-That creates a harsher rule:
+That is the honest claim:
 
 ```text
-If RL execution accepts actions that eval rejects, RL will eventually train the
-model toward invalid actions.
+RLVR showed one case-level recovery signal absent from SFT greedy behavior,
+while aggregate reliability regressed by one.
 ```
 
-The model is not being malicious. It is doing exactly what the reward channel
-allows. If a malformed call still executes, the malformed call is part of the
-training environment's action space.
+I count that as evidence RLVR can move useful recovery behavior into the greedy
+policy. I do not count it as a win.
 
-That is the big debugging result so far.
+## The Final Clean RLVR Run Still Did Not Improve
 
----
+After fixing reward shape, protocol format, strict parser behavior, and adapter
+export, I ran the cleaner V3000-style LoRA path.
 
-## Next experiment
+The evaluated checkpoints were:
 
-The next RLVR run should only be considered valid if all of the following hold:
-
-1. The model sees the exact SFT/eval ChatML protocol during RL.
-2. The RL parser rejects malformed CALL syntax before tool execution.
-3. The only positive reward is strict held-out-style success.
-4. Zero-advantage filtering remains on.
-5. A greedy held-out canary is run early and often.
-6. The final claim is measured only by held-out-69 `valid_trace`.
-
-The target is still simple:
+![RLVR held-out-69 did not beat SFT_HALF_A](assets/final_rlvr_scores.svg)
 
 ```text
-RLVR checkpoint > SFT_HALF_A baseline on strict held-out-69 valid_trace
+SFT_HALF_A:            51/69
+V3000 step 5 adapter:  44/69
+V3000 step 10 adapter: 47/69
+V3000 step 15 adapter: 43/69
 ```
 
-But now the experiment has a much better chance of being valid. The previous
-runs were not just failed optimizations; they were harness audits. They showed
-exactly where the environment was easier than the evaluator.
+Step 10 was better than step 5 and step 15, but still below the baseline. The
+run was not an improvement.
 
-That is painful, but it is progress.
+The important part is that this time the failure was not obviously a parser
+bug, reward hack, or bad export. It looked more like real policy drift and
+weak/noisy learning. The RL pool was hard, recovery-heavy, and not filtered to
+examples where the base model had mixed pass/fail outcomes. A lot of the
+gradient was probably coming from trajectories that were either hopeless or
+unstable rather than from clean near-boundary learning signal.
+
+## What I Think Happened
+
+SFT gave the model a strong prior for the exact tool protocol and a decent
+greedy repair strategy.
+
+RLVR was able to perturb that policy enough to change recovery trajectories.
+Sometimes that helped. The V1000 case-level signal is the proof.
+
+But the same perturbation also broke other recoveries. The model was not
+learning a broadly better repair policy. It was reshuffling near-boundary
+greedy paths.
+
+The best interpretation is:
+
+```text
+RLVR found a real capability movement, not a reliable improvement.
+```
+
+That distinction matters.
+
+If I wanted to keep going, I would not just train longer. I would change the
+data selection:
+
+```text
+1. Run pass@k on RL_POOL_B with the SFT model.
+2. Keep prompts with mixed outcomes under the same eval budget.
+3. Drop always-solved and always-failed prompts.
+4. Train with frequent greedy canaries.
+5. Stop at the first checkpoint that improves held-out valid_trace.
+```
+
+The next experiment should be about signal quality, not more compute.
+
+## Where This Ends
+
+The result I am taking away:
+
+```text
+SFT is the main result.
+Strict evals are non-negotiable.
+RLVR can create a held-out recovery signal.
+This RLVR setup did not improve aggregate reliability.
+Most "RL collapse" was actually harness, reward, or export mismatch until those
+were audited away.
+```
+
+That is enough for this run.
+
+The project now has a clean split, a strict eval, adapter-based RLVR export, and
+a reproducible record of what worked and what did not.
+
+I wanted a simple RLVR result. The actual finding is more useful:
+
+```text
+Verifier RL is only as real as the contract it is optimizing.
+For tool-use agents, the contract is the whole trace, not just the verifier.
+```

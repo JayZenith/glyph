@@ -1,4 +1,4 @@
-# SFT Worked. RLVR Showed One Held-Out Signal. The Contract Was the Real Lesson.
+# SFT Worked. RLVR Reshuffled, Not Improved. The Contract Was the Real Lesson.
 
 This is where I am ending this round of Glyph.
 
@@ -32,9 +32,9 @@ The final result:
 
 ```text
 SFT built the agent.
-RLVR produced one real held-out signal: a strict solve that SFT missed.
 RLVR did not improve aggregate held-out reliability.
-Most apparent RL collapses were infrastructure mismatches until proven otherwise.
+It changed the solved set: one strict solve gained, two lost.
+Most apparent RL collapses turned out to be infrastructure, not policy.
 ```
 
 It is not the clean RLVR result I wanted, but it is the result I trust.
@@ -196,9 +196,9 @@ python -m sft.eval_formal \
 
 Only after those fixes did the RLVR result become worth interpreting.
 
-## The One Real RLVR Signal
+## One Gain, Two Losses
 
-The cleanest case-level RLVR signal is `RLVR_V1000` step 25, evaluated through a
+The cleanest case-level RLVR readout is `RLVR_V1000` step 25, evaluated through a
 direct local merge of the broadcast adapter:
 
 ```text
@@ -231,23 +231,36 @@ final.
 `c12`, and emitted a clean one-line `FINAL`.
 
 That is a real strict held-out solve. It is not lenient scoring or an export
-artifact. But it is only a signal, because the same checkpoint regressed two
-cases that SFT solved:
+artifact. But the same checkpoint regressed two cases that SFT solved:
 
 ```text
 eval100_048_dispatch_action_match_branch_repair
 eval100_085_log_window_filter_map_recover
 ```
 
+The losses are the gain in reverse. On both, `SFT_HALF_A` converged in a few
+patch cycles and finalized cleanly, while `RLVR_V1000` looped
+read -> patch -> verify without converging, exhausted the 20-round budget, and
+never emitted `FINAL`. No finalization drift, no protocol errors -- just
+non-convergent patching. All three flipped cases are recovery-kind problems.
+
+Two important caveats. First, each side is a single greedy sample per case.
+One greedy sample cannot distinguish a new capability from sampling-path luck,
+and I stopped spending compute before running the pass@k probe that would
+settle it. If `SFT_HALF_A` solves `eval100_039` at pass@8, the gain was
+variance, not capability. Second, the gain and the losses look like the same
+phenomenon with opposite signs: a slightly perturbed policy whose greedy
+trajectory diverges early on near-boundary recovery loops and either converges
+or does not.
+
 The honest claim is:
 
 ```text
-RLVR showed one case-level recovery signal absent from SFT greedy behavior,
+RLVR changed which recovery loops converge under greedy decoding,
 while aggregate reliability regressed by one.
 ```
 
-That is not a win. It is a signal that needs verification and regression
-control.
+That is movement, not a win, and the movement is unverified.
 
 ## The Final Clean RLVR Run Still Regressed
 
@@ -265,7 +278,24 @@ V3000 step 15 adapter: 43/69
 
 Step 10 was the best checked V3000 checkpoint, but still below baseline.
 
-The RL curves explain why I do not want to overread that run. Reward bounced
+The rollout logs say why, and it is not subtle: the run never learned its own
+training pool. Measured from the per-step rollout files: in-distribution
+success (positive reward) was flat across all 37 steps, 0.51 in the first half
+versus 0.48 in the second. Each step saw only 6 unique prompts (batch 48 at 8
+rollouts each). The pool was 56% recovery prompts, which the policy solved
+33% of the time against 70% for everything else -- harder, but not hopeless,
+and 86% of rollout groups did carry reward variance. The signal existed; the
+policy did not move on it.
+
+My best explanation for why is config-level inference, not measurement: the
+learning rate was 2e-7, and the loss heavily weighted a distillation term
+(teacher_tau 0.8) toward a teacher that was the base model itself, which by
+construction anchors updates to the starting policy. I did not instrument the
+loss breakdown to confirm the anchor dominated.
+
+Either way, the measured outcome stands: flat in-distribution success means
+the three checkpoints are best read as small random perturbations of the
+baseline, and the step-10 "peak" is noise, not dynamics. Reward bounced
 instead of showing clean improvement:
 
 ![RLVR rollout reward curves](assets/final_rlvr_reward_curves.svg)
@@ -284,30 +314,47 @@ SFT gave the model a strong prior for the exact tool protocol and a decent
 greedy repair strategy.
 
 RLVR perturbed that policy enough to change recovery trajectories. Sometimes
-that helped. The V1000 case-level signal is evidence of that.
+that flipped a case in (V1000's one gain), more often out (its two losses, and
+every V3000 checkpoint landing below baseline).
 
-But the same perturbation broke other recoveries. The model was not learning a
-broadly better repair policy; it was reshuffling near-boundary greedy paths.
+The model was not learning a broadly better repair policy; it was reshuffling
+near-boundary greedy paths. The V3000 logs show it never improved on its own
+training pool, and my best explanation -- tiny learning rate plus a
+distillation anchor to the base model -- is inference from the run config, not
+something I instrumented.
 
 The best interpretation:
 
 ```text
-RLVR found a real capability movement, not a reliable improvement.
+RLVR produced case-level movement, not improvement.
+Whether any of that movement is real capability is unverified.
 ```
 
-If I kept going, I would not run more blind RL on the full pool. I would filter
-for signal:
+## What I Would Do From Here
+
+I am stopping here, so this is ordered by cost, cheapest first. The first two
+cost almost nothing.
 
 ```text
-1. Run pass@k on RL_POOL_B with the SFT model.
-2. Keep prompts with mixed outcomes under the same eval budget.
-3. Drop always-solved and always-failed prompts.
-4. Train with frequent greedy canaries.
-5. Stop as soon as held-out valid_trace degrades.
+1. Verify the one claim: run SFT_HALF_A pass@8 (temp 0.8) on the three
+   flipped cases. If SFT solves eval100_039 at k=8, the V1000 gain was
+   sampling variance and this writeup's caveat becomes its conclusion.
+2. Filter RL_POOL_B using the rollout logs already on disk: keep only
+   prompts where the policy had mixed pass/fail outcomes within the eval
+   tool budget. Drop always-solved and always-failed prompts. No new
+   compute needed to build the list.
+3. Match the training environment to the eval contract exactly, tool-round
+   budget included, so RL cannot reward trajectory shapes the eval cannot
+   finish.
+4. Let the policy actually learn: higher learning rate, much weaker
+   distillation anchor, more unique prompts per step.
+5. Greedy canary eval every 5 steps on a small fixed held-out slice; stop
+   the run the moment it drops below the best checkpoint twice.
 ```
 
-The missing ingredient is probably not more compute. It is cleaner signal
-selection and tighter regression control.
+The missing ingredient was not more compute. It was cleaner signal selection
+and tighter regression control -- and verifying claims at the case level
+before believing them.
 
 ## Where This Ends
 
@@ -316,10 +363,9 @@ The final readout:
 ```text
 SFT is the main result.
 Strict evals are non-negotiable.
-RLVR produced one hard held-out signal.
-RLVR did not improve aggregate reliability.
-Most apparent RL collapse was harness, reward, protocol, or export mismatch
-until those paths were audited.
+RLVR moved one hard held-out case in and two out; net minus one.
+Most apparent RL collapse was harness, reward, protocol, or export mismatch,
+not the policy.
 ```
 
 I wanted a simple RLVR result. The useful finding is sharper:

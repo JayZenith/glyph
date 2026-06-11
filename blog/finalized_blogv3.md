@@ -123,10 +123,13 @@ held-out eval.
 
 ## The Harness Was the Experiment
 
-Several RLVR attempts failed before the final clean readout. Full-finetune RLVR
-was too destructive. Tiny target-set LoRA was basically flat. Larger LoRA runs
-were worth debugging, but the first scary regressions were not all model
-failures. They were harness failures.
+Several RLVR attempts failed before the final clean readout. I initially read
+the full-finetune regression as destructive RL, but I no longer think that is a
+clean conclusion. Those runs still had SFT/RLVR alignment problems: the reward,
+chat/tool rendering, and export path were not yet enforcing the exact same
+contract as the SFT data and held-out eval. Tiny target-set LoRA was basically
+flat. Larger LoRA runs were worth debugging, but the first scary regressions
+were not all model failures. They were harness failures.
 
 The same lesson showed up three ways:
 

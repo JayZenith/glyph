@@ -16,26 +16,57 @@ import tomli_w
 
 
 CONFIG_DIR = Path(__file__).resolve().parent / "configs" / "task_trace"
+# Must render byte-identical to the SFT trace format and the eval harness
+# (sft/evals/prompt_loader.build_prompt + the tool-injection string):
+#   <|im_start|>role\n{content}\n<|im_end|>\n\n
+# Assistant content is preserved verbatim (the trainer re-tokenizes exactly
+# what was sampled); only the turn boundaries are normalized.
 GLYPH_CHAT_TEMPLATE = """{%- for message in messages %}
 {%- set role = message['role'] %}
 {%- set content = message['content'] %}
-{%- if role == 'system' %}
-{{ '<|im_start|>system\n' + content.rstrip() + '<|im_end|>\n' }}
-{%- elif role == 'user' %}
-{{ '<|im_start|>user\n' + content.rstrip() + '<|im_end|>\n' }}
-{%- elif role == 'assistant' %}
-{{ '<|im_start|>assistant\n' + content.rstrip() }}
+{%- if role == 'assistant' %}
+{{- '<|im_start|>assistant\n' + content.rstrip() }}
 {%- if not content.rstrip().endswith('<|im_end|>') %}
-{{ '<|im_end|>' }}
+{{- '\n<|im_end|>' }}
 {%- endif %}
-{{ '\n' }}
-{%- elif role == 'tool' %}
-{{ '<|im_start|>tool\n' + content.rstrip() + '<|im_end|>\n' }}
+{{- '\n\n' }}
+{%- else %}
+{{- '<|im_start|>' + role + '\n' + content.rstrip() + '\n<|im_end|>\n\n' }}
 {%- endif %}
 {%- endfor %}
 {%- if add_generation_prompt %}
-{{ '<|im_start|>assistant\n' }}
+{{- '<|im_start|>assistant\n' }}
 {%- endif %}"""
+
+
+def assert_glyph_template_parity() -> None:
+    """Hard-fail at launch if the RL chat template drifts from the SFT/eval
+    trace format. Renders a sample conversation and byte-compares against the
+    format produced by sft/evals (build_prompt + tool injection)."""
+    from jinja2 import Template
+
+    messages = [
+        {"role": "system", "content": "SYS"},
+        {"role": "user", "content": "USR"},
+        {"role": "assistant", "content": 'CALL read_file(id="c1", file_path="x")\n<|im_end|>'},
+        {"role": "tool", "content": "RESULT c1:\nstatus: success"},
+    ]
+    rendered = Template(GLYPH_CHAT_TEMPLATE).render(
+        messages=messages, add_generation_prompt=True
+    )
+    expected = (
+        "<|im_start|>system\nSYS\n<|im_end|>\n\n"
+        "<|im_start|>user\nUSR\n<|im_end|>\n\n"
+        '<|im_start|>assistant\nCALL read_file(id="c1", file_path="x")\n<|im_end|>\n\n'
+        "<|im_start|>tool\nRESULT c1:\nstatus: success\n<|im_end|>\n\n"
+        "<|im_start|>assistant\n"
+    )
+    if rendered != expected:
+        raise RuntimeError(
+            "GLYPH_CHAT_TEMPLATE no longer matches the SFT/eval trace format.\n"
+            f"rendered: {rendered!r}\n"
+            f"expected: {expected!r}"
+        )
 
 
 # turns "0,2,3" into [0,2,3] for --prime-rl-gpu-ids
@@ -181,6 +212,7 @@ def materialize_glyph_chat_model(model_name: str, output_dir: Path) -> str:
     block. SFT/eval use literal `<|im_start|>tool` blocks, so RL must point
     tokenizer-loading code at a local model view with the Glyph template.
     """
+    assert_glyph_template_parity()
     local = Path(model_name)
     source = local.resolve() if local.exists() else Path(snapshot_download(repo_id=model_name, repo_type="model"))
     dest = output_dir / "glyph_chat_models" / _safe_model_dir_name(model_name)

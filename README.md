@@ -36,6 +36,11 @@ shift (+5/276) is within sampling noise (sigma ~8), and gains and losses offset 
 pass@4. The one reproducible effect was negative: run_only FINAL-hygiene drift caused
 by kind imbalance in the RL pool.
 
+Decomposition: greedy cargo-only success was flat (SFT 51/69, step 5 51/69, step 10
+50/69) - RLVR preserved Rust solving entirely; the strict drop is final-answer
+hygiene on the drifted run_only cases. A training-coverage gap, not a reward or
+capability failure.
+
 ## Data
 
 The clean experiment split `synthetic_data/signal_v3.jsonl` into deterministic,

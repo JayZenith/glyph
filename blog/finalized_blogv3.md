@@ -298,6 +298,30 @@ The mechanism is pool composition: run_only and test_only prompts are about 6%
 of the RL pool, so almost no training groups exist where the reward can punish
 that drift. Nothing in training defends behavior it never samples.
 
+## Decomposing the Loss: Solving vs Finalizing
+
+Scoring the same greedy traces on cargo verifier success alone separates the
+two:
+
+```text
+                greedy cargo solved    greedy valid_trace
+SFT_HALF_A:     51/69                  51/69
+V999 step 5:    51/69                  46/69
+V999 step 10:   50/69                  45/69
+```
+
+RLVR did not degrade Rust solving at all. The entire strict regression is
+final-answer hygiene, concentrated in the run_only drift above. Cargo-only
+pass@4 even ticked up (60/69 -> 62/69 prompts, 203 -> 205 rollouts), but that
+sits inside the same noise floor as everything else, so it is not claimable
+either.
+
+This is not a reward-contract failure. The reward scored multiline-FINAL
+successes exactly 0, verified across every rollout. It is a training-coverage
+failure: the correct contract had almost no run_only groups to apply gradient
+to, so unrelated drift in that region went undefended. The fix is data
+balance, not reward design.
+
 ## The Final Clean RLVR Run Still Regressed Greedy
 
 The final run had everything verified: a binary reward measured to emit exactly

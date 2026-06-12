@@ -36,10 +36,10 @@ shift (+5/276) is within sampling noise (sigma ~8), and gains and losses offset 
 pass@4. The one reproducible effect was negative: run_only FINAL-hygiene drift caused
 by kind imbalance in the RL pool.
 
-Decomposition: greedy cargo-only success was flat (SFT 51/69, step 5 51/69, step 10
-50/69) - RLVR preserved Rust solving entirely; the strict drop is final-answer
-hygiene on the drifted run_only cases. A training-coverage gap, not a reward or
-capability failure.
+Decomposition: greedy cargo-only success was roughly preserved (SFT 51/69,
+step 5 51/69, step 10 50/69). The larger strict drop came from final-answer
+hygiene on the drifted run_only cases. The main diagnosed failure was training
+coverage for that kind, not malformed export or lost Rust tool-use ability.
 
 ## Data
 
@@ -381,7 +381,8 @@ JayZenith/RLVR_V999_STEP10
 
 ## Final Takeaway
 
-SFT made a real Rust tool-use agent. RLVR produced case-level movement within
-sampling noise, not a held-out win. The main
-engineering lesson is that verifier RL is only meaningful when reward, protocol,
-checkpoint export, and eval all enforce the same whole-trace contract.
+SFT made a real Rust tool-use agent. RLVR produced case-level movement and a
+small cargo-solving pass@4 uptick, but not a held-out win: strict pass@4 was
+flat and greedy strict held-out regressed. The main engineering lesson is that
+verifier RL is only meaningful when reward, protocol, checkpoint export, data
+coverage, and eval all enforce the same whole-trace contract.

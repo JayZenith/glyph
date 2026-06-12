@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SFT Worked. RLVR Moved the Distribution, But Did Not Win.</title>
+  <meta name="description" content="A postmortem on Glyph, a Rust tool-use agent experiment built around SFT and PRIME-RL RLVR.">
+  <style>
+    :root {
+      --ink: #171717;
+      --muted: #5f6368;
+      --line: #d9dde3;
+      --soft: #f6f7f9;
+      --code: #111827;
+      --blue: #245ec9;
+      --green: #2d7d4f;
+      --amber: #a86416;
+      --red: #bd3426;
+      --paper: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #eef1f4;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.58;
+    }
+    a { color: var(--blue); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    .page {
+      max-width: 1120px;
+      margin: 0 auto;
+      background: var(--paper);
+      min-height: 100vh;
+      box-shadow: 0 0 0 1px rgba(20, 30, 50, 0.06), 0 30px 80px rgba(20, 30, 50, 0.10);
+    }
+    header {
+      padding: 64px 72px 34px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%);
+    }
+    .eyebrow {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 900px;
+      margin: 0;
+      font-size: clamp(38px, 5vw, 68px);
+      line-height: 0.98;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      max-width: 820px;
+      margin: 24px 0 0;
+      color: #34383f;
+      font-size: 20px;
+      line-height: 1.45;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: #333942;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 650;
+    }
+    nav {
+      padding: 18px 72px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    nav a {
+      display: inline-block;
+      margin: 5px 18px 5px 0;
+      color: #30343a;
+      font-size: 14px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+    main { padding: 38px 72px 72px; }
+    section { margin: 52px 0; }
+    h2 {
+      margin: 0 0 18px;
+      font-size: 28px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+    p {
+      max-width: 820px;
+      margin: 16px 0;
+      font-size: 17px;
+    }
+    strong { font-weight: 760; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+      background: #f0f2f5;
+      border: 1px solid #e1e5ea;
+      padding: 0.08em 0.28em;
+      border-radius: 4px;
+    }
+    pre {
+      max-width: 900px;
+      overflow-x: auto;
+      margin: 18px 0;
+      padding: 18px 20px;
+      color: #f7fafc;
+      background: var(--code);
+      border-radius: 8px;
+      line-height: 1.45;
+      font-size: 14px;
+    }
+    pre code {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      color: inherit;
+      font-size: inherit;
+    }
+    .callout {
+      max-width: 900px;
+      margin: 24px 0;
+      padding: 18px 20px;
+      border-left: 5px solid var(--blue);
+      background: #f3f7ff;
+      border-radius: 0 8px 8px 0;
+      font-size: 17px;
+    }
+    .callout.warning { border-left-color: var(--amber); background: #fff7e8; }
+    .callout.negative { border-left-color: var(--red); background: #fff1ef; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      max-width: 900px;
+      margin: 24px 0;
+    }
+    .metric {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .metric .label {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .metric .value {
+      margin-top: 6px;
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 800;
+    }
+    table {
+      width: 100%;
+      max-width: 900px;
+      margin: 22px 0;
+      border-collapse: collapse;
+      font-size: 15px;
+    }
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: var(--soft);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #444b55;
+    }
+    td.num, th.num { text-align: right; white-space: nowrap; }
+    figure {
+      max-width: 920px;
+      margin: 28px 0;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    figcaption {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .twocol {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 18px;
+      max-width: 900px;
+      margin: 20px 0;
+    }
+    .box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: #fff;
+    }
+    .box h3 {
+      margin: 0 0 10px;
+      font-size: 17px;
+    }
+    .box ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+    footer {
+      padding: 32px 72px 54px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      background: #fafbfc;
+      font-size: 14px;
+    }
+    @media (max-width: 760px) {
+      header, nav, main, footer { padding-left: 22px; padding-right: 22px; }
+      nav { position: static; }
+      .grid, .twocol { grid-template-columns: 1fr; }
+      h1 { font-size: 40px; }
+      .subtitle { font-size: 18px; }
+      table { font-size: 14px; }
+      th, td { padding: 9px 8px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <p class="eyebrow">Glyph postmortem</p>
+      <h1>SFT Worked. RLVR Moved the Distribution, But Did Not Win.</h1>
+      <p class="subtitle">A Rust tool-use agent experiment: SFT built the agent, RLVR slightly shifted sampled cargo-solving, and strict agent validity still regressed.</p>
+      <div class="meta">
+        <a class="pill" href="https://github.com/JayZenith/glyph">GitHub: JayZenith/glyph</a>
+        <span class="pill">Rust tool-use agents</span>
+        <span class="pill">SFT + PRIME-RL RLVR</span>
+        <span class="pill">Held-out-69 eval</span>
+      </div>
+    </header>
+
+    <nav aria-label="Table of contents">
+      <a href="#contract">Contract</a>
+      <a href="#sft">SFT</a>
+      <a href="#split">Clean Split</a>
+      <a href="#harness">RLVR Harness</a>
+      <a href="#readout">Readouts</a>
+      <a href="#passk">Pass@4</a>
+      <a href="#conclusion">Conclusion</a>
+    </nav>
+
+    <main>
+      <section>
+        <p>Glyph is a Rust tool-use agent. The model emits <code>CALL tool(...)</code> blocks, tools execute against real Rust crates, and then the model should stop with a clean <code>FINAL</code>.</p>
+        <p>I built Glyph as an end-to-end Rust tool-use agent experiment stack around PRIME-RL: synthetic task generation, SFT trace construction, held-out evals, the real Rust tool harness, RLVR task integration, reward validation, checkpoint export, and final pass@k measurement.</p>
+        <p>I used Claude Code and Codex heavily as coding assistants during implementation and debugging, but the system design, experimental decisions, eval criteria, data generation, RLVR setup, analysis, and final conclusions are mine.</p>
+      </section>
+
+      <section id="contract">
+        <h2>The Contract Was the Real Lesson</h2>
+        <p>The contract is not just “make cargo pass.” The contract is the whole trace:</p>
+        <pre><code>CALL read_file(...)
+RESULT ...
+CALL apply_patch(...)
+RESULT ...
+CALL cargo_test(...) or CALL cargo_run(...)
+RESULT status: success
+FINAL: ...</code></pre>
+        <div class="callout">
+          Verifier RL only works if the verifier matches the full behavior you actually want. Otherwise, cargo can pass while the agent trace is still unusable.
+        </div>
+        <p>The result is not the RLVR win I wanted. SFT built the agent. RLVR changed the sampled distribution, but did not improve the held-out eval reliability on unseen Rust crates.</p>
+        <p>Each held-out prompt gives the model a crate path and a real tool-use task: patch code until <code>cargo_test</code> passes, patch code until <code>cargo_run</code> prints exact expected stdout, or simply run an already-correct crate and report the result.</p>
+        <table>
+          <thead><tr><th>Held-out eval kind</th><th class="num">Count</th></tr></thead>
+          <tbody>
+            <tr><td><code>patch_test_pass</code></td><td class="num">16</td></tr>
+            <tr><td><code>patch_test_recover</code></td><td class="num">24</td></tr>
+            <tr><td><code>patch_run_pass</code></td><td class="num">9</td></tr>
+            <tr><td><code>patch_run_recover</code></td><td class="num">10</td></tr>
+            <tr><td><code>run_only</code></td><td class="num">5</td></tr>
+            <tr><td><code>test_only</code></td><td class="num">5</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="metric">
+        <h2>The Metric Had To Match the Agent Contract</h2>
+        <p>Early scoring was too loose. A metric called <code>terminal_tool_success</code> could credit a trace whose last successful tool was not a verifier. That is not a coding-agent success.</p>
+        <p>The metric that mattered became strict <code>valid_trace</code>:</p>
+        <pre><code>valid_trace =
+  terminal cargo_test or cargo_run success
+  + clean FINAL after that verifier success
+  + exact CALL syntax
+  + no role-marker leakage
+  + no repetition or gibberish
+  + no extra tool use after successful verification</code></pre>
+        <p>If the model passes tests but keeps patching, emits malformed calls, leaks role markers, or never finalizes, it is not a usable tool-use agent.</p>
+      </section>
+
+      <section id="sft">
+        <h2>SFT Was the Main Result</h2>
+        <p>The first strong SFT model, <code>SFT_V1</code>, scored <strong>52/69</strong> on strict held-out-69. That was the real first artifact: a 4B base model learned the CALL/RESULT/FINAL protocol well enough to edit Rust projects, run cargo verifiers, and solve most of the held-out set.</p>
+        <p>Then I tried deeper SFT data. <code>SFT_V2</code> added variable-depth recovery. <code>SFT_V3</code> added deeper recovery plus oversampled clean PASS → FINAL traces.</p>
+        <div class="grid">
+          <div class="metric"><div class="label">SFT_V1</div><div class="value">52/69</div></div>
+          <div class="metric"><div class="label">SFT_V2</div><div class="value">48/69</div></div>
+          <div class="metric"><div class="label">SFT_V3</div><div class="value">50/69</div></div>
+        </div>
+        <p>The broad held-out score did not improve. But on the original 17 held-out problems that <code>SFT_V1</code> failed, <code>SFT_V2</code> solved 4/17 and <code>SFT_V3</code> solved 5/17. Harder recovery data added tail capability, but disturbed broad reliability.</p>
+      </section>
+
+      <section id="split">
+        <h2>The Clean Split</h2>
+        <p>That tradeoff is why <code>SFT_HALF_A</code> exists. I stopped trying to RLVR whichever old SFT checkpoint looked best. To make the experiment clean, I split <code>synthetic_data/signal_v3.jsonl</code>, the dataset used to train <code>SFT_V3</code>, into two deterministic halves.</p>
+        <p>The SFT and RLVR pool came from this synthetic trace dataset; the held-out eval remained separate unseen Rust crates.</p>
+        <pre><code>SFT_HALF_A: 1,042 rows, 762 unique case_ids
+RL_POOL_B:  1,041 rows, 760 unique case_ids
+
+case_id overlap: 0
+trace overlap:   0</code></pre>
+        <p><code>SFT_HALF_A</code> trained only on half A and scored <strong>51/69</strong> on strict held-out-69, greedy pass@1 using strict <code>valid_trace</code>. That became the baseline. RLVR needed to beat it using non-overlapping pool B.</p>
+        <figure>
+          <img src="assets/final_sft_scores.svg" alt="Strict held-out-69 scores for SFT models">
+          <figcaption>Held-out scores for the main SFT checkpoints and the clean split baseline.</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/final_sft_training_curves.svg" alt="SFT_HALF_A training curves">
+          <figcaption>The clean SFT_HALF_A training run looked normal, so RLVR started from a competent SFT policy.</figcaption>
+        </figure>
+      </section>
+
+      <section id="harness">
+        <h2>Debugging the RLVR Harness</h2>
+        <p>Several RLVR attempts failed before the final clean readout. I initially read the full-finetune regression as destructive RL, but I no longer think that is a clean conclusion. Those runs still had SFT/RLVR alignment problems: the reward, chat/tool rendering, and export path were not yet enforcing the exact same contract as the SFT data and held-out eval.</p>
+        <div class="twocol">
+          <div class="box">
+            <h3>The three harness lessons</h3>
+            <ul>
+              <li>RL reward must match held-out success.</li>
+              <li>RL rendering must match the SFT/eval tool protocol.</li>
+              <li>RL checkpoint export must match the policy actually served during training.</li>
+            </ul>
+          </div>
+          <div class="box">
+            <h3>Official checkpoint path</h3>
+            <pre><code>outputs/&lt;RUN&gt;/run_default/broadcasts/step_N/</code></pre>
+            <p>Export as a PEFT adapter and evaluate as base model plus adapter.</p>
+          </div>
+        </div>
+        <p>Export was the nastiest one. Two checkpoints appeared to collapse to <code>0/69</code>, but the traces were not random. They had one extra parenthesis:</p>
+        <pre><code>CALL read_file(id="c1", file_path="..."))</code></pre>
+        <p>Strict eval rejected every malformed call, no tools ran, and the score went to zero. That looked like RL destroyed the model. <strong>It had not.</strong> The bad repos came from non-canonical full-weight exports. The served RL policy was base model plus the broadcast LoRA adapter; <code>weights/step_N</code> was not the clean served policy.</p>
+      </section>
+
+      <section id="readout">
+        <h2>The First Clean RLVR Readout</h2>
+        <p>The cleanest early case-level RLVR readout was <code>RLVR_V1000</code> step 25, evaluated through a direct local merge of the broadcast adapter:</p>
+        <pre><code>SFT_HALF_A:                     51/69
+RLVR_V1000 step25 direct merge: 50/69</code></pre>
+        <p>So it did not improve overall. But it did solve one held-out problem that <code>SFT_HALF_A</code> failed.</p>
+        <figure>
+          <img src="assets/final_v1000_case_diff.svg" alt="V1000 case-level diff">
+          <figcaption>One strict held-out gain, two strict held-out losses.</figcaption>
+        </figure>
+        <p>The gained case, <code>eval100_039_select_event_codes_partial_then_full_fix</code>, matters because it is exactly the kind of recovery loop SFT still struggled with: repeated plausible patches, real verifier feedback, and a limited tool budget that runs out if the model does not reach a solution.</p>
+        <p><code>SFT_HALF_A</code> made 21 tool calls, never passed the tests, exhausted the budget, and emitted no clean final. <code>RLVR_V1000</code> made a better fourth patch, got <code>cargo_test</code> passing at call <code>c12</code>, and emitted a clean one-line <code>FINAL</code>.</p>
+        <div class="callout warning">That was a real held-out solve under the strict eval: the tools ran, cargo passed, and the trace ended with a clean <code>FINAL</code>. But the same checkpoint regressed two cases that SFT solved.</div>
+      </section>
+
+      <section>
+        <h2>The Final Clean RLVR Still Regressed Strict Greedy Validity</h2>
+        <p>The final run had everything verified: a binary reward measured to emit exactly 0 or 10, a chat template byte-identical to the SFT/eval trace format with a launch-time parity assertion, and the safe adapter export path. The adapter checkpoints still lost on greedy held-out eval:</p>
+        <figure>
+          <img src="assets/final_rlvr_scores.svg" alt="RLVR greedy held-out-69 did not beat SFT_HALF_A">
+          <figcaption>Strict greedy held-out scores for the final clean RLVR adapters.</figcaption>
+        </figure>
+      </section>
+
+      <section id="passk">
+        <h2>The Final pass@4 Check</h2>
+        <p>The cheap decisive check was held-out-69 pass@4 with the final clean adapter path: <code>SFT_HALF_A</code> versus <code>SFT_HALF_A + RLVR_V999_STEP10</code>, same prompts, same tool budget, same temperature, real cargo execution, and separate sandbox per rollout.</p>
+        <figure>
+          <img src="assets/final_v999_passk4.svg" alt="V999 held-out-69 pass@4">
+          <figcaption>Strict pass@4 stayed flat. Valid rollout count moved slightly but within noise.</figcaption>
+        </figure>
+        <table>
+          <thead><tr><th>Metric</th><th class="num">SFT_HALF_A</th><th class="num">RLVR_V999_STEP10</th></tr></thead>
+          <tbody>
+            <tr><td>Valid pass@4 prompts</td><td class="num">59/69</td><td class="num">59/69</td></tr>
+            <tr><td>Valid rollouts</td><td class="num">185/276</td><td class="num">190/276</td></tr>
+            <tr><td>4/4 stable prompts</td><td class="num">31/69</td><td class="num">35/69</td></tr>
+            <tr><td>Cargo-only pass@4 prompts</td><td class="num">60/69</td><td class="num">62/69</td></tr>
+          </tbody>
+        </table>
+        <p>The aggregate prompt-level result was flat. Cargo pass@4 ticked up, but that was within the same noise floor as everything else. The one reproducible negative effect was run-only final-answer hygiene drift: two run-only losses kept cargo passing 4/4 while validity fell to 0/4 because the policy copied multiline stdout into <code>FINAL</code>.</p>
+        <figure>
+          <img src="assets/final_rlvr_reward_curves.svg" alt="V999 RLVR rollout reward curve">
+          <figcaption>RLVR reward was noisy, not a clean monotonic learning curve.</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/final_rlvr_length_curves.svg" alt="V999 RLVR rollout length curve">
+          <figcaption>Sequence length stayed volatile; longer often meant recovery grind, not better behavior.</figcaption>
+        </figure>
+      </section>
+
+      <section>
+        <h2>Decomposing the Loss: Solving vs Finalizing</h2>
+        <p>Scoring the same greedy traces on cargo verifier success alone separates Rust solving from strict agent validity:</p>
+        <table>
+          <thead><tr><th>Model</th><th class="num">Greedy cargo solved</th><th class="num">Greedy valid_trace</th></tr></thead>
+          <tbody>
+            <tr><td>SFT_HALF_A</td><td class="num">51/69</td><td class="num">51/69</td></tr>
+            <tr><td>V999 step 5</td><td class="num">51/69</td><td class="num">46/69</td></tr>
+            <tr><td>V999 step 10</td><td class="num">50/69</td><td class="num">45/69</td></tr>
+          </tbody>
+        </table>
+        <p>Cargo-only pass@4 ticked up from 60/69 to 62/69 prompts, but it sits inside the same noise floor. The strict regression is final-answer hygiene, concentrated in run-only drift.</p>
+        <p>This is not a reward-contract failure. The reward scored multiline-FINAL successes exactly 0, verified across every rollout. It is a training-coverage failure: the correct contract had almost no run-only groups to apply gradient to, so unrelated drift in that region went undefended.</p>
+      </section>
+
+      <section id="conclusion">
+        <h2>Where This Ends</h2>
+        <pre><code>SFT is the main result.
+Strict evals are non-negotiable.
+Cargo pass@4 ticked up 60/69 -> 62/69, within noise.
+But strict agent validity did not improve: strict pass@4 stayed 59/69,
+and greedy strict held-out regressed 51/69 -> 45/69.
+The gap came from final-answer hygiene drift, especially run_only cases.
+Most apparent RL collapse was harness, reward, protocol, or export mismatch,
+not the policy.</code></pre>
+        <p>I wanted a simple RLVR result. The useful finding is sharper: verifier RL only works if the verifier matches the full behavior you actually want. For tool-use agents, the contract is the whole trace, not just the verifier.</p>
+      </section>
+    </main>
+
+    <footer>
+      <p>Code and artifacts: <a href="https://github.com/JayZenith/glyph">github.com/JayZenith/glyph</a>. Markdown source: <a href="finalized_blogv3.md">finalized_blogv3.md</a>.</p>
+    </footer>
+  </div>
+</body>
+</html>

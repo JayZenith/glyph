@@ -27,9 +27,9 @@ Verifier RL only works if the verifier matches the full behavior you actually wa
 Otherwise, cargo can pass while the agent trace is still unusable.
 ```
 
-The result is not the RLVR win I wanted. SFT built the agent. RLVR changed the sampled distribution, but did not improve the held-out eval reliability on unseen Rust crates. Each prompt gives the model a crate path and a real tool-use task: patch code until `cargo_test` passes, patch code until `cargo_run` prints exact expected stdout, or simply run an already-correct crate and report the result.
+The result is not the RLVR win I wanted. SFT built the agent. RLVR changed the sampled distribution, but did not improve the held-out eval reliability on unseen Rust crates.
 
-The held-out eval mix is:
+Each prompt gives the model a crate path and a real tool-use task: patch code until `cargo_test` passes, patch code until `cargo_run` prints exact expected stdout, or simply run an already-correct crate and report the result. The held-out eval mix is:
 ```text
 16 patch_test_pass
 24 patch_test_recover
@@ -38,8 +38,6 @@ The held-out eval mix is:
 5 run_only
 5 test_only
 ```
-
-<!--strict pass@1 regressed 51/69 -> 45/69 and strict pass@4 stayed flat at 59/69. Under a looser "did cargo pass?" lens, pass@4 did move 60/69 -> 62/69, which is a small solving signal buried under FINAL-hygiene drift. -->
 
 ## The Metric Had To Match the Agent Contract
 
@@ -226,7 +224,7 @@ final.
 `RLVR_V1000` made a better fourth patch, got `cargo_test` passing at call `c12`,
 and emitted a clean one-line `FINAL`.
 
-That was a real held-out solve under the strict eval: the tools ran, cargo passed, and the trace ended with a clean FINAL. But the same checkpoint regressed two cases that SFT solved:
+That was a real held-out solve under the strict eval: the tools ran, cargo passed, and the trace ended with a clean `FINAL`. But the same checkpoint regressed two cases that SFT solved:
 
 ```text
 eval100_048_dispatch_action_match_branch_repair
@@ -306,9 +304,6 @@ floor: at a ~68% success rate, one standard deviation on 276 rollouts is about
 8, so +5 is statistically indistinguishable from zero. That is not a win. It is
 not even a claimable signal.
 
-<!--Across 69 x 4 = 276 sampled attempts, RLVR produced 190 valid traces instead of 185, so 5 more successful rollouts even if number of prompts solved at least stayed 59/69.-->
-
-
 The one effect that did reproduce is negative. The two run_only losses
 (`eval100_097`, `eval100_099`) kept cargo passing 4/4 while validity fell to
 0/4: the policy drifted into copying multiline stdout into `FINAL`, failing
@@ -368,7 +363,7 @@ The final readout:
 ```text
 SFT is the main result.
 Strict evals are non-negotiable.
-RLVR slightly improved sampled cargo-solving: cargo pass@4 moved 60/69 -> 62/69.
+Cargo pass@4 ticked up 60/69 -> 62/69, within noise.
 But strict agent validity did not improve: strict pass@4 stayed 59/69,
 and greedy strict held-out regressed 51/69 -> 45/69.
 The gap came from final-answer hygiene drift, especially run_only cases.

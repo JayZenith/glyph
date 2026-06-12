@@ -1,19 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="430" viewBox="0 0 900 430">
-<rect width="100%" height="100%" fill="#ffffff"/>
-<text x="75" y="36" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#1a1a1a">V999 RLVR rollout length stayed volatile</text>
-<line x1="75" y1="350" x2="850" y2="350" stroke="#cccccc"/>
-<line x1="75" y1="70" x2="75" y2="350" stroke="#cccccc"/>
-<line x1="70" y1="350.0" x2="850" y2="350.0" stroke="#eeeeee"/>
+<rect width="100%" height="100%" fill="#050505"/>
+<text x="75" y="36" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#f4f4f5">V999 RLVR rollout length stayed volatile</text>
+<line x1="75" y1="350" x2="850" y2="350" stroke="#737373"/>
+<line x1="75" y1="70" x2="75" y2="350" stroke="#737373"/>
+<line x1="70" y1="350.0" x2="850" y2="350.0" stroke="#262626"/>
 <text x="63" y="354.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#555">0</text>
-<line x1="70" y1="294.0" x2="850" y2="294.0" stroke="#eeeeee"/>
+<line x1="70" y1="294.0" x2="850" y2="294.0" stroke="#262626"/>
 <text x="63" y="298.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#555">1052</text>
-<line x1="70" y1="238.0" x2="850" y2="238.0" stroke="#eeeeee"/>
+<line x1="70" y1="238.0" x2="850" y2="238.0" stroke="#262626"/>
 <text x="63" y="242.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#555">2103</text>
-<line x1="70" y1="182.0" x2="850" y2="182.0" stroke="#eeeeee"/>
+<line x1="70" y1="182.0" x2="850" y2="182.0" stroke="#262626"/>
 <text x="63" y="186.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#555">3155</text>
-<line x1="70" y1="126.0" x2="850" y2="126.0" stroke="#eeeeee"/>
+<line x1="70" y1="126.0" x2="850" y2="126.0" stroke="#262626"/>
 <text x="63" y="130.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#555">4206</text>
-<line x1="70" y1="70.0" x2="850" y2="70.0" stroke="#eeeeee"/>
+<line x1="70" y1="70.0" x2="850" y2="70.0" stroke="#262626"/>
 <text x="63" y="74.0" text-anchor="end" font-family="Arial, sans-serif" font-size="12" fill="#555">5258</text>
 <text x="75.0" y="374" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#555">0</text>
 <text x="215.9" y="374" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#555">2</text>

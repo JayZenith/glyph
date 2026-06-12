@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RLVR Fell Short: The Dataset Moved Samples, Not Held-Out Reliability.</title>
+  <title>SFT Built the Agent. RLVR Moved Samples, Not Held-Out Reliability.</title>
   <meta name="description" content="A postmortem on Glyph, a Rust tool-use agent experiment built around SFT and PRIME-RL RLVR.">
   <style>
 :root {
@@ -15,7 +15,7 @@
   --line: #27272a;
   --line-soft: #18181b;
   --accent: #5eead4;
-  --accent-soft: rgba(94, 234, 212, .14);
+  --accent-soft: rgba(94, 234, 212, .22);
   --code: #09090b;
 }
 * { box-sizing: border-box; }
@@ -55,8 +55,8 @@ h1 {
   margin: 0;
   max-width: 800px;
   color: #fff;
-  font-size: clamp(36px, 5.5vw, 62px);
-  line-height: 1.03;
+  font-size: clamp(34px, 5vw, 56px);
+  line-height: 1.06;
   letter-spacing: -0.03em;
 }
 .hero-copy {
@@ -96,8 +96,8 @@ h1 {
 h2 {
   margin: 0 0 20px;
   color: #fff;
-  font-size: clamp(28px, 4vw, 42px);
-  line-height: 1.08;
+  font-size: clamp(25px, 3.2vw, 34px);
+  line-height: 1.12;
   letter-spacing: -0.025em;
 }
 p, li { color: var(--soft); font-size: 20px; line-height: 1.72; }
@@ -107,8 +107,10 @@ strong { color: #fff; font-weight: 800; }
 .key {
   color: #fff;
   font-weight: 800;
-  background: linear-gradient(transparent 58%, var(--accent-soft) 58%);
+  padding: 0 .04em;
+  background: linear-gradient(transparent 62%, var(--accent-soft) 62%);
 }
+.key code { color: #fff; border-color: rgba(94, 234, 212, .38); }
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   font-size: .9em;
@@ -155,16 +157,21 @@ th, td { padding: 13px 15px; border-bottom: 1px solid var(--line); text-align: l
 th { color: #fff; background: #0d0d0f; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 td { color: var(--soft); }
 tr:last-child td { border-bottom: 0; }
-p:has(img) { max-width: 100%; margin: 34px 0; }
+p:has(img) {
+  max-width: 100%;
+  margin: 34px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #050505;
+}
 p:has(img) img { margin: 0; }
 img {
   display: block;
   width: min(100%, 860px);
   height: auto;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #ffffff;
+  border-radius: 8px;
+  background: #050505;
 }
 .footer { max-width: 900px; margin: 0 auto; padding: 0 24px 56px; color: var(--muted); }
 .footer-inner { padding-top: 24px; border-top: 1px solid var(--line); }
@@ -172,8 +179,8 @@ img {
   .hero { padding: 42px 18px 28px; }
   .article { padding: 8px 18px 48px; }
   .panel { padding: 34px 0; }
-  h1 { font-size: 44px; }
-  h2 { font-size: 30px; }
+  h1 { font-size: 36px; }
+  h2 { font-size: 26px; }
   p, li { font-size: 18px; }
   pre { font-size: 14px; }
 }
@@ -183,15 +190,15 @@ img {
   <div class="progress" id="progress"></div>
   <header class="hero">
     <p class="kicker">Glyph / Rust Tool-Use Agents / RLVR Postmortem</p>
-    <h1>RLVR Fell Short: The Dataset Moved Samples, Not Held-Out Reliability.</h1>
-    <p class="hero-copy">This is where I am ending this round of Glyph.</p>
+    <h1>SFT Built the Agent. RLVR Moved Samples, Not Held-Out Reliability.</h1>
+    <p class="hero-copy">This is where I am ending this round of Glyph: the SFT model worked, the RLVR dataset moved behavior, and the held-out eval still did not improve.</p>
     <div class="hero-actions">
       <a class="pill" href="https://github.com/JayZenith/glyph">GitHub repo</a>
       <a class="pill" href="finalized_blogv3.md">Markdown source</a>
     </div>
   </header>
   <main class="article">
-    <section class="panel lead-panel"><h1>RLVR Fell Short: The Dataset Moved Samples, Not Held-Out Reliability.</h1>
+    <section class="panel lead-panel"><h1>SFT Built the Agent. RLVR Moved Samples, Not Held-Out Reliability.</h1>
 <p>This is where I am ending this round of Glyph.</p>
 <p>Code: <a href="https://github.com/JayZenith/glyph">https://github.com/JayZenith/glyph</a></p>
 <p>Glyph is a <span class="key">Rust tool-use agent</span>. The model emits <code>CALL tool(...)</code> blocks, tools execute against real Rust crates, and then the model should stop with a clean <code>FINAL</code>.</p>
@@ -210,7 +217,7 @@ FINAL: ...
 <pre><code class="language-text">Verifier RL only works if the verifier matches the full behavior you actually want.
 Otherwise, cargo can pass while the agent trace is still unusable.
 </code></pre>
-<p>The result is <span class="key">not the RLVR win I wanted</span>. SFT built the agent. RLVR changed the sampled distribution, but did not improve the held-out eval reliability on unseen Rust crates.</p>
+<p>The result is <span class="key">not the RLVR win I wanted</span>. <span class="key">SFT built the agent</span>. RLVR changed the sampled distribution, but did not improve the <span class="key">held-out eval reliability</span> on unseen Rust crates.</p>
 <p>Each prompt gives the model a crate path and a real tool-use task: patch code until <code>cargo_test</code> passes, patch code until <code>cargo_run</code> prints exact expected stdout, or simply run an already-correct crate and report the result. The held-out eval mix is:</p>
 <pre><code class="language-text">16 patch_test_pass
 24 patch_test_recover
@@ -238,9 +245,9 @@ credit a trace whose last successful tool was not a verifier. That is not a codi
 <p>The first strong SFT model, <code>SFT_V1</code>, scored:</p>
 <pre><code class="language-text">SFT_V1 strict held-out-69: 52/69
 </code></pre>
-<p>That was the real first artifact: a 4B base model learned the
+<p>That was the real first artifact: a 4B base model <span class="key">learned the
 CALL/RESULT/FINAL protocol well enough to edit Rust projects, run cargo
-verifiers, and solve most of the held-out set.</p>
+verifiers, and solve most of the held-out set</span>.</p>
 <p>Then I tried deeper SFT data. <code>SFT_V2</code> added variable-depth recovery. <code>SFT_V3</code>
 added deeper recovery plus oversampled clean PASS -&gt; FINAL traces.</p>
 <pre><code class="language-text">SFT_V1: 52/69
@@ -253,9 +260,9 @@ problems that <code>SFT_V1</code> failed:</p>
 SFT_V2: 4/17
 SFT_V3: 5/17
 </code></pre>
-<p>That was the first tradeoff. Deeper recovery data added hard-tail capability,
+<p>That was the first tradeoff. <span class="key">Deeper recovery data added hard-tail capability,
 but disturbed broad reliability. More difficult traces were not automatically
-better. They shifted the policy.</p>
+better.</span> They shifted the policy.</p>
 </section>
 <section class="panel" style="--n:3"><h2 id="the-clean-split">The Clean Split</h2>
 <p>That tradeoff is why <code>SFT_HALF_A</code> exists. At this point, I stopped trying to
@@ -355,7 +362,7 @@ while net aggregate reliability regressed by one: 51/69 -&gt; 50/69.
 0 or 10 (with 10 equal to strict held-out validity on every rollout checked), a
 chat template byte-identical to the SFT/eval trace format with a launch-time
 parity assertion, and the safe adapter export path. The adapter checkpoints
-still lost on greedy held-out eval:</p>
+still <span class="key">lost on greedy held-out eval</span>:</p>
 <p><img alt="RLVR held-out-69 did not beat SFT_HALF_A" src="assets/final_rlvr_scores.svg" /></p>
 <pre><code class="language-text">SFT_HALF_A:             51/69
 RLVR_V999 step 5:       46/69
@@ -390,7 +397,7 @@ eval100_099_filter_map_inventory_restock_report:        1/4 -&gt; 0/4
 </code></pre>
 <p>The original V1000 signal case, <code>eval100_039</code>, shows up in that gains list at
 1/4 -- a single-rollout flip, nothing more.</p>
-<p>But the aggregate prompt-level result was flat. RLVR increased valid rollout count by five and made four more prompts stable at 4/4, while losing three
+<p>But the <span class="key">aggregate prompt-level result was flat</span>. RLVR increased valid rollout count by five and made four more prompts stable at 4/4, while losing three
 prompt-level pass@4 cases. And the rollout-level shift does not clear the noise
 floor: at a ~68% success rate, one standard deviation on 276 rollouts is about
 8, so +5 is statistically indistinguishable from zero. <span class="key">That is not a win.</span> It is
@@ -411,8 +418,8 @@ SFT_HALF_A:     51/69                  51/69
 V999 step 5:    51/69                  46/69
 V999 step 10:   50/69                  45/69
 </code></pre>
-<p>RLVR did not degrade Rust solving at all. The entire strict regression is
-final-answer hygiene, concentrated in the run_only drift above. Cargo-only
+<p>RLVR <span class="key">did not degrade Rust solving</span> at all. The entire strict regression is
+<span class="key">final-answer hygiene</span>, concentrated in the run_only drift above. Cargo-only
 pass@4 even ticked up (60/69 -&gt; 62/69 prompts, 203 -&gt; 205 rollouts), but that
 sits inside the same noise floor as everything else, so it is not claimable either.</p>
 <p>This is not a reward-contract failure. The reward scored multiline-FINAL

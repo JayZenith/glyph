@@ -94,7 +94,8 @@ better. They shifted the policy.
 
 That tradeoff is why `SFT_HALF_A` exists. At this point, I stopped trying to
 RLVR whichever old SFT checkpoint looked best. To make the experiment clean, I
-split `synthetic_data/signal_v3.jsonl` which was used to train SFT_V3 into two deterministic halves:
+split `synthetic_data/signal_v3.jsonl` which was used to train SFT_V3 into two deterministic halves.
+The SFT and RLVR pool came from this synthetic trace dataset; the held-out eval remained separate unseen Rust crates.
 
 ```text
 SFT_HALF_A: 1,042 rows, 762 unique case_ids

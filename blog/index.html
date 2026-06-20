@@ -487,8 +487,11 @@ error[E0308]: mismatched types
 expected `bool`, found `&amp;bool`
 help: consider dereferencing the borrow:
     if *enabled { Some(*name) } else { None }</code></div>
-    <div class="stream-line"><span class="role model">model</span><code>CALL read_file(id="c4", file_path=".../src/main.rs")
-CALL apply_patch(id="c5", find="if enabled", replace="if *enabled")</code></div>
+    <div class="stream-line"><span class="role model">model</span><code>CALL read_file(id="c4", file_path=".../active_tags_filter_map_join/src/main.rs")</code></div>
+    <div class="stream-line"><span class="role env">env</span><code><span class="ok">RESULT c4: success</span>
+stdout:
+    .filter_map(|(name, enabled)| if enabled { Some(*name) } else { None })</code></div>
+    <div class="stream-line"><span class="role model">model</span><code>CALL apply_patch(id="c5", find="if enabled", replace="if *enabled")</code></div>
     <div class="stream-line"><span class="role env">env</span><code><span class="ok">RESULT c5: success</span>
 stdout: patch applied</code></div>
     <div class="stream-line"><span class="role model">model</span><code>CALL cargo_run(id="c6", project_path=".../active_tags_filter_map_join")</code></div>

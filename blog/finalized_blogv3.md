@@ -1,8 +1,10 @@
-# SFT Worked. RLVR Moved the Distribution, But Did Not Win.
+# SFT Built the Agent. RLVR Shifted the Distribution But Didn't Win.
 
 This is where I am ending this round of Glyph.
 
-Code: <https://github.com/JayZenith/glyph>
+> SFT built a working Rust tool-use agent. RLVR changed the sampled distribution but failed to improve held-out reliability -- the regression came from training-pool imbalance, not reward design.
+
+Code: <https://github.com/JayZenith/glyph/tree/main>
 
 Glyph is a Rust tool-use agent. The model emits `CALL tool(...)` blocks, tools execute against real Rust crates, and then the model should stop with a clean `FINAL`.
 
@@ -27,7 +29,7 @@ Verifier RL only works if the verifier matches the full behavior you actually wa
 Otherwise, cargo can pass while the agent trace is still unusable.
 ```
 
-The result is not the RLVR win I wanted. SFT built the agent. RLVR changed the sampled distribution, but did not improve the held-out eval reliability on unseen Rust crates.
+RLVR did not win. SFT built the agent. RLVR changed the sampled distribution, but did not improve the held-out eval reliability on unseen Rust crates.
 
 Each prompt gives the model a crate path and a real tool-use task: patch code until `cargo_test` passes, patch code until `cargo_run` prints exact expected stdout, or simply run an already-correct crate and report the result. The held-out eval mix is:
 ```text
@@ -57,76 +59,6 @@ valid_trace =
 ```
 
 If the model passes tests but keeps patching, emits malformed calls, leaks role markers, or never finalizes, it is not a usable tool-use agent.
-
-## SFT Was the Main Result
-
-The first strong SFT model, `SFT_V1`, scored:
-
-```text
-SFT_V1 strict held-out-69: 52/69
-```
-
-That was the real first artifact: a 4B base model learned the
-CALL/RESULT/FINAL protocol well enough to edit Rust projects, run cargo
-verifiers, and solve most of the held-out set.
-
-Then I tried deeper SFT data. `SFT_V2` added variable-depth recovery. `SFT_V3`
-added deeper recovery plus oversampled clean PASS -> FINAL traces.
-
-```text
-SFT_V1: 52/69
-SFT_V2: 48/69
-SFT_V3: 50/69
-```
-
-The broad held-out score did not improve. But on the original 17 held-out
-problems that `SFT_V1` failed:
-
-```text
-SFT_V1: 0/17
-SFT_V2: 4/17
-SFT_V3: 5/17
-```
-
-That was the first tradeoff. Deeper recovery data added hard-tail capability,
-but disturbed broad reliability. More difficult traces were not automatically
-better. They shifted the policy.
-
-## The Clean Split
-
-That tradeoff is why `SFT_HALF_A` exists. At this point, I stopped trying to
-RLVR whichever old SFT checkpoint looked best. To make the experiment clean, I
-split `synthetic_data/signal_v3.jsonl` which was used to train SFT_V3 into two deterministic halves.
-The SFT and RLVR pool came from this synthetic trace dataset; the held-out eval remained separate unseen Rust crates.
-
-```text
-SFT_HALF_A: 1,042 rows, 762 unique case_ids
-RL_POOL_B:  1,041 rows, 760 unique case_ids
-```
-
-The split was grouped by `case_id`, so oversampled traces for one case could not land on both sides.
-
-Leakage checks:
-
-```text
-case_id overlap: 0
-trace overlap:   0
-```
-
-`SFT_HALF_A` trained only on half A and scored:
-
-```text
-SFT_HALF_A strict held-out-69 (greedy pass@1 using strict valid_trace): 51/69
-```
-
-![Strict held-out-69 scores for SFT models](assets/final_sft_scores.svg)
-
-The clean `SFT_HALF_A` run looked normal:
-
-![SFT_HALF_A training curves](assets/final_sft_training_curves.svg)
-
-That became the baseline. RLVR needed to beat `51/69` on the same strict
-held-out eval using non-overlapping pool B.
 
 ## Debugging the RLVR Harness
 
@@ -189,6 +121,77 @@ python -m sft.eval_formal \
 ```
 
 Only after those fixes did the RLVR result become worth interpreting.
+
+## SFT Was the Main Result
+
+The first strong SFT model, `SFT_V1`, scored:
+
+```text
+SFT_V1 strict held-out-69: 52/69
+```
+
+That was the first real artifact: a 4B base model learned the
+CALL/RESULT/FINAL protocol well enough to edit Rust projects, run cargo
+verifiers, and solve most of the held-out set.
+
+Then I tried deeper SFT data. `SFT_V2` added variable-depth recovery. `SFT_V3`
+added deeper recovery plus oversampled clean PASS -> FINAL traces.
+
+```text
+SFT_V1: 52/69
+SFT_V2: 48/69
+SFT_V3: 50/69
+```
+
+The broad held-out score did not improve. But on the original 17 held-out
+problems that `SFT_V1` failed:
+
+```text
+SFT_V1: 0/17
+SFT_V2: 4/17
+SFT_V3: 5/17
+```
+
+That was the first tradeoff. Deeper recovery data added hard-tail capability,
+but disturbed broad reliability. More difficult traces were not automatically
+better. They shifted the policy.
+
+## The Clean Split
+
+That tradeoff is why `SFT_HALF_A` exists. At this point, I stopped trying to
+RLVR whichever old SFT checkpoint looked best. To make the experiment clean, I
+split `synthetic_data/signal_v3.jsonl` which was used to train SFT_V3 into two deterministic halves.
+The SFT and RLVR pool came from this synthetic trace dataset; the held-out eval remained separate unseen Rust crates.
+
+```text
+SFT_HALF_A: 1,042 rows, 762 unique case_ids
+RL_POOL_B:  1,041 rows, 760 unique case_ids
+```
+
+The split was grouped by `case_id`, so oversampled traces for one case could not land on both sides.
+The unique case counts differ by two because the grouped split preserved case boundaries while rows include oversampled traces.
+
+Leakage checks:
+
+```text
+case_id overlap: 0
+trace overlap:   0
+```
+
+`SFT_HALF_A` trained only on half A and scored:
+
+```text
+SFT_HALF_A strict held-out-69 (greedy pass@1 using strict valid_trace): 51/69
+```
+
+![Strict held-out-69 scores for SFT models](assets/final_sft_scores.svg)
+
+The clean `SFT_HALF_A` run looked normal:
+
+![SFT_HALF_A training curves](assets/final_sft_training_curves.svg)
+
+That became the baseline. RLVR needed to beat `51/69` on the same strict
+held-out eval using non-overlapping pool B.
 
 ## The First Clean RLVR Readout
 
@@ -259,7 +262,7 @@ RLVR_V999 step 10:      45/69
 
 ## The Final pass@4 Check
 
-The cheap decisive check was held-out-69 pass@4 with the final clean adapter
+The decisive check was held-out-69 pass@4 with the final clean adapter
 path: `SFT_HALF_A` versus `SFT_HALF_A + RLVR_V999_STEP10`, same prompts, same
 tool budget, same temperature, real cargo execution, separate sandbox per
 rollout.
@@ -335,43 +338,32 @@ failure**: the correct contract had almost no `run_only` groups to apply gradien
 to, so unrelated drift in that region went undefended. The fix is data
 balance, not reward design.
 
-## What I Think Happened
+## Reproduction Checklist
 
-SFT gave the model a strong prior for the exact tool protocol and a decent
-greedy repair strategy.
+```bash
+# SFT baseline
+python -m sft.train --data synthetic_data/signal_v3_sft_half_a.jsonl ...
 
-RLVR shifted that policy enough to change recovery trajectories. Sometimes
-that flipped a case in. Sometimes it flipped cases out. Under pass@4, the prompt
-set stayed flat at `59/69`, but the sampled rollout count moved slightly upward.
+# RLVR (needs a multi-GPU node)
+python rl/train.py --model JayZenith/SFT_HALF_A --teacher-model JayZenith/SFT_HALF_A ...
 
-There is also a structural mismatch worth naming: training optimizes the temperature-0.8 sampling distribution, while the headline eval is greedy decode. A policy can genuinely shift its sampled distribution while its argmax path moves unpredictably, which is exactly what checkpoint-to-checkpoint churn in the greedy solved set looks like. On a 69-prompt greedy eval with a noise floor of roughly plus or minus three cases, a true RL effect of one or two cases is too small to separate from eval noise.
-
-
-The model was not learning a broadly better repair policy. It was reshuffling
-near-boundary paths. The final measurement says:
-
-```text
-RLVR produced case-level movement within the noise floor,
-no held-out prompt-level improvement, and one reproducible
-regression caused by training-pool kind imbalance.
+# Strict eval
+python -m sft.eval_formal \
+  --sft-model JayZenith/SFT_HALF_A \
+  --sft-adapter JayZenith/RLVR_V999_STEP10 \
+  ...
 ```
 
-## Where This Ends
+## What This Means
 
-The final readout:
+The final readout is:
 
-```text
-SFT is the main result.
-Strict evals are non-negotiable.
-Cargo pass@4 ticked up 60/69 -> 62/69, within noise.
-But strict agent validity did not improve: strict pass@4 stayed 59/69,
-and greedy strict held-out regressed 51/69 -> 45/69.
-The gap came from final-answer hygiene drift, especially run_only cases.
-Most apparent RL collapse was harness, reward, protocol, or export mismatch,
-not the policy.
-```
+- SFT is the main result: it learned the exact CALL/RESULT/FINAL protocol and a useful greedy repair prior.
+- RLVR shifted the distribution, but did not produce a held-out capability gain.
+- Greedy held-out eval has a noise floor of roughly plus or minus three cases on 69 prompts; a one- or two-case RL effect is hard to separate from churn.
+- The reproducible failure mode was final-answer hygiene drift from weak `run_only` coverage. The fix is data balance, not reward redesign.
 
-I wanted a simple RLVR result. The useful finding is sharper:
+The useful finding is sharper than a simple RLVR win:
 
 ```text
 Verifier RL only works if the verifier matches the full behavior you actually want.

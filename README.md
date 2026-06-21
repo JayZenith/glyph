@@ -288,7 +288,7 @@ old malformed-export failure.
 
 This was the final decisive sampled eval. It used vLLM batching on one 98 GB GPU
 with `k=4`, `prompt_batch_size=8`, effective generation batch `32`, and separate
-tool sandboxes per rollout.
+isolated Rust crate environments per rollout.
 
 Base:
 

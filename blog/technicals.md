@@ -1,12 +1,12 @@
 # Crates 
-Model never touches real crate, its trained on a canonical path for simplicty but during RL, every rollout gets its own private sandbox copy of the crate.  Preventing rollouts from corrupting each other. 
+The model never mutates the canonical crate. It is trained against a canonical path, while every RL rollout receives its own isolated Rust crate environment so concurrent rollouts cannot corrupt one another.
 
 ```bash
 blueprint crate
        │
-       ├── rollout 1 → sandbox_a/
-       ├── rollout 2 → sandbox_b/
-       └── rollout 3 → sandbox_c/
+       ├── rollout 1 → crate_env_a/
+       ├── rollout 2 → crate_env_b/
+       └── rollout 3 → crate_env_c/
 ```
 
 PRIME-RL -> verifiers -> RustToolEnv 

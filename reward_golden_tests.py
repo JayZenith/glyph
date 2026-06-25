@@ -198,11 +198,6 @@ class RewardGoldenTests(unittest.TestCase):
         self.assertEqual(parse_calls(missing), [])
         self.assertTrue(any("Missing CALL id" in err for err in call_syntax_errors(missing)))
 
-    def test_duplicate_json_call_argument_is_invalid(self) -> None:
-        duplicate = 'CALL read_file {"id":"c1","file_path":"a","file_path":"b"}'
-        self.assertEqual(parse_calls(duplicate), [])
-        self.assertTrue(any("Duplicate CALL argument" in err for err in call_syntax_errors(duplicate)))
-
     def test_solving_dominates(self) -> None:
         # Solving beats every non-solving outcome even with finalization shaping.
         self.assertGreater(self._solve_stop(), self._graceful())

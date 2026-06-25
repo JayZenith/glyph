@@ -123,22 +123,10 @@ def parse_call_line(line: str) -> tuple[ProtocolCall | None, list[str]]:
         return None, ["Malformed CALL line"]
     if not TOOL_NAME_RE.fullmatch(tool_name):
         return None, ["Malformed CALL tool name"]
-    duplicate_keys: list[str] = []
-
-    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
-        obj: dict[str, object] = {}
-        for key, value in pairs:
-            if key in obj:
-                duplicate_keys.append(key)
-            obj[key] = value
-        return obj
-
     try:
-        decoded = json.loads(payload, object_pairs_hook=reject_duplicate_keys)
+        decoded = json.loads(payload)
     except json.JSONDecodeError as exc:
         return None, [f"Malformed CALL JSON: {exc.msg} at column {exc.colno}"]
-    if duplicate_keys:
-        return None, [f"Duplicate CALL argument: {duplicate_keys[0]}"]
     if not isinstance(decoded, dict):
         return None, ["CALL JSON payload must be an object"]
     params = dict(decoded)

@@ -1,14 +1,45 @@
+"""Parse and validate the CALL / RESULT / FINAL protocol.
+
+This module is deliberately narrower than the RL reward. It answers questions
+like:
+- Which assistant text belongs to assistant turns?
+- Which CALL lines are syntactically valid?
+- Which RESULT ids have appeared?
+- Is there exactly one clean FINAL?
+
+RL uses these checks as protocol/format gates, then adds task-specific reward
+logic in rl/task_trace.py for cargo success, recovery attempts, post-success
+tool churn, and heldout-style clean stopping.
+"""
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
 
+# ---------------------------------------------------------------------------
+# Shared protocol patterns
+# ---------------------------------------------------------------------------
+
+# Full ChatML segment parser, used for stored traces that include role markers.
 SEG_RE = re.compile(r"<\|im_start\|>(\w+)\n(.*?)<\|im_end\|>", re.DOTALL)
+
+# One model-emitted tool request line:
+# CALL tool_name(id="c1", key="value")
 CALL_LINE_RE = re.compile(r"^\s*CALL\s+([A-Za-z_]\w*)\((.*)\)\s*$")
+
+# One runtime-emitted tool result block:
+# RESULT c1:
 RESULT_ID_RE = re.compile(r"^\s*RESULT\s+([A-Za-z0-9_\-]+):", re.MULTILINE)
+
+# A final answer must be introduced by FINAL:.
 FINAL_RE = re.compile(r"^\s*FINAL:\s*", re.MULTILINE)
+
+# Generated assistant content should not contain role markers. The renderer owns
+# those markers; live model output leaking them is a protocol error.
 ROLE_LEAK_RE = re.compile(r"(<\|im_start\|>|<\|im_end\|>|^\s*(system|user|assistant|tool)\s*$)", re.MULTILINE)
+
 REPETITION_RE = re.compile(r"(.{20,200}?)\1{4,}", re.DOTALL)
 GIBBERISH_RE = re.compile(
     r"(\.waitKey|\.invokeLater|\.onreadystatechange|typealias|endphp|firebaseio|noreferrer|::::){8,}"
@@ -16,6 +47,10 @@ GIBBERISH_RE = re.compile(
 FINAL_MAX_CHARS = 512
 CHATML_END = "<|im_end|>"
 
+
+# ---------------------------------------------------------------------------
+# Result types
+# ---------------------------------------------------------------------------
 
 @dataclass
 class ValidationResult:
@@ -30,7 +65,16 @@ class ProtocolCall:
     params: dict[str, str]
 
 
+# ---------------------------------------------------------------------------
+# ChatML role extraction
+# ---------------------------------------------------------------------------
+
 def _joined_role_text(text: str, role: str) -> str:
+    """Return all content for one role from a ChatML transcript.
+
+    If there are no ChatML markers, treat the whole text as assistant text.
+    This keeps plain completion strings usable by the same parser.
+    """
     if "<|im_start|>" not in text:
         return text if role == "assistant" else ""
     return "\n".join(body for seg_role, body in SEG_RE.findall(text) if seg_role == role)
@@ -45,13 +89,23 @@ def tool_text(text: str) -> str:
 
 
 def strip_terminal_chatml_end(text: str) -> str:
+    """Remove one terminal ChatML end marker from assistant content.
+
+    This normalizes already-rendered assistant turns before scoring. It does not
+    repair missing markers in live model output.
+    """
     stripped = text.rstrip()
     if stripped.endswith(CHATML_END):
         stripped = stripped[: -len(CHATML_END)].rstrip()
     return stripped
 
 
+# ---------------------------------------------------------------------------
+# CALL parsing
+# ---------------------------------------------------------------------------
+
 def _parse_arg_blob(blob: str) -> tuple[dict[str, str], list[str]]:
+    """Parse the inside of CALL(...), returning params plus syntax errors."""
     params: dict[str, str] = {}
     errors: list[str] = []
     pos = 0
@@ -82,6 +136,11 @@ def _parse_arg_blob(blob: str) -> tuple[dict[str, str], list[str]]:
 
 
 def parse_call_line(line: str) -> tuple[ProtocolCall | None, list[str]]:
+    """Parse one CALL line.
+
+    Returns (None, []) for non-CALL lines, (None, errors) for malformed CALLs,
+    and (ProtocolCall, []) for valid CALLs.
+    """
     stripped = line.strip()
     if not stripped.startswith("CALL "):
         return None, []
@@ -102,6 +161,7 @@ def parse_call_line(line: str) -> tuple[ProtocolCall | None, list[str]]:
 
 
 def call_syntax_errors(text: str) -> list[str]:
+    """Return line-numbered syntax errors for every malformed CALL line."""
     errors: list[str] = []
     for line_no, line in enumerate(text.splitlines(), 1):
         if not line.strip().startswith("CALL "):
@@ -111,7 +171,62 @@ def call_syntax_errors(text: str) -> list[str]:
     return errors
 
 
+def parse_calls(text: str) -> list[ProtocolCall]:
+    """Return every valid CALL in assistant text, ignoring malformed CALLs."""
+    calls: list[ProtocolCall] = []
+    for line in text.splitlines():
+        call, errors = parse_call_line(line)
+        if call is not None and not errors:
+            calls.append(call)
+    return calls
+
+
+# ---------------------------------------------------------------------------
+# RESULT parsing
+# ---------------------------------------------------------------------------
+
+def extract_result_ids(text: str) -> list[str]:
+    """Return ids from RESULT blocks in tool text."""
+    return RESULT_ID_RE.findall(text)
+
+
+def extract_pending_call_ids(assistant_text: str, result_text: str = "") -> list[str]:
+    """Return CALL ids that do not yet have matching RESULT ids."""
+    call_ids = [call.id for call in parse_calls(assistant_text)]
+    result_ids = set(extract_result_ids(result_text))
+    return [call_id for call_id in call_ids if call_id not in result_ids]
+
+
+# ---------------------------------------------------------------------------
+# FINAL checks
+# ---------------------------------------------------------------------------
+
+def has_final(assistant_text: str) -> bool:
+    return bool(FINAL_RE.search(assistant_text))
+
+
+def final_count(assistant_text: str) -> int:
+    return len(FINAL_RE.findall(assistant_text))
+
+
+def ended_cleanly_after_final(assistant_text: str) -> bool:
+    """Return true if the last FINAL is not followed by another CALL."""
+    if not has_final(assistant_text):
+        return False
+    stripped = assistant_text.strip()
+    last_final = stripped.rfind("FINAL:")
+    if last_final < 0:
+        return False
+    tail = stripped[last_final:]
+    return "CALL " not in tail[6:]
+
+
 def final_hygiene_errors(assistant_text: str) -> list[str]:
+    """Validate the contents of a single FINAL line.
+
+    This intentionally says nothing when there are zero or multiple FINAL lines;
+    callers use final_count()/has_final() for that structural check.
+    """
     errors: list[str] = []
     finals = [
         line.strip()
@@ -141,45 +256,19 @@ def final_hygiene_errors(assistant_text: str) -> list[str]:
     return errors
 
 
-def parse_calls(text: str) -> list[ProtocolCall]:
-    calls: list[ProtocolCall] = []
-    for line in text.splitlines():
-        call, errors = parse_call_line(line)
-        if call is not None and not errors:
-            calls.append(call)
-    return calls
-
-
-def extract_result_ids(text: str) -> list[str]:
-    return RESULT_ID_RE.findall(text)
-
-
-def extract_pending_call_ids(assistant_text: str, result_text: str = "") -> list[str]:
-    call_ids = [call.id for call in parse_calls(assistant_text)]
-    result_ids = set(extract_result_ids(result_text))
-    return [call_id for call_id in call_ids if call_id not in result_ids]
-
-
-def has_final(assistant_text: str) -> bool:
-    return bool(FINAL_RE.search(assistant_text))
-
-
-def final_count(assistant_text: str) -> int:
-    return len(FINAL_RE.findall(assistant_text))
-
-
-def ended_cleanly_after_final(assistant_text: str) -> bool:
-    if not has_final(assistant_text):
-        return False
-    stripped = assistant_text.strip()
-    last_final = stripped.rfind("FINAL:")
-    if last_final < 0:
-        return False
-    tail = stripped[last_final:]
-    return "CALL " not in tail[6:]
-
+# ---------------------------------------------------------------------------
+# Coarse structural validator
+# ---------------------------------------------------------------------------
 
 class SimpleTraceValidator:
+    """Protocol-only validator used by RL as a structure gate.
+
+    This is not the complete RL reward shape. It checks generic transcript
+    validity: final presence, CALL/RESULT pairing, syntax, role leaks,
+    repetition, and gibberish. rl/task_trace.py adds outcome rewards and
+    penalties that depend on executed cargo_test/cargo_run results.
+    """
+
     def validate(self, assistant_text: str, result_text: str = "") -> ValidationResult:
         errors: list[str] = []
         calls = parse_calls(assistant_text)

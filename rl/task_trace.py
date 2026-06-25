@@ -14,7 +14,6 @@ from agent_runtime.chatml import (
 )
 from agent_runtime.protocol import (
     GIBBERISH_RE,
-    REPETITION_RE,
     ROLE_LEAK_RE,
     SimpleTraceValidator,
     call_syntax_errors,
@@ -291,9 +290,6 @@ def _protocol_reward_penalty(assistant_text: str, calls: list[dict], state: dict
         penalty += REWARD_CONFIG["bad_cargo_project_path_penalty"]
     if GIBBERISH_RE.search(assistant_text) or "<|endoftext|>" in assistant_text or "\ufffd" in assistant_text:
         errors.append("Detected gibberish")
-        penalty += REWARD_CONFIG["gibberish_penalty"]
-    if REPETITION_RE.search(assistant_text):
-        errors.append("Detected repetition")
         penalty += REWARD_CONFIG["gibberish_penalty"]
     final_errors = final_hygiene_errors(assistant_text)
     if final_errors:

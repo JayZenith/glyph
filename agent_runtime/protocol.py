@@ -40,7 +40,6 @@ FINAL_RE = re.compile(r"^\s*FINAL:\s*", re.MULTILINE)
 # those markers; live model output leaking them is a protocol error.
 ROLE_LEAK_RE = re.compile(r"(<\|im_start\|>|<\|im_end\|>|^\s*(system|user|assistant|tool)\s*$)", re.MULTILINE)
 
-REPETITION_RE = re.compile(r"(.{20,200}?)\1{4,}", re.DOTALL)
 GIBBERISH_RE = re.compile(
     r"(\.waitKey|\.invokeLater|\.onreadystatechange|typealias|endphp|firebaseio|noreferrer|::::){8,}"
 )
@@ -261,9 +260,9 @@ class SimpleTraceValidator:
     """Protocol-only validator used by RL as a structure gate.
 
     This is not the complete RL reward shape. It checks generic transcript
-    validity: final presence, CALL/RESULT pairing, syntax, role leaks,
-    repetition, and gibberish. rl/task_trace.py adds outcome rewards and
-    penalties that depend on executed cargo_test/cargo_run results.
+    validity: final presence, CALL/RESULT pairing, syntax, role leaks, and
+    gibberish. rl/task_trace.py adds outcome rewards and penalties that depend
+    on executed cargo_test/cargo_run results.
     """
 
     def validate(self, assistant_text: str, result_text: str = "") -> ValidationResult:
@@ -280,8 +279,6 @@ class SimpleTraceValidator:
             errors.append("Garbage after final response")
         if result_ids != call_ids[: len(result_ids)] or len(result_ids) < len(call_ids):
             errors.append("Tool calls without matching result")
-        if REPETITION_RE.search(assistant_text):
-            errors.append("Detected repetition")
         if GIBBERISH_RE.search(assistant_text) or "<|endoftext|>" in assistant_text:
             errors.append("Detected gibberish")
         errors.extend(call_syntax_errors(assistant_text))

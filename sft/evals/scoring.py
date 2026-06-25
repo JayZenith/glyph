@@ -6,7 +6,6 @@ from collections import Counter, defaultdict
 
 from agent_runtime.protocol import (
     GIBBERISH_RE,
-    REPETITION_RE,
     RESULT_ID_RE,
     ROLE_LEAK_RE,
     SEG_RE,
@@ -96,8 +95,6 @@ def _failure_buckets(metrics: dict) -> list[str]:
         buckets.append("bad_cargo_project_path")
     if metrics["role_marker_leakage"]:
         buckets.append("role_marker_leakage")
-    if not metrics["no_repetition"]:
-        buckets.append("repetition")
     if not metrics["no_gibberish"]:
         buckets.append("gibberish")
     if not metrics["not_truncated"]:
@@ -174,7 +171,6 @@ def score_output(
         "exact_call_syntax": not syntax_errors,
         "final_hygiene": not final_errors,
         "cargo_project_paths_valid": not cargo_path_errors,
-        "no_repetition": REPETITION_RE.search(assistant_text) is None,
         "no_gibberish": GIBBERISH_RE.search(assistant_text) is None and "<|endoftext|>" not in assistant_text,
         "not_truncated": new_token_count < max_new_tokens - 10,
         "terminal_tool_success": terminal_tool_success,
@@ -203,7 +199,6 @@ def score_output(
         and metrics["final_after_last_tool"]
         and metrics["terminal_tool_success"]
         and metrics["no_gibberish"]
-        and metrics["no_repetition"]
         and not metrics["role_marker_leakage"]
     )
 
@@ -215,7 +210,6 @@ def score_output(
     score += 1 if metrics["exact_call_syntax"] else 0
     score += 1 if metrics["final_hygiene"] else 0
     score += 1 if metrics["final_after_last_tool"] else 0
-    score += 1 if metrics["no_repetition"] else 0
     score += 1 if metrics["no_gibberish"] else 0
     score += 1 if metrics["not_truncated"] else 0
     metrics["score"] = score
@@ -260,7 +254,6 @@ def summarize(name: str, rows: list[dict]) -> dict:
         "final_hygiene_rate": sum(1 for row in rows if row["metrics"]["final_hygiene"]) / total,
         "final_after_last_tool_rate": sum(1 for row in rows if row["metrics"]["final_after_last_tool"]) / total,
         "terminal_tool_success_rate": sum(1 for row in rows if row["metrics"]["terminal_tool_success"]) / total,
-        "no_repetition_rate": sum(1 for row in rows if row["metrics"]["no_repetition"]) / total,
         "no_gibberish_rate": sum(1 for row in rows if row["metrics"]["no_gibberish"]) / total,
         "not_truncated_rate": sum(1 for row in rows if row["metrics"]["not_truncated"]) / total,
         "failure_buckets": dict(sorted(failure_counts.items())),

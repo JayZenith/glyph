@@ -11,7 +11,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStream
 
 from agent_runtime.chatml import render_tool_turn
 from agent_runtime.protocol import assistant_text, extract_pending_call_ids, tool_text
-from agent_runtime.rust.executor import create_executor
+from agent_runtime.rust.executor import RustExecutor
 from agent_runtime.rust.results import format_result_block, parse_call_blocks
 from agent_runtime.rust.runtime import ensure_sandbox_copy, execute_rust_tool, rewrite_params_for_sandbox
 
@@ -177,9 +177,7 @@ def generate(
     remaining = max_new_tokens
     cur_prompt = prompt
     execution = execution or {}
-    executor = create_executor(
-        timeout=execution.get("timeout", 30),
-    )
+    executor = RustExecutor(timeout=execution.get("timeout", 30))
     blueprint_root = execution.get("blueprint_root")
     trace_prefix = execution.get("trace_prefix") or blueprint_root
     sandbox_root = execution.get("sandbox_root")
@@ -250,9 +248,7 @@ def generate_batch(
         raise ValueError("executions must have the same length as prompts")
     states: list[_BatchState] = []
     for prompt, execution in zip(prompts, executions):
-        executor = create_executor(
-            timeout=execution.get("timeout", 30),
-        )
+        executor = RustExecutor(timeout=execution.get("timeout", 30))
         blueprint_root = execution.get("blueprint_root")
         sandbox_root = execution.get("sandbox_root")
         sandbox_path = None

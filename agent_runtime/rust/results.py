@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agent_runtime.protocol import extract_pending_call_ids, parse_calls
+from agent_runtime.protocol import parse_calls
 from agent_runtime.rust.executor import ExecutionResult
 
 
@@ -35,5 +35,3 @@ def format_result_block(call_id: str, result: ExecutionResult, max_chars: int = 
     body = _truncate("\n".join(lines).strip(), max_chars)
     return f"RESULT {call_id}:\n{body}"
 
-
-__all__ = ["extract_pending_call_ids", "format_result_block", "parse_call_blocks"]

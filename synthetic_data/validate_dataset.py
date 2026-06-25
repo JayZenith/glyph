@@ -22,7 +22,7 @@ from agent_runtime.protocol import (
     parse_calls,
     tool_text,
 )
-from agent_runtime.rust.executor import create_executor
+from agent_runtime.rust.executor import RustExecutor
 from agent_runtime.rust.results import parse_call_blocks
 from agent_runtime.rust.runtime import execute_rust_tool, rewrite_params_for_sandbox
 
@@ -208,7 +208,7 @@ def replay_row(obj: dict, line_no: int, source_root: Path, cases_root: Path, tim
         return [f"line {line_no}: blueprint case not found: {blueprint}"]
 
     expected_results = _result_bodies(trace)
-    executor = create_executor(timeout=timeout)
+    executor = RustExecutor(timeout=timeout)
     actual_statuses: list[tuple[str, str]] = []
     for call in parse_call_blocks(assistant_text(trace)):
         params = call["params"]

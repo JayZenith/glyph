@@ -7,6 +7,9 @@ from pathlib import Path
 from agent_runtime.rust.executor import ExecutionResult, RustExecutor
 
 
+SUPPORTED_RUST_TOOLS = {"cargo_test", "cargo_run", "read_file", "apply_patch"}
+
+
 def execute_rust_tool(
     executor: RustExecutor,
     tool_name: str,

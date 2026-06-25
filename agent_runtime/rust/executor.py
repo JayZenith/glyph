@@ -27,7 +27,6 @@ class RustExecutor:
         self,
         command: list[str],
         working_dir: str | None = None,
-        env: dict[str, str] | None = None,
     ) -> ExecutionResult:
         cargo_home = os.environ.get("CARGO_HOME", os.path.expanduser("~/.cargo"))
         rustup_home = os.environ.get("RUSTUP_HOME", os.path.expanduser("~/.rustup"))
@@ -49,9 +48,6 @@ class RustExecutor:
                 if part
             ),
         }
-        if env:
-            run_env.update(env)
-
         try:
             result = subprocess.run(
                 command,
@@ -128,9 +124,3 @@ class RustExecutor:
             return ExecutionResult(True, "patch applied", "", 0)
         except OSError as exc:
             return ExecutionResult(False, "", f"OSError: {exc}", -1)
-
-
-def create_executor(
-    timeout: int = 30,
-) -> RustExecutor:
-    return RustExecutor(timeout=timeout)

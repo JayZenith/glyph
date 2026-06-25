@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent_runtime.rust.executor import create_executor
+from agent_runtime.rust.executor import RustExecutor
 from agent_runtime.rust.results import format_result_block
 from agent_runtime.rust.runtime import execute_rust_tool, rewrite_params_for_sandbox
 from synthetic_data.validate_dataset import family_sequence_is_valid, normalize_family
@@ -290,7 +290,7 @@ def materialize_one(custom_id: str, spec: dict, source_root: Path, cases_root: P
     _write_files(source_project, spec["files"])
     shutil.copytree(source_project, run_project)
 
-    executor = create_executor(timeout=timeout)
+    executor = RustExecutor(timeout=timeout)
     calls: list[tuple[str, dict, str]] = []
     last_result = None
     for idx, step in enumerate(spec["steps"], 1):

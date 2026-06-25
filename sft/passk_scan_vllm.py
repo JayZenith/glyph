@@ -20,7 +20,7 @@ from sft.evals import build_prompt, load_prompts, score_output
 from sft.eval_formal import prepare_eval_items
 
 from agent_runtime.protocol import assistant_text, extract_pending_call_ids, tool_text
-from agent_runtime.rust.executor import create_executor
+from agent_runtime.rust.executor import RustExecutor
 from agent_runtime.rust.results import format_result_block, parse_call_blocks
 from agent_runtime.rust.runtime import (
     ensure_sandbox_copy,
@@ -284,7 +284,7 @@ def main() -> int:
         enable_lora=bool(args.sft_adapter),
         max_lora_rank=args.max_lora_rank,
     )
-    executor = create_executor(timeout=args.tool_timeout)
+    executor = RustExecutor(timeout=args.tool_timeout)
     sandbox_root = Path(args.cases_root) / "_sandboxes"
 
     for start in range(0, len(prompts), args.prompt_batch_size):

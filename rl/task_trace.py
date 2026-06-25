@@ -24,20 +24,20 @@ from agent_runtime.protocol import (
     strip_terminal_chatml_end,
 )
 from rl.task_format import load_prompts
-from agent_runtime.rust.executor import ExecutionResult, RustExecutor, create_executor
-from agent_runtime.rust.runtime import ensure_sandbox_copy, execute_rust_tool, rewrite_params_for_sandbox
+from agent_runtime.rust.executor import ExecutionResult, RustExecutor
+from agent_runtime.rust.runtime import (
+    SUPPORTED_RUST_TOOLS,
+    ensure_sandbox_copy,
+    execute_rust_tool,
+    rewrite_params_for_sandbox,
+)
 from agent_runtime.rust.results import (
     format_result_block,
     parse_call_blocks,
 )
-from agent_runtime.rust.tools import RUST_TOOLS
 
 # Tool names allowed by the Rust RL environment.
-RUST_TOOL_NAMES = {
-    getattr(tool, "name", None) if not isinstance(tool, dict) else tool.get("name")
-    for tool in RUST_TOOLS
-}
-RUST_TOOL_NAMES.discard(None)
+RUST_TOOL_NAMES = SUPPORTED_RUST_TOOLS
 
 DEBUG_PARSE = False
 # Eval-aligned reward for reliability lift. The only positive outcome is the
@@ -713,7 +713,7 @@ def load_environment(
 
     parser = vf.Parser()
     validator = SimpleTraceValidator()
-    executor = create_executor(timeout=timeout)
+    executor = RustExecutor(timeout=timeout)
     rubric = vf.Rubric(parser=parser)
     rubric.class_objects["validator"] = validator
     rubric.add_reward_func(_rust_tool_reward, weight=1.0)

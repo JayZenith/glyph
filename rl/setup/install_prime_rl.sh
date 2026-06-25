@@ -191,11 +191,7 @@ else:
     raise RuntimeError("Could not resolve prime_rl package path")
 PY
 )"
-if [ "$PRIME_RL_ENABLE_LORA" = "1" ]; then
-  "$PRIME_RL_DIR/.venv/bin/python" "$ROOT_DIR/rl/setup/archive_adapter_setup/patch_install.py" "$SITE_PACKAGES_DIR"
-else
-  "$PRIME_RL_DIR/.venv/bin/python" "$ROOT_DIR/rl/setup/patch_install.py" "$SITE_PACKAGES_DIR"
-fi
+"$PRIME_RL_DIR/.venv/bin/python" "$ROOT_DIR/rl/setup/patch_install.py" "$SITE_PACKAGES_DIR"
 
 cat <<EOF
 PRIME-RL ready at: $PRIME_RL_DIR

@@ -37,7 +37,6 @@ python rl/train.py \
   --port 8010 \
   --teacher-port "$TEACHER_PORT"
 
-# Gating (run on a SEPARATE 1-GPU box, async, so this multi-GPU box never blocks):
-#   fast, per checkpoint  -> sft/evals/eval_prompts_smoke_12.yaml  (post_eval_smoke_12)
-#   full, on 2-3 best     -> sft/evals/eval_prompts_heldout_69.yaml (post_eval_heldout_69)
+# Gating (run on a separate 1-GPU box, async, so this multi-GPU box never blocks):
+#   sft/evals/eval_prompts_heldout_69.yaml (post_eval_heldout_69)
 # Early-stop on held-out; the best checkpoint is usually early (~step 25).

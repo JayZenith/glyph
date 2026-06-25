@@ -22,9 +22,9 @@ from typing import Any
 
 DEFAULT_SYSTEM_PROMPT = "You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately."
 
-# Shared Glyph ChatML source of truth. This must stay byte-identical with the
-# rendered SFT traces and eval prompts:
-#   <|im_start|>role\n{content}\n<|im_end|>\n\n
+# This is the tokenizer-side template. rl/train.py installs it into the local
+# tokenizer view so PRIME-RL/vLLM render messages the same way our Python code
+# does below.
 GLYPH_CHAT_TEMPLATE = """{%- for message in messages %}
 {%- set role = message['role'] %}
 {%- set content = message['content'] %}
@@ -44,9 +44,12 @@ GLYPH_CHAT_TEMPLATE = """{%- for message in messages %}
 
 
 def _message_value(message: Any, key: str, default: str = "") -> Any:
+    # Most callers pass dicts from JSONL/YAML/runtime state.
     if isinstance(message, dict):
         return message.get(key, default)
+    # Some library objects expose role/content as attributes.
     value = getattr(message, key, default)
+    # Pydantic-style objects can expose the same fields via model_dump().
     if value is default and hasattr(message, "model_dump"):
         value = message.model_dump().get(key, default)
     return default if value is None else value
@@ -61,25 +64,34 @@ def message_content(message: Any) -> str:
 
 
 def render_message(role: str, content: str) -> str:
+    # Convert one structured message into:
+    # <|im_start|>role
+    # content
+    # <|im_end|>
     body = content.rstrip()
     rendered = f"<|im_start|>{role}\n{body}"
+    # Stored assistant traces sometimes already include the terminal delimiter.
+    # Do not double-append it. This is not repairing live model output.
     if role != "assistant" or not body.endswith("<|im_end|>"):
         rendered += "\n<|im_end|>"
     return rendered
 
 
 def render_messages(messages: list[Any], add_generation_prompt: bool = False) -> str:
+    # Render a whole structured transcript, with a blank line between turns.
     rendered = "".join(
         f"{render_message(message_role(message), message_content(message))}\n\n"
         for message in messages
         if message_role(message)
     )
+    # Open the next assistant turn. The model generates after this marker.
     if add_generation_prompt:
         rendered += "<|im_start|>assistant\n"
     return rendered
 
 
 def render_prompt(user_message: str, system_message: str | None = None) -> str:
+    # Common eval/SFT prompt shape: system + user + open assistant turn.
     return render_messages(
         [
             {"role": "system", "content": system_message or DEFAULT_SYSTEM_PROMPT},
@@ -90,6 +102,8 @@ def render_prompt(user_message: str, system_message: str | None = None) -> str:
 
 
 def render_tool_turn(result_block: str) -> str:
+    # After a CALL executes, inject the tool RESULT and reopen assistant
+    # generation so the model can continue the trace.
     return f"\n\n{render_message('tool', result_block)}\n\n<|im_start|>assistant\n"
 
 
@@ -102,16 +116,20 @@ def assert_glyph_template_parity(tokenizer: Any | None = None) -> None:
         {"role": "tool", "content": "RESULT c1:\nstatus: success"},
     ]
     if tokenizer is not None:
+        # Check the installed HuggingFace tokenizer template.
         rendered = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
     else:
+        # Check the raw Jinja template string without needing a tokenizer.
         from jinja2.sandbox import ImmutableSandboxedEnvironment
 
         env = ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True)
         rendered = env.from_string(GLYPH_CHAT_TEMPLATE).render(
             messages=messages, add_generation_prompt=True
         )
+    # Compare against the simple Python renderer above. These must match byte
+    # for byte, or SFT/RL/eval will see different protocols.
     expected = render_messages(messages, add_generation_prompt=True)
     if rendered != expected:
         raise RuntimeError(

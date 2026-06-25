@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from datasets import Dataset
@@ -120,42 +121,44 @@ def _append_unseen_text(prior: str, text: str) -> str:
     return prior + text
 
 
-def _trajectory_generated_text(state: dict) -> str:
-    parts: list[str] = []
-    for step in state.get("trajectory") or []:
-        for message in step.get("completion") or []:
-            if message_role(message) == "assistant":
-                parts.append(strip_generated_assistant_stop(message_content(message)))
-    return "\n".join(parts)
+@dataclass(frozen=True)
+class RolloutText:
+    assistant: str
+    latest_assistant: str
+    tool: str
+    full: str
 
 
-def _trajectory_latest_assistant_turn(state: dict) -> str:
-    for step in reversed(state.get("trajectory") or []):
-        for message in reversed(step.get("completion") or []):
-            if message_role(message) == "assistant":
-                return strip_generated_assistant_stop(message_content(message)).strip()
-    return ""
+def collect_rollout_text(state: dict) -> RolloutText:
+    assistant_parts: list[str] = []
+    tool_parts: list[str] = []
+    full_parts: list[str] = []
+    latest_assistant = ""
 
-
-def _trajectory_tool_text(state: dict) -> str:
-    parts: list[str] = []
     for step in state.get("trajectory") or []:
         for field in ("prompt", "completion"):
             for message in step.get(field) or []:
-                if message_role(message) == "tool":
-                    parts.append(message_content(message))
-    return "\n".join(parts)
+                content = message_content(message)
+                role = message_role(message)
+                full_parts.append(content)
+                if role == "tool":
+                    tool_parts.append(content)
+                if field == "completion" and role == "assistant":
+                    assistant = strip_generated_assistant_stop(content)
+                    assistant_parts.append(assistant)
+                    latest_assistant = assistant.strip()
 
-
-def _trajectory_full_text(state: dict) -> str:
-    if state.get("raw_chatml_transcript"):
-        return str(state["raw_chatml_transcript"])
-    parts: list[str] = []
-    for step in state.get("trajectory") or []:
-        for field in ("prompt", "completion"):
-            for message in step.get(field) or []:
-                parts.append(message_content(message))
-    return "\n".join(parts)
+    full = (
+        str(state["raw_chatml_transcript"])
+        if state.get("raw_chatml_transcript")
+        else "\n".join(full_parts)
+    )
+    return RolloutText(
+        assistant="\n".join(assistant_parts),
+        latest_assistant=latest_assistant,
+        tool="\n".join(tool_parts),
+        full=full,
+    )
 
 
 def _finalization_reward(assistant_text: str) -> float:
@@ -317,16 +320,17 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     """Score the full multi-turn rollout from the transcript the env produced."""
     state = kwargs.get("state") or {}
     text = _completion_text(completion)
-    assistant_text = _trajectory_generated_text(state) or _completion_role_text(
+    rollout_text = collect_rollout_text(state)
+    assistant_text = rollout_text.assistant or _completion_role_text(
         completion, "assistant"
     )
     executed_calls = state.get("executed_tool_calls") or []
     tool_text = "\n".join(state.get("executed_result_blocks") or [])
     if not tool_text:
-        tool_text = _trajectory_tool_text(state) or _completion_role_text(
+        tool_text = rollout_text.tool or _completion_role_text(
             completion, "tool"
         )
-    full_text = _append_unseen_text(_trajectory_full_text(state), text) or text
+    full_text = _append_unseen_text(rollout_text.full, text) or text
     info = kwargs.get("info") or {}
     expected_tool = info.get("expected_tool")
     validator: SimpleTraceValidator | None = kwargs.get("validator")
@@ -334,7 +338,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     reward_assistant_trace = _normalize_assistant_for_reward(raw_assistant_trace)
     assistant_trace = strip_generated_assistant_stop(raw_assistant_trace)
     latest_assistant_turn = (
-        _trajectory_latest_assistant_turn(state)
+        rollout_text.latest_assistant
         or strip_generated_assistant_stop(_completion_role_text(completion, "assistant")).strip()
     )
     structure = _structure_reward(assistant_trace, tool_text, validator)

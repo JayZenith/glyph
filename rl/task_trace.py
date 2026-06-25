@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
+from typing import Mapping
 
 from datasets import Dataset
 
@@ -14,11 +16,13 @@ from agent_runtime.chatml import (
     render_tool_turn,
 )
 from agent_runtime.protocol import (
+    ProtocolCall,
     SimpleTraceValidator,
     call_syntax_errors,
     ended_cleanly_after_final,
     final_count,
     final_hygiene_errors,
+    parse_calls,
     strip_generated_assistant_stop,
 )
 from rl.task_format import load_prompts
@@ -31,17 +35,13 @@ from agent_runtime.rust.runtime import (
 )
 from agent_runtime.rust.results import (
     format_result_block,
-    parse_call_blocks,
 )
-
-# Tool names allowed by the Rust RL environment.
-RUST_TOOL_NAMES = SUPPORTED_RUST_TOOLS
 
 # Eval-aligned reward for reliability lift. The only positive outcome is the
 # heldout-style valid trace: cargo verifier pass, no later tools, exactly one
 # clean FINAL after the passing result, and no protocol errors. Invalid cargo
 # success is not rewarded; it only avoids some failure penalties.
-DEFAULT_REWARD_CONFIG = {
+DEFAULT_REWARD_CONFIG = MappingProxyType({
     # format floor
     "structure_valid_bonus": 0.0,
     "no_call_penalty": -5.0,
@@ -59,21 +59,29 @@ DEFAULT_REWARD_CONFIG = {
     "tool_budget_exhausted_penalty": -5.0,
     "failed_verifier_penalty": -1.0,
     "max_failed_verifier_penalty": -4.0,
-}
+})
 
-REWARD_CONFIG = DEFAULT_REWARD_CONFIG.copy()
-def _set_reward_config(overrides: dict[str, float]) -> None:
-    REWARD_CONFIG.clear()
-    REWARD_CONFIG.update(DEFAULT_REWARD_CONFIG)
-    REWARD_CONFIG.update({k: v for k, v in overrides.items() if v is not None})
+
+RewardConfig = Mapping[str, float]
+
+
+def build_reward_config(overrides: dict[str, float | None]) -> dict[str, float]:
+    config = dict(DEFAULT_REWARD_CONFIG)
+    config.update({k: v for k, v in overrides.items() if v is not None})
+    return config
 
 
 # gives bonus if validator passes
-def _structure_reward(assistant_text: str, result_text: str, validator: SimpleTraceValidator | None) -> float:
+def _structure_reward(
+    assistant_text: str,
+    result_text: str,
+    validator: SimpleTraceValidator | None,
+    reward_config: RewardConfig,
+) -> float:
     if validator is None:
         return 0.0
     v = validator.validate(assistant_text, result_text)
-    return REWARD_CONFIG["structure_valid_bonus"] if v.valid else 0.0
+    return reward_config["structure_valid_bonus"] if v.valid else 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -97,10 +105,6 @@ def _completion_role_text(completion, role: str) -> str:
             if message_role(m) == role
         )
     return "" if role == "tool" else _completion_text(completion)
-
-
-def _normalize_assistant_for_reward(text: str) -> str:
-    return strip_generated_assistant_stop(text).strip()
 
 
 def _latest_assistant_segment(text: str) -> str:
@@ -160,15 +164,15 @@ def collect_rollout_text(state: dict) -> RolloutText:
     )
 
 
-def _finalization_reward(assistant_text: str) -> float:
+def _finalization_reward(assistant_text: str, reward_config: RewardConfig) -> float:
     """Exactly one FINAL -> small bonus; otherwise the missing-FINAL penalty.
 
     Independent of solving: finalizing always beats looping. Solving and
     solve-then-stop are scored separately in `_outcome_reward`.
     """
     if final_count(assistant_text) == 1:
-        return REWARD_CONFIG["final_once_bonus"]
-    return REWARD_CONFIG["missing_final_penalty"]
+        return reward_config["final_once_bonus"]
+    return reward_config["missing_final_penalty"]
 
 
 def _result_offset(call_id: str, full_text: str) -> int:
@@ -179,7 +183,7 @@ def _heldout_style_success(
     assistant_text: str,
     full_text: str,
     success_pos: int,
-    later_tools: list[dict],
+    later_tools: list[ProtocolCall],
     latest_assistant_turn: str,
     protocol_errors: list[str] | None = None,
 ) -> bool:
@@ -201,18 +205,23 @@ def _heldout_style_success(
     return final_pos > success_pos
 
 
-def _cargo_project_path_errors(calls: list[dict]) -> list[str]:
+def _cargo_project_path_errors(calls: list[ProtocolCall]) -> list[str]:
     errors: list[str] = []
     for call in calls:
-        if call["tool"] not in {"cargo_run", "cargo_test"}:
+        if call.tool not in {"cargo_run", "cargo_test"}:
             continue
-        project_path = str(call.get("params", {}).get("project_path", ""))
+        project_path = str(call.params.get("project_path", ""))
         if re.search(r"/src/(?:main|lib)\.rs$", project_path):
-            errors.append(f"{call['id']}: cargo project_path points at source file")
+            errors.append(f"{call.id}: cargo project_path points at source file")
     return errors
 
 
-def _protocol_reward_penalty(assistant_text: str, calls: list[dict], state: dict) -> tuple[float, list[str]]:
+def _protocol_reward_penalty(
+    assistant_text: str,
+    calls: list[ProtocolCall],
+    state: dict,
+    reward_config: RewardConfig,
+) -> tuple[float, list[str]]:
     errors: list[str] = []
     errors.extend(call_syntax_errors(assistant_text))
     errors.extend(_cargo_project_path_errors(calls))
@@ -220,22 +229,23 @@ def _protocol_reward_penalty(assistant_text: str, calls: list[dict], state: dict
         errors.extend(str(e) for e in state["malformed_call_errors"])
     penalty = 0.0
     if any("CALL" in e or "argument" in e for e in errors):
-        penalty += REWARD_CONFIG["malformed_call_penalty"]
+        penalty += reward_config["malformed_call_penalty"]
     if any("project_path" in e for e in errors):
-        penalty += REWARD_CONFIG["bad_cargo_project_path_penalty"]
+        penalty += reward_config["bad_cargo_project_path_penalty"]
     final_errors = final_hygiene_errors(assistant_text)
     if final_errors:
         errors.extend(final_errors)
-        penalty += REWARD_CONFIG["bad_final_hygiene_penalty"]
+        penalty += reward_config["bad_final_hygiene_penalty"]
     return penalty, errors
 
 
 def _outcome_reward(
-    calls: list[dict],
-    tool_text: str,
+    calls: list[ProtocolCall],
+    executed_results: dict[str, ExecutionResult],
     assistant_text: str,
     full_text: str,
     latest_assistant_turn: str,
+    reward_config: RewardConfig,
     protocol_errors: list[str] | None = None,
 ) -> float:
     """Primary signal: exact heldout-style success.
@@ -248,34 +258,34 @@ def _outcome_reward(
     success_pos = -1
     failed_before_success = 0
     for idx, call in enumerate(calls):
-        if call["tool"] not in {"cargo_test", "cargo_run"}:
+        if call.tool not in {"cargo_test", "cargo_run"}:
             continue
-        result = _find_result_for(call["id"], tool_text)
+        result = executed_results.get(call.id)
         if result is None:
             continue
-        if result.get("success"):
+        if result.success:
             success_idx = idx
-            pos = _result_offset(call["id"], full_text)
+            pos = _result_offset(call.id, full_text)
             if pos >= 0:
                 success_pos = pos
             break
         failed_before_success += 1
 
     fail_penalty = max(
-        REWARD_CONFIG["max_failed_verifier_penalty"],
-        failed_before_success * REWARD_CONFIG["failed_verifier_penalty"],
+        reward_config["max_failed_verifier_penalty"],
+        failed_before_success * reward_config["failed_verifier_penalty"],
     )
 
     if success_idx is None:
         return fail_penalty
 
-    reward = REWARD_CONFIG["verifier_success_bonus"] + fail_penalty
+    reward = reward_config["verifier_success_bonus"] + fail_penalty
     # Formal eval treats any later CALL as making the last call non-terminal,
     # even if RL stopped before executing that CALL. Do not grant clean solve
     # reward when the model emitted post-success tool use.
     later_tools = calls[success_idx + 1 :]
     if later_tools:
-        reward += REWARD_CONFIG["tool_after_success_penalty"]
+        reward += reward_config["tool_after_success_penalty"]
 
     if _heldout_style_success(
         assistant_text,
@@ -285,32 +295,8 @@ def _outcome_reward(
         latest_assistant_turn,
         protocol_errors,
     ):
-        reward += REWARD_CONFIG["verifier_success_clean_final_bonus"]
+        reward += reward_config["verifier_success_clean_final_bonus"]
     return reward
-
-
-def _find_result_for(call_id: str, text: str) -> dict | None:
-    """Locate the env-emitted result block for a given call id; pull status fields."""
-    m = re.search(
-        r"RESULT\s+" + re.escape(call_id) + r":\n(.*?)(?=\nRESULT\s+[A-Za-z0-9_\-]+:|\Z)",
-        text,
-        re.DOTALL,
-    )
-    if not m:
-        return None
-    body = m.group(1)
-    status = re.search(r"status:\s*(\w+)", body)
-    exit_code = re.search(r"exit_code:\s*(-?\d+)", body)
-    timed_out = "timed_out: true" in body
-    stdout_m = re.search(r"stdout:\n(.*?)(?:\nstderr:|\Z)", body, re.DOTALL)
-    stderr_m = re.search(r"stderr:\n(.*)\Z", body, re.DOTALL)
-    return {
-        "success": (status.group(1) == "success") if status else False,
-        "exit_code": int(exit_code.group(1)) if exit_code else -1,
-        "timed_out": timed_out,
-        "stdout": stdout_m.group(1) if stdout_m else "",
-        "stderr": stderr_m.group(1) if stderr_m else "",
-    }
 
 
 # core reward function: collect assistant text, collect tool results, parse calls,
@@ -319,11 +305,13 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     """Score the full multi-turn rollout from the transcript the env produced."""
     state = kwargs.get("state") or {}
     text = _completion_text(completion)
+    reward_config = kwargs.get("reward_config") or DEFAULT_REWARD_CONFIG
     rollout_text = collect_rollout_text(state)
     assistant_text = rollout_text.assistant or _completion_role_text(
         completion, "assistant"
     )
     executed_calls = state.get("executed_tool_calls") or []
+    executed_results = state.get("executed_results") or {}
     tool_text = "\n".join(state.get("executed_result_blocks") or [])
     if not tool_text:
         tool_text = rollout_text.tool or _completion_role_text(
@@ -334,13 +322,13 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     expected_tool = info.get("expected_tool")
     validator: SimpleTraceValidator | None = kwargs.get("validator")
     raw_assistant_trace = assistant_text or text
-    reward_assistant_trace = _normalize_assistant_for_reward(raw_assistant_trace)
+    reward_assistant_trace = strip_generated_assistant_stop(raw_assistant_trace).strip()
     assistant_trace = strip_generated_assistant_stop(raw_assistant_trace)
     latest_assistant_turn = (
         rollout_text.latest_assistant
         or strip_generated_assistant_stop(_completion_role_text(completion, "assistant")).strip()
     )
-    structure = _structure_reward(assistant_trace, tool_text, validator)
+    structure = _structure_reward(assistant_trace, tool_text, validator, reward_config)
 
     # Non-Rust prompt: structure enforcement only. Env still mocks tool results
     # if the model emits a call, but we don't score Rust execution.
@@ -350,38 +338,45 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     # Score against every syntactically valid CALL the model emitted. Tool
     # results still come only from env execution, but unexecuted trailing calls
     # must be visible because formal eval treats them as post-success tool use.
-    calls = parse_call_blocks(assistant_trace) or executed_calls
+    calls = parse_calls(assistant_trace) or executed_calls
     if not calls:
-        protocol_penalty, _ = _protocol_reward_penalty(reward_assistant_trace, [], state)
-        return REWARD_CONFIG["no_call_penalty"] + protocol_penalty + structure
+        protocol_penalty, _ = _protocol_reward_penalty(
+            reward_assistant_trace,
+            [],
+            state,
+            reward_config,
+        )
+        return reward_config["no_call_penalty"] + protocol_penalty + structure
 
     reward = 0.0
     # Malformed call keyword (e.g. "CALLTYPE" instead of "CALL ") breaks the
     # parser so no tool executes. Penalize per occurrence (capped) to train the
     # exact `CALL <tool> {...}` form.
     malformed = len(re.findall(r"\bCALL[A-Z]", raw_assistant_trace))
-    reward += min(malformed, 4) * REWARD_CONFIG["malformed_call_penalty"]
+    reward += min(malformed, 4) * reward_config["malformed_call_penalty"]
     protocol_penalty, protocol_errors = _protocol_reward_penalty(
         reward_assistant_trace,
         calls,
         state,
+        reward_config,
     )
     reward += protocol_penalty
 
-    reward += _finalization_reward(reward_assistant_trace)
+    reward += _finalization_reward(reward_assistant_trace, reward_config)
     reward += _outcome_reward(
         calls,
-        tool_text,
+        executed_results,
         reward_assistant_trace,
         full_text,
         latest_assistant_turn,
+        reward_config,
         protocol_errors,
     )
     if protocol_errors:
         reward = min(reward, 0.0)
 
     if state.get("tool_budget_exhausted"):
-        reward += REWARD_CONFIG["tool_budget_exhausted_penalty"]
+        reward += reward_config["tool_budget_exhausted_penalty"]
 
     return reward + structure
 
@@ -464,8 +459,8 @@ class RustToolEnv(vf.MultiTurnEnv):
             state["malformed_call_errors"] = errors
             return True
         executed = set(state.get("executed_call_ids") or [])
-        calls = parse_call_blocks(text)
-        return not any(call["id"] not in executed for call in calls)
+        calls = parse_calls(text)
+        return not any(call.id not in executed for call in calls)
 
     async def env_response(self, messages, state, **kwargs):
         prior_trace = state.get("raw_chatml_transcript", "")
@@ -478,7 +473,7 @@ class RustToolEnv(vf.MultiTurnEnv):
             state["malformed_call_errors"] = errors
             return []
         executed = set(state.get("executed_call_ids") or [])
-        calls = [call for call in parse_call_blocks(text) if call["id"] not in executed]
+        calls = [call for call in parse_calls(text) if call.id not in executed]
         if not calls:
             return []
 
@@ -499,25 +494,26 @@ class RustToolEnv(vf.MultiTurnEnv):
             state["tool_budget_exhausted"] = True
 
         for call in calls[:remaining]:
-            cid = call["id"]
-            params = call["params"]
+            cid = call.id
+            params = call.params
             if trace_prefix and sandbox_path:
                 params = rewrite_params_for_sandbox(params, trace_prefix, sandbox_path)
             if not is_rust_prompt:
                 er = ExecutionResult(False, "", "missing rust task metadata", -1)
-            elif call["tool"] not in RUST_TOOL_NAMES:
-                er = ExecutionResult(False, "", f"unknown tool: {call['tool']}", -1)
+            elif call.tool not in SUPPORTED_RUST_TOOLS:
+                er = ExecutionResult(False, "", f"unknown tool: {call.tool}", -1)
             else:
                 er = execute_rust_tool(
                     self.executor,
-                    call["tool"],
+                    call.tool,
                     params,
-                    expected_output=info.get("expected_output") if call["tool"] == "cargo_run" else None,
+                    expected_output=info.get("expected_output") if call.tool == "cargo_run" else None,
                 )
             executed.add(cid)
             result_block = format_result_block(cid, er)
             tool_turn = render_tool_turn(result_block)
             state.setdefault("executed_tool_calls", []).append(call)
+            state.setdefault("executed_results", {})[cid] = er
             state.setdefault("executed_result_blocks", []).append(result_block)
             prior_trace = _append_unseen_text(prior_trace, incoming_text)
             prior_trace = f"{prior_trace}{tool_turn}"
@@ -534,10 +530,9 @@ class RustToolEnv(vf.MultiTurnEnv):
         state["raw_chatml_transcript"] = prior_trace
         return responses
 
-    def _infer_info_from_calls(self, calls: list[dict]) -> dict:
+    def _infer_info_from_calls(self, calls: list[ProtocolCall]) -> dict:
         for call in calls:
-            params = call.get("params") or {}
-            for value in params.values():
+            for value in call.params.values():
                 if not isinstance(value, str):
                     continue
                 for trace_prefix, info in self.trace_infos.items():
@@ -572,7 +567,7 @@ def load_environment(
     max_failed_verifier_penalty: float | None = None,
 ) -> vf.Environment:
     """Load the Rust tool RL environment with real multi-round tool execution."""
-    _set_reward_config(
+    reward_config = build_reward_config(
         {
             "structure_valid_bonus": structure_valid_bonus,
             "no_call_penalty": no_call_penalty,
@@ -596,15 +591,12 @@ def load_environment(
     )
     # Verifiers at our prime-rl pin forwards a dataset row's `info` dict into
     # env_response / reward kwargs but does NOT forward arbitrary top-level
-    # columns. Pack expected_tool / expected_args / blueprint_root / trace_prefix /
-    # expected_output into `info` so the env can actually execute the verifier.
+    # columns. Pack only the fields the env/reward reads.
     info_keys = (
         "expected_tool",
-        "expected_args",
         "blueprint_root",
         "trace_prefix",
         "expected_output",
-        "kind",
     )
     rows = []
     trace_infos: dict[str, dict] = {}
@@ -621,6 +613,7 @@ def load_environment(
     executor = RustExecutor(timeout=timeout)
     rubric = vf.Rubric(parser=parser)
     rubric.class_objects["validator"] = validator
+    rubric.class_objects["reward_config"] = reward_config
     rubric.add_reward_func(_rust_tool_reward, weight=1.0)
 
     env = RustToolEnv(

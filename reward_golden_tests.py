@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import json
 import math
+import re
 import statistics
 import sys
 import tempfile
@@ -20,6 +21,7 @@ from agent_runtime.chatml import (
     render_tool_turn,
 )
 from agent_runtime.protocol import call_syntax_errors, ended_cleanly_after_final, parse_calls
+from agent_runtime.rust.executor import ExecutionResult
 
 
 ROLLOUT_PATHS = [
@@ -44,8 +46,7 @@ def _install_verifiers_stub() -> None:
 
 _install_verifiers_stub()
 from rl.task_trace import (  # noqa: E402
-    REWARD_CONFIG,
-    _find_result_for,
+    DEFAULT_REWARD_CONFIG,
     _rust_tool_reward,
 )
 from rl.task_format import load_prompts  # noqa: E402
@@ -55,6 +56,25 @@ def result_block(call_id: str, success: bool) -> str:
     status = "success" if success else "failed"
     stderr = "" if success else "\nstderr:\nfailed"
     return f"RESULT {call_id}:\nstatus: {status}\nstdout:\nok{stderr}"
+
+
+def execution_result(success: bool) -> ExecutionResult:
+    return ExecutionResult(
+        success=success,
+        stdout="ok",
+        stderr="" if success else "failed",
+        exit_code=0 if success else 1,
+    )
+
+
+def executed_results_from_blocks(results: list[str]) -> dict[str, ExecutionResult]:
+    executed: dict[str, ExecutionResult] = {}
+    for block in results:
+        first = block.splitlines()[0]
+        if first.startswith("RESULT ") and first.endswith(":"):
+            call_id = first.removeprefix("RESULT ").removesuffix(":")
+            executed[call_id] = execution_result("status: success" in block)
+    return executed
 
 
 def call(tool: str, call_id: str, **params: str) -> str:
@@ -96,44 +116,38 @@ def trajectory_from_assistant_lines(assistant: str, results: list[str]) -> list[
 
 
 def score(assistant: str, results: list[str], expected_tool: str = "read_file") -> float:
-    calls = [
-        {"tool": c.tool, "id": c.id, "params": c.params}
-        for c in parse_calls(assistant)
-    ]
+    calls = parse_calls(assistant)
     return asyncio.run(
         _rust_tool_reward(
             [{"role": "assistant", "content": assistant}],
             state={
                 "executed_tool_calls": calls,
+                "executed_results": executed_results_from_blocks(results),
                 "executed_result_blocks": results,
                 "raw_chatml_transcript": raw_trace(assistant, results),
                 "trajectory": trajectory_from_assistant_lines(assistant, results),
             },
             info={
                 "expected_tool": expected_tool,
-                "expected_args": {"file_path": "src/lib.rs"} if expected_tool else {},
             },
         )
     )
 
 
 def score_with_raw_trace(assistant: str, results: list[str], raw: str) -> float:
-    calls = [
-        {"tool": c.tool, "id": c.id, "params": c.params}
-        for c in parse_calls(assistant)
-    ]
+    calls = parse_calls(assistant)
     return asyncio.run(
         _rust_tool_reward(
             [{"role": "assistant", "content": assistant}],
             state={
                 "executed_tool_calls": calls,
+                "executed_results": executed_results_from_blocks(results),
                 "executed_result_blocks": results,
                 "raw_chatml_transcript": raw,
                 "trajectory": trajectory_from_assistant_lines(assistant, results),
             },
             info={
                 "expected_tool": "read_file",
-                "expected_args": {"file_path": "src/lib.rs"},
             },
         )
     )
@@ -146,7 +160,6 @@ def score_with_state(assistant: str, results: list[str], state: dict) -> float:
             state=state,
             info={
                 "expected_tool": "read_file",
-                "expected_args": {"file_path": "src/lib.rs"},
             },
         )
     )
@@ -220,7 +233,7 @@ class RewardGoldenTests(unittest.TestCase):
         # Heldout counts cargo success without clean FINAL as invalid. It may
         # be less bad than a failed verifier trace, but it must not be a
         # positive optimization target.
-        self.assertEqual(REWARD_CONFIG["verifier_success_bonus"], 0.0)
+        self.assertEqual(DEFAULT_REWARD_CONFIG["verifier_success_bonus"], 0.0)
         self.assertGreater(self._solve_nostop(), self._loop())
         self.assertLessEqual(self._solve_nostop(), 0.0)
         self.assertGreater(self._solve_stop(), 8.0)
@@ -234,15 +247,13 @@ class RewardGoldenTests(unittest.TestCase):
 
     def test_leading_prose_before_final_does_not_get_clean_solve_reward(self) -> None:
         assistant = "\n".join([self.READ, self.PATCH, self.OK, "Fixed it.\nFINAL: done"])
-        calls = [
-            {"tool": c.tool, "id": c.id, "params": c.params}
-            for c in parse_calls(assistant)
-        ]
+        calls = parse_calls(assistant)
         dirty = score_with_state(
             assistant,
             self.SOLVED,
             {
                 "executed_tool_calls": calls,
+                "executed_results": executed_results_from_blocks(self.SOLVED),
                 "executed_result_blocks": self.SOLVED,
                 "raw_chatml_transcript": raw_trace(assistant, self.SOLVED),
                 "trajectory": [
@@ -258,12 +269,10 @@ class RewardGoldenTests(unittest.TestCase):
     def test_unexecuted_trailing_call_after_success_blocks_clean_solve_reward(self) -> None:
         trailing = call("read_file", "c4", file_path="src/lib.rs")
         assistant = "\n".join([self.READ, self.PATCH, self.OK, trailing, "FINAL: done"])
-        executed_calls = [
-            {"tool": c.tool, "id": c.id, "params": c.params}
-            for c in parse_calls("\n".join([self.READ, self.PATCH, self.OK]))
-        ]
+        executed_calls = parse_calls("\n".join([self.READ, self.PATCH, self.OK]))
         state = {
             "executed_tool_calls": executed_calls,
+            "executed_results": executed_results_from_blocks(self.SOLVED),
             "executed_result_blocks": self.SOLVED,
             "raw_chatml_transcript": raw_trace(assistant, self.SOLVED),
             "trajectory": trajectory_from_assistant_lines(assistant, self.SOLVED),
@@ -314,15 +323,13 @@ class RewardGoldenTests(unittest.TestCase):
             {"role": "assistant", "content": self.OK + "<|im_end|>"},
             {"role": "assistant", "content": "FINAL: done"},
         ]
-        calls = [
-            {"tool": c.tool, "id": c.id, "params": c.params}
-            for c in parse_calls("\n".join(m["content"] for m in completion))
-        ]
+        calls = parse_calls("\n".join(m["content"] for m in completion))
         reward = asyncio.run(
             _rust_tool_reward(
                 completion,
                 state={
                     "executed_tool_calls": calls,
+                    "executed_results": executed_results_from_blocks(self.SOLVED),
                     "executed_result_blocks": self.SOLVED,
                     "raw_chatml_transcript": raw_trace(
                         "\n".join(m["content"] for m in completion),
@@ -331,7 +338,6 @@ class RewardGoldenTests(unittest.TestCase):
                 },
                 info={
                     "expected_tool": "read_file",
-                    "expected_args": {"file_path": "src/lib.rs"},
                 },
             )
         )
@@ -382,6 +388,18 @@ def tool_text(row: dict) -> str:
     )
 
 
+def _result_for(call_id: str, text: str) -> dict | None:
+    match = re.search(
+        r"RESULT\s+" + re.escape(call_id) + r":\n(.*?)(?=\nRESULT\s+[A-Za-z0-9_\-]+:|\Z)",
+        text,
+        re.DOTALL,
+    )
+    if not match:
+        return None
+    body = match.group(1)
+    return {"success": "status: success" in body}
+
+
 def trajectory(row: dict) -> tuple[list[str], str, bool, bool, bool]:
     atext = assistant_text(row)
     ttext = tool_text(row)
@@ -391,14 +409,14 @@ def trajectory(row: dict) -> tuple[list[str], str, bool, bool, bool]:
         bool(result.get("success", False))
         for c in calls
         if c.tool in VERIFIERS
-        for result in [_find_result_for(c.id, ttext)]
+        for result in [_result_for(c.id, ttext)]
         if result is not None
     ]
     has_verifier = bool(outcomes) or any(t in VERIFIERS for t in tools)
     has_patch = "apply_patch" in tools
     has_final = "FINAL:" in atext
     clean_final = ended_cleanly_after_final(atext)
-    executed = {c.tool for c in calls if _find_result_for(c.id, ttext) is not None}
+    executed = {c.tool for c in calls if _result_for(c.id, ttext) is not None}
     if outcomes and outcomes[-1] and clean_final:
         stage = "clean_final"
     elif outcomes and outcomes[-1]:

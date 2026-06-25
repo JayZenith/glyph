@@ -1,3 +1,20 @@
+"""
+Render structured message objects into Glyph ChatML text.
+
+This file is not a raw model-output repair layer. If the model omits a required
+ChatML boundary during generation, scoring/validation should treat that as a
+model failure. These helpers are only for turning stored structured messages
+from JSONL/YAML/runtime state into the exact text format the model should see.
+
+Direct users:
+- sft/evals/prompt_loader.py: renders eval YAML prompts.
+- sft/evals/generation.py: injects rendered tool RESULT turns during eval.
+- sft/passk_scan_vllm.py: injects rendered tool RESULT turns during pass@k.
+- rl/task_trace.py: renders RL transcripts/tool RESULT turns for scoring.
+- rl/train.py: installs the same ChatML template into the tokenizer view.
+- reward_golden_tests.py: locks the renderer/template behavior in tests.
+"""
+
 from __future__ import annotations
 
 from typing import Any

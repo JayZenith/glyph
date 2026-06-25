@@ -76,6 +76,10 @@ source /workspace/prime-rl-src/.venv/bin/activate
 ```
 
 ```bash
+CUDA_VISIBLE_DEVICES=1 inference --model.name JayZenith/SFT_V1 --server.port 8011
+```
+
+```bash
 mkdir -p outputs/rlvr_passk/logs
 nohup env \
   HF_HOME=/workspace/.hf_home CARGO_HOME=$HOME/.cargo RUSTUP_HOME=$HOME/.rustup \
@@ -83,22 +87,22 @@ nohup env \
   PYTHONPATH=/workspace/glyph:/workspace/glyph/rl \
   /workspace/prime-rl-src/.venv/bin/python rl/train.py \
     --model JayZenith/SFT_V1 \
-    --teacher-model JayZenith/SFT_V1 --teacher-device 1 --teacher-tau 0.2 \
+    --teacher-model JayZenith/SFT_V1 --teacher-tau 0.2 \
     --prime-rl-gpu-ids 2,3 --num-infer-gpus 1 --num-train-gpus 1 --gpus-per-node 2 \
     --data synthetic_data/rl_prompts_passk_target.jsonl \
     --output outputs/rlvr_passk \
     --max-steps 200 --batch-size 24 --rollouts-per-example 8 \
-    --seq-len 5120 --max-model-len 12288 --teacher-max-model-len 12288 \
+    --seq-len 5120 --max-model-len 12288 \
     --max-completion-tokens 1536 --learning-rate 5e-7 --weight-decay 0.01 \
     --checkpoint-interval 25 --temperature 0.8 \
-    --gpu-memory-utilization 0.70 --teacher-gpu-memory-utilization 0.50 \
+    --gpu-memory-utilization 0.70 \
     --max-tool-rounds 15 --tool-timeout 30 --port 8010 --teacher-port 8011 \
     > outputs/rlvr_passk/logs/launcher.log 2>&1 < /dev/null &
 ```
 
 # DUE TO MAX MODEL LIMIT USE 
 --max-model-len 16384
---teacher-max-model-len 16384
+Set the external teacher server's max model length when starting `inference`.
 
 Settings that matter (the rest are scenery): `teacher-tau 0.2` (anchor to SFT —
 `0.01` collapsed the first run), `rollouts-per-example 8` + `temperature 0.8`
@@ -169,6 +173,10 @@ GPU box billed hourly — stop it when idle (`vastai stop instance <id>`).
 
 
 ```bash
+CUDA_VISIBLE_DEVICES=3 inference --model.name JayZenith/SFT_HALF_A --server.port 8001
+```
+
+```bash
 python rl/train.py \
   --model JayZenith/SFT_HALF_A \
   --teacher-model JayZenith/SFT_HALF_A \
@@ -181,7 +189,6 @@ python rl/train.py \
   --rollouts-per-example 8 \
   --seq-len 8192 \
   --max-model-len 16384 \
-  --teacher-max-model-len 16384 \
   --max-completion-tokens 4000 \
   --learning-rate 5e-7 \
   --weight-decay 0.01 \
@@ -193,14 +200,12 @@ python rl/train.py \
   --activation-checkpointing \
   --fused-lm-head-token-chunk-size auto \
   --gpu-memory-utilization 0.70 \
-  --teacher-gpu-memory-utilization 0.50 \
   --prime-rl-gpu-ids 0,1,2 \
   --num-infer-gpus 1 \
   --num-train-gpus 2 \
   --gpus-per-node 3 \
   --port 8000 \
-  --teacher-port 8001 \
-  --teacher-device 3
+  --teacher-port 8001
 
 
 ```

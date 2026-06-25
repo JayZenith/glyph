@@ -4,14 +4,16 @@
 # stopping with one FINAL after success. Minimal "solve -> stop" reward.
 set -euo pipefail
 
-MODEL="${MODEL:-JayZenith/SFT_V1}"          # base + teacher (anchor target)
+MODEL="${MODEL:-JayZenith/SFT_V1}"          # base + external teacher anchor target
 OUTPUT="${OUTPUT:-outputs/rlvr_v2}"
 DATA="${DATA:-synthetic_data/rl_prompts_v2_1323.jsonl}"
+TEACHER_PORT="${TEACHER_PORT:-8011}"
+
+echo "Expected external teacher inference at http://127.0.0.1:${TEACHER_PORT}"
 
 python rl/train.py \
   --model "$MODEL" \
   --teacher-model "$MODEL" \
-  --teacher-device 0 \
   --teacher-tau 0.2 \
   --prime-rl-gpu-ids 2,3 \
   --num-infer-gpus 1 \
@@ -24,18 +26,16 @@ python rl/train.py \
   --rollouts-per-example 8 \
   --seq-len 5120 \
   --max-model-len 12288 \
-  --teacher-max-model-len 12288 \
   --max-completion-tokens 1536 \
   --learning-rate 5e-7 \
   --weight-decay 0.01 \
   --checkpoint-interval 25 \
   --temperature 0.8 \
   --gpu-memory-utilization 0.70 \
-  --teacher-gpu-memory-utilization 0.50 \
   --max-tool-rounds 15 \
   --tool-timeout 30 \
   --port 8010 \
-  --teacher-port 8011
+  --teacher-port "$TEACHER_PORT"
 
 # Gating (run on a SEPARATE 1-GPU box, async, so this multi-GPU box never blocks):
 #   fast, per checkpoint  -> sft/evals/eval_prompts_smoke_12.yaml  (post_eval_smoke_12)

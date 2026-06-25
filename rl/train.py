@@ -4,15 +4,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
+import sys
 import tomllib
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoTokenizer
-import tomli_w
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from agent_runtime.chatml import GLYPH_CHAT_TEMPLATE, assert_glyph_template_parity
 
@@ -61,7 +63,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rollouts-per-example", type=int)
     parser.add_argument("--seq-len", type=int)
     parser.add_argument("--max-model-len", type=int)
-    parser.add_argument("--teacher-max-model-len", type=int)
     parser.add_argument("--max-completion-tokens", type=int)
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--weight-decay", type=float)
@@ -77,7 +78,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume-step", type=int)
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--gpu-memory-utilization", type=float)
-    parser.add_argument("--teacher-gpu-memory-utilization", type=float)
     parser.add_argument("--max-samples", type=int)
     parser.add_argument("--max-tool-rounds", type=int)
     parser.add_argument("--nsjail-path")
@@ -98,8 +98,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-failed-verifier-penalty", type=float)
     parser.add_argument("--port", type=int)
     parser.add_argument("--teacher-model", default="JayZenith/SFT_V1")
+    parser.add_argument("--teacher-base-url",
+                        help="External teacher inference base URL. Defaults to http://127.0.0.1:<teacher-port>.")
     parser.add_argument("--teacher-port", type=int, default=8001)
-    parser.add_argument("--teacher-device", type=int, default=0)
     parser.add_argument("--disable-glyph-chat-template", action="store_true",
                         help="Use the base tokenizer chat template instead of the CALL/RESULT/FINAL ChatML template.")
     # Anchor to the SFT reference. 0.01 was effectively no KL: the policy drifted
@@ -240,31 +241,6 @@ def add_chat_boundary_stop_tokens(sampling: dict[str, Any], model_name: str) -> 
     existing = extra_body.setdefault("stop_token_ids", [])
     extra_body["stop_token_ids"] = sorted({*existing, *stop_ids})
     extra_body["stop"] = ["<|im_end|>", "<|im_start|>"]
-
-# clone inference config, swap in teacher model, sets teacher context length, sets teacher port,
-# and lowers taecher GPU mem usage if I did not override it
-def build_teacher_inference_config(
-    inference: dict[str, Any],
-    teacher_model_name: str,
-    args: argparse.Namespace,
-) -> dict[str, Any]:
-    teacher_inference = deepcopy(inference)
-    teacher_model = teacher_inference.setdefault("model", {})
-    teacher_model["name"] = teacher_model_name
-    if args.teacher_max_model_len is not None:
-        teacher_model["max_model_len"] = args.teacher_max_model_len
-    elif args.seq_len is not None:
-        # Teacher only needs enough context to score rollout sequences.
-        teacher_model["max_model_len"] = args.seq_len
-    maybe_set(teacher_inference.setdefault("server", {}), "port", args.teacher_port)
-    if args.teacher_gpu_memory_utilization is not None:
-        teacher_inference["gpu_memory_utilization"] = args.teacher_gpu_memory_utilization
-    else:
-        teacher_inference["gpu_memory_utilization"] = max(
-            0.2,
-            min(float(teacher_inference.get("gpu_memory_utilization", 0.7)), 0.25),
-        )
-    return teacher_inference
 
 # loads 3 TOML files and deletes trainer["buffer"] as this wrapper wants
 # PRIME-RL's current config shape, not old buffer block
@@ -457,7 +433,7 @@ def build_config(args: argparse.Namespace, adapter_cfg: dict[str, Any] | None) -
     orchestrator["teacher"] = {
         "model": {"name": teacher_model_name},
         "client": {
-            "base_url": [f"http://127.0.0.1:{args.teacher_port}"],
+            "base_url": [args.teacher_base_url or f"http://127.0.0.1:{args.teacher_port}"],
         },
     }
 
@@ -501,36 +477,6 @@ def patch_prime_orchestrator_httpx_import() -> None:
         text = "import httpx\n" + text
     path.write_text(text, encoding="utf-8")
     print(f"Patched missing httpx import in {path}")
-
-
-def launch_teacher_inference(raw_config: dict[str, Any], args: argparse.Namespace) -> subprocess.Popen[str]:
-    teacher_model_name = args.teacher_model or raw_config["trainer"]["model"]["name"]
-    teacher_inference = build_teacher_inference_config(raw_config["inference"], teacher_model_name, args)
-    config_dir = Path(raw_config["output_dir"]) / "configs"
-    log_dir = Path(raw_config["output_dir"]) / "logs"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    teacher_path = config_dir / "teacher_inference.toml"
-    teacher_log_path = log_dir / "teacher_inference.log"
-    with teacher_path.open("wb") as f:
-        tomli_w.dump(teacher_inference, f)
-
-    prime_rl_dir = Path(os.environ.get("PRIME_RL_DIR", "/workspace/prime-rl-src"))
-    inference_bin = prime_rl_dir / ".venv/bin/inference"
-    if not inference_bin.exists():
-        inference_bin = Path("inference")
-
-    teacher_log = teacher_log_path.open("a", encoding="utf-8")
-    return subprocess.Popen(
-        [str(inference_bin), "@", str(teacher_path)],
-        env={
-            **os.environ,
-            "CUDA_VISIBLE_DEVICES": str(args.teacher_device),
-        },
-        stdout=teacher_log,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
 
 
 def main() -> None:
@@ -582,16 +528,11 @@ def main() -> None:
     if managed_gpu_ids is None:
         managed_gpu_ids = [0, 1]
     patch_gpu_mapping(managed_gpu_ids)
-    teacher_process = launch_teacher_inference(raw_config, args)
 
     validated_config = dict(raw_config)
     validated_config.pop("metadata", None)
     config = RLConfig.model_validate(validated_config)
-    try:
-        rl_mod.rl_local(config)
-    finally:
-        if teacher_process is not None and teacher_process.poll() is None:
-            teacher_process.terminate()
+    rl_mod.rl_local(config)
 
 
 if __name__ == "__main__":

@@ -2,17 +2,14 @@
 set -euo pipefail
 
 # Install the pinned PRIME-RL stack used by the current RLVR wrapper.
-# This intentionally stays on the pre teacher-pool refactor commit because
-# rl/train.py launches an external frozen teacher vLLM. A future migration to
-# native PRIME-RL num_teacher_gpus should be done on an instance and tested
-# end-to-end before removing this pin/patcher.
+# The wrapper expects a student inference server managed by PRIME-RL and an
+# external frozen teacher endpoint configured through orchestrator.teacher.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PRIME_RL_DIR="${1:-${PRIME_RL_DIR:-/workspace/prime-rl-src}}"
 PRIME_PYTHON_VERSION="${PRIME_PYTHON_VERSION:-3.12}"
 PRIME_RL_ENABLE_LORA="${PRIME_RL_ENABLE_LORA:-0}"
-# Last commit before the student/teacher inference-pool refactor (d25184e06).
-# Our patcher targets the older flat `inference_pool` layout.
+# Our patcher targets this commit's flat inference-pool layout.
 PRIME_RL_COMMIT="${PRIME_RL_COMMIT:-97872d3e0}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 DEFAULT_TMP_ROOT="$WORKSPACE_DIR/.tmp"

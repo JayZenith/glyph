@@ -151,7 +151,7 @@ RLVR used a 4-GPU node:
 ```text
 GPU 0: student inference
 GPU 1,2: trainer
-GPU 3: teacher
+GPU 3: external teacher inference
 ```
 
 Install:
@@ -170,6 +170,12 @@ source /workspace/prime-rl-src/.venv/bin/activate
 This was the final cleaner run: LoRA only, SFT teacher anchor, mixed RL pool,
 strict reward top score only for held-out-style clean verifier success.
 
+Start the frozen teacher endpoint separately on GPU 3 before launching RL:
+
+```bash
+CUDA_VISIBLE_DEVICES=3 inference --model.name JayZenith/SFT_HALF_A --server.port 8001
+```
+
 ```bash
 python rl/train.py \
   --model JayZenith/SFT_HALF_A \
@@ -185,7 +191,6 @@ python rl/train.py \
   --rollouts-per-example 8 \
   --seq-len 16384 \
   --max-model-len 16384 \
-  --teacher-max-model-len 16384 \
   --max-completion-tokens 4000 \
   --learning-rate 1e-6 \
   --weight-decay 0.01 \
@@ -211,14 +216,12 @@ python rl/train.py \
   --activation-checkpointing \
   --fused-lm-head-token-chunk-size auto \
   --gpu-memory-utilization 0.70 \
-  --teacher-gpu-memory-utilization 0.50 \
   --prime-rl-gpu-ids 0,1,2 \
   --num-infer-gpus 1 \
   --num-train-gpus 2 \
   --gpus-per-node 3 \
   --port 8000 \
   --teacher-port 8001 \
-  --teacher-device 3 \
   --enforce-gibberish-filter \
   --enforce-repetition-filter
 ```

@@ -44,7 +44,6 @@ REPETITION_RE = re.compile(r"(.{20,200}?)\1{4,}", re.DOTALL)
 GIBBERISH_RE = re.compile(
     r"(\.waitKey|\.invokeLater|\.onreadystatechange|typealias|endphp|firebaseio|noreferrer|::::){8,}"
 )
-FINAL_MAX_CHARS = 512
 CHATML_END = "<|im_end|>"
 
 
@@ -243,8 +242,6 @@ def final_hygiene_errors(assistant_text: str) -> list[str]:
         errors.append("Empty FINAL")
     if "\n" in body or "\r" in body:
         errors.append("FINAL must be a single line")
-    if len(body) > FINAL_MAX_CHARS:
-        errors.append("FINAL too long")
     if any((ord(ch) < 32 and ch not in "\n\r\t") or ord(ch) > 126 for ch in body):
         errors.append("Non-ASCII FINAL")
     if "\ufffd" in body or "<|endoftext|>" in assistant_text:

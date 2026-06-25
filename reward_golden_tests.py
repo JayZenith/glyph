@@ -45,7 +45,7 @@ def _install_verifiers_stub() -> None:
 
 
 _install_verifiers_stub()
-from rl.task_trace import (  # noqa: E402
+from rl.reward import (  # noqa: E402
     DEFAULT_REWARD_CONFIG,
     _rust_tool_reward,
 )

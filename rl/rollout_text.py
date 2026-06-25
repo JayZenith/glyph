@@ -1,0 +1,93 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from agent_runtime.chatml import (
+    message_content,
+    message_role,
+    render_messages,
+)
+from agent_runtime.protocol import strip_generated_assistant_stop
+
+
+def completion_text(completion) -> str:
+    if isinstance(completion, str):
+        return completion
+    if isinstance(completion, list):
+        return "\n".join(message_content(m) for m in completion)
+    return str(completion)
+
+
+def completion_role_text(completion, role: str) -> str:
+    if isinstance(completion, list):
+        return "\n".join(
+            strip_generated_assistant_stop(message_content(m)) if role == "assistant" else message_content(m)
+            for m in completion
+            if message_role(m) == role
+        )
+    return "" if role == "tool" else completion_text(completion)
+
+
+def latest_assistant_segment(text: str) -> str:
+    marker = "<|im_start|>assistant\n"
+    if marker not in text:
+        return text
+    return text.rsplit(marker, 1)[-1]
+
+
+def append_unseen_text(prior: str, text: str) -> str:
+    if not text or text in prior:
+        return prior
+    max_overlap = min(len(prior), len(text))
+    for size in range(max_overlap, 0, -1):
+        if prior.endswith(text[:size]):
+            return prior + text[size:]
+    return prior + text
+
+
+def messages_text(messages) -> str:
+    if isinstance(messages, str):
+        return messages
+    if isinstance(messages, list):
+        return render_messages(messages).rstrip()
+    return str(messages)
+
+
+@dataclass(frozen=True)
+class RolloutText:
+    assistant: str
+    latest_assistant: str
+    tool: str
+    full: str
+
+
+def collect_rollout_text(state: dict) -> RolloutText:
+    assistant_parts: list[str] = []
+    tool_parts: list[str] = []
+    full_parts: list[str] = []
+    latest_assistant = ""
+
+    for step in state.get("trajectory") or []:
+        for field in ("prompt", "completion"):
+            for message in step.get(field) or []:
+                content = message_content(message)
+                role = message_role(message)
+                full_parts.append(content)
+                if role == "tool":
+                    tool_parts.append(content)
+                if field == "completion" and role == "assistant":
+                    assistant = strip_generated_assistant_stop(content)
+                    assistant_parts.append(assistant)
+                    latest_assistant = assistant.strip()
+
+    full = (
+        str(state["raw_chatml_transcript"])
+        if state.get("raw_chatml_transcript")
+        else "\n".join(full_parts)
+    )
+    return RolloutText(
+        assistant="\n".join(assistant_parts),
+        latest_assistant=latest_assistant,
+        tool="\n".join(tool_parts),
+        full=full,
+    )

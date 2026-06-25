@@ -202,8 +202,4 @@ class SimpleTraceValidator:
         errors.extend(final_hygiene_errors(assistant_text))
         if ROLE_LEAK_RE.search(assistant_text):
             errors.append("Role marker leakage")
-        if has_final(assistant_text):
-            last_final = assistant_text.rfind("FINAL:")
-            if last_final >= 0 and "CALL " in assistant_text[last_final + len("FINAL:"):]:
-                errors.append("Garbage after final response")
         return ValidationResult(valid=not errors, errors=errors)

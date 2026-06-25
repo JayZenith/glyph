@@ -178,7 +178,6 @@ def generate(
     cur_prompt = prompt
     execution = execution or {}
     executor = create_executor(
-        nsjail_path=execution.get("nsjail_path"),
         timeout=execution.get("timeout", 30),
     )
     blueprint_root = execution.get("blueprint_root")
@@ -252,7 +251,6 @@ def generate_batch(
     states: list[_BatchState] = []
     for prompt, execution in zip(prompts, executions):
         executor = create_executor(
-            nsjail_path=execution.get("nsjail_path"),
             timeout=execution.get("timeout", 30),
         )
         blueprint_root = execution.get("blueprint_root")

@@ -74,7 +74,6 @@ def main() -> int:
     parser.add_argument("--cases-root", default="runs/rlvr1/rust_cases/eval",
                         help="Root directory where held-out eval Rust cases are materialized")
     parser.add_argument("--tool-timeout", type=int, default=30)
-    parser.add_argument("--nsjail-path", default=None)
     parser.add_argument("--stream-output", action="store_true",
                         help="Print each completed model output as soon as that prompt finishes")
     parser.add_argument("--stream-output-chars", type=int, default=0,
@@ -111,7 +110,6 @@ def main() -> int:
                 "trace_prefix": item.get("trace_prefix"),
                 "sandbox_root": Path(args.cases_root) / "_sandboxes",
                 "timeout": args.tool_timeout,
-                "nsjail_path": args.nsjail_path,
                 "expected_output": item.get("expected_output"),
             }
             for item in batch

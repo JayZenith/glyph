@@ -24,7 +24,6 @@ def execute_rust_tool(
                 f'expected exact output "{expected_output}"',
                 result.exit_code,
                 timed_out=result.timed_out,
-                sandboxed=result.sandboxed,
             )
         return result
     if tool_name == "read_file":

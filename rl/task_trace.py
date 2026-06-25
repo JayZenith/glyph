@@ -648,7 +648,6 @@ def load_environment(
     data_path: str = "synthetic_data/rl_prompts_signal_v3_pool_b_mixed.jsonl",
     max_samples: int | None = None,
     env_id: str = "task-trace",
-    nsjail_path: str | None = None,
     timeout: int = 30,
     max_tool_rounds: int = 5,
     structure_valid_bonus: float | None = None,
@@ -714,7 +713,7 @@ def load_environment(
 
     parser = vf.Parser()
     validator = SimpleTraceValidator()
-    executor = create_executor(nsjail_path=nsjail_path, timeout=timeout)
+    executor = create_executor(timeout=timeout)
     rubric = vf.Rubric(parser=parser)
     rubric.class_objects["validator"] = validator
     rubric.add_reward_func(_rust_tool_reward, weight=1.0)

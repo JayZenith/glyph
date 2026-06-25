@@ -12,7 +12,7 @@ User task here.
 <|im_end|>
 
 <|im_start|>assistant
-CALL tool_name(id="c1", arg1="...", arg2="...")
+CALL tool_name {"id":"c1","arg1":"...","arg2":"..."}
 <|im_end|>
 
 <|im_start|>tool

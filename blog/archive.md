@@ -9,11 +9,11 @@ Then the last check landed: the same checkpoint was run on the original 69-promp
 The model speaks a tiny tool-use protocol:
 
 ```bash
-assistant ->  CALL read_file(id="c1", file_path="src/lib.rs")
+assistant ->  CALL read_file {"id":"c1","file_path":"src/lib.rs"}
 tool      ->  RESULT c1: status: success  stdout: ...
-assistant ->  CALL apply_patch(id="c2", ...)
+assistant ->  CALL apply_patch {"id":"c2","file_path":"...","find":"...","replace":"..."}
 tool      ->  RESULT c2: status: success  stdout: patch applied
-assistant ->  CALL cargo_run(id="c3", project_path=".")
+assistant ->  CALL cargo_run {"id":"c3","project_path":"."}
 tool      ->  RESULT c3: status: success  stdout: ada:4,bob:2,cy:8
 assistant ->  FINAL: patched the filter pipeline; stdout now matches.
 ```
@@ -41,7 +41,7 @@ Our custom Rust/cargo environment, `rl/task_trace.py::RustToolEnv`, subclasses `
 ```python
 class RustToolEnv(vf.MultiTurnEnv):
     async def env_response(self, messages, state):
-        calls = parse_call_blocks(latest_assistant(state))      # CALL tool(id=..., ...)
+        calls = parse_call_blocks(latest_assistant(state))      # CALL tool {...}
         result = execute_rust_tool(self.executor, call.tool, call.params)  # real cargo
         return [{"role": "tool", "content": format_result_block(call.id, result)}]
 
@@ -130,11 +130,11 @@ On the 69 held-out prompts SFT_V1 is genuinely good at the *hard* part — solvi
 A real rollout, scored +8 by the verifier (4 turns, no wasted moves):
 
 ```text
-CALL read_file(id="c1", file_path=".../src/main.rs")
+CALL read_file {"id":"c1","file_path":".../src/main.rs"}
 RESULT c1: status: success  stdout: fn main() { let records = [("ada", Some(4)), ...
-CALL apply_patch(id="c2", find=".filter(|entry| ...", replace=".filter_map(|(name, score)| ...")
+CALL apply_patch {"id":"c2","find":".filter(|entry| ...","replace":".filter_map(|(name, score)| ..."}
 RESULT c2: status: success  stdout: patch applied
-CALL cargo_run(id="c3", project_path=".")
+CALL cargo_run {"id":"c3","project_path":"."}
 RESULT c3: status: success  stdout: ada:4,bob:2,cy:8        ← exact oracle match
 FINAL: patched the filter pipeline; stdout now matches.
 ```

@@ -23,7 +23,7 @@ User task here.
 <|im_end|>
 
 <|im_start|>assistant
-CALL tool_name(id="c1", arg1="...", arg2="...")
+CALL tool_name {"id":"c1","arg1":"...","arg2":"..."}
 <|im_end|>
 
 <|im_start|>tool
@@ -86,7 +86,7 @@ Fix the failing crate at runs/rlvr1/rust_cases/addlib_bug. Read src/lib.rs, patc
 <|im_end|>
 
 <|im_start|>assistant
-CALL read_file(id=\"c1\", file_path=\"runs/rlvr1/rust_cases/addlib_bug/src/lib.rs\")
+CALL read_file {"id":"c1","file_path":"runs/rlvr1/rust_cases/addlib_bug/src/lib.rs"}
 <|im_end|>
 
 <|im_start|>tool
@@ -94,13 +94,13 @@ RESULT c1:\npub fn add(a: i32, b: i32) -> i32 { a - b }
 <|im_end|>
 
 <|im_start|>assistant
-CALL apply_patch(id=\"c2\", file_path=\"runs/rlvr1/rust_cases/addlib_bug/src/lib.rs\", find=\"a - b\", replace=\"a + b\")\n<|im_end|>
+CALL apply_patch {"id":"c2","file_path":"runs/rlvr1/rust_cases/addlib_bug/src/lib.rs","find":"a - b","replace":"a + b"}\n<|im_end|>
 
 <|im_start|>tool
 RESULT c2:\nstatus: success\n<|im_end|>
 
 <|im_start|>assistant
-CALL cargo_test(id=\"c3\", project_path=\"runs/rlvr1/rust_cases/addlib_bug\")\n<|im_end|>
+CALL cargo_test {"id":"c3","project_path":"runs/rlvr1/rust_cases/addlib_bug"}\n<|im_end|>
 
 <|im_start|>tool
 RESULT c3:\nstatus: success\nstdout: test result: ok\n<|im_end|>
@@ -175,7 +175,7 @@ In the Rust crate at runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active
 <|im_end|>
 
 <|im_start|>assistant
-CALL read_file(id="c1", file_path="runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active_tags_filter_map_join/src/main.rs")
+CALL read_file {"id":"c1","file_path":"runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active_tags_filter_map_join/src/main.rs"}
 <|im_end|>
 
 <|im_start|>tool
@@ -202,7 +202,7 @@ fn main() {
 <|im_end|>
 
 <|im_start|>assistant
-CALL apply_patch(id="c2", file_path="runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active_tags_filter_map_join/src/main.rs", find=".filter_map(|(name, enabled)| if !enabled { Some(*name) } else { None })", replace=".filter_map(|(name, enabled)| if enabled { Some(*name) } else { None })")
+CALL apply_patch {"id":"c2","file_path":"runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active_tags_filter_map_join/src/main.rs","find":".filter_map(|(name, enabled)| if !enabled { Some(*name) } else { None })","replace":".filter_map(|(name, enabled)| if enabled { Some(*name) } else { None })"}
 <|im_end|>
 
 <|im_start|>tool
@@ -213,7 +213,7 @@ patch applied
 <|im_end|>
 
 <|im_start|>assistant
-CALL cargo_run(id="c3", project_path="runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active_tags_filter_map_join")
+CALL cargo_run {"id":"c3","project_path":"runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active_tags_filter_map_join"}
 <|im_end|>
 
 <|im_start|>tool
@@ -236,7 +236,7 @@ error: could not compile `active_tags_filter_map_join` (bin "active_tags_filter_
 <|im_end|>
 
 <|im_start|>assistant
-CALL read_file(id="c4", file_path="runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active_tags_filter_map_join/src/main.rs")
+CALL read_file {"id":"c4","file_path":"runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active_tags_filter_map_join/src/main.rs"}
 <|im_end|>
 
 <|im_start|>tool
@@ -263,7 +263,7 @@ fn main() {
 <|im_end|>
 
 <|im_start|>assistant
-CALL apply_patch(id="c5", file_path="runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active_tags_filter_map_join/src/main.rs", find=".filter_map(|(name, enabled)| if enabled { Some(*name) } else { None })", replace=".filter_map(|(name, enabled)| if *enabled { Some(*name) } else { None })")
+CALL apply_patch {"id":"c5","file_path":"runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active_tags_filter_map_join/src/main.rs","find":".filter_map(|(name, enabled)| if enabled { Some(*name) } else { None })","replace":".filter_map(|(name, enabled)| if *enabled { Some(*name) } else { None })"}
 <|im_end|>
 
 <|im_start|>tool
@@ -274,7 +274,7 @@ patch applied
 <|im_end|>
 
 <|im_start|>assistant
-CALL cargo_run(id="c6", project_path="runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active_tags_filter_map_join")
+CALL cargo_run {"id":"c6","project_path":"runs/rlvr1/rust_cases/eval100_024_patch_run_pass_005_active_tags_filter_map_join"}
 <|im_end|>
 
 <|im_start|>tool
@@ -292,11 +292,11 @@ FINAL: Fixed the iterator filter_map condition so it keeps active tags and deref
 
 
 ### cN used for tool call and result pairs
-- CALL read_file(id="c1", file_path="runs/rlvr1/rust_cases/CASE_ID/src/lib.rs")
-- CALL cargo_test(id="c3", project_path="runs/rlvr1/rust_cases/CASE_ID")
+- CALL read_file {"id":"c1","file_path":"runs/rlvr1/rust_cases/CASE_ID/src/lib.rs"}
+- CALL cargo_test {"id":"c3","project_path":"runs/rlvr1/rust_cases/CASE_ID"}
 
 `cN` is different. It identifies the tool call/result pair:
-` CALL read_file(id="c1", ...)
+` CALL read_file {"id":"c1",...}
   RESULT c1:
 `
 
@@ -365,7 +365,7 @@ What's actually happening (confirmed across steps):
 
 Why it cascades: the model dumps its entire imagined multi-turn solution
 inside turn 1 (e.g. the -4.2 row emits read_file, then hallucinates
-<|im_end|>user\nCALL apply_patch(...) etc.). But the env only executes the
+<|im_end|>user\nCALL apply_patch {...} etc.). But the env only executes the
 first real CALL, returns one RESULT, and the rest of the model's "plan" is
 never run — it's just text. So:
 - Single-call tasks (test_only) → one CALL is enough → succeed → +1.8.
@@ -518,14 +518,14 @@ HOWEVER, the RL continuation after tool result differs from SFT eval
 - With `message_type="completion"`, this may not be rendered back into the exact ChatML continuation the SFT model was trained/eval on
 
 Rollouts were however showing the failures as:
-- assistant turn 1: valid CALL read_file(...) <|im_end|>
+- assistant turn 1: valid CALL read_file {...} <|im_end|>
 - tool result: valid RESULT c1...
 - assistant turn 2: only <|im_end|>
 - Then env sees no pending call and stops.
 
 Symptom in RL rollout:
 
-  assistant: CALL read_file(...) <|im_end|>
+  assistant: CALL read_file {...} <|im_end|>
   tool: RESULT c1: ...
   assistant: <|im_end|>
 

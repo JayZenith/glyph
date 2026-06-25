@@ -47,7 +47,6 @@ from rl.task_trace import (  # noqa: E402
     REWARD_CONFIG,
     _find_result_for,
     _rust_tool_reward,
-    _verifier_outcomes,
 )
 from rl.task_format import load_prompts  # noqa: E402
 
@@ -388,10 +387,13 @@ def trajectory(row: dict) -> tuple[list[str], str, bool, bool, bool]:
     ttext = tool_text(row)
     calls = parse_calls(atext)
     tools = [c.tool for c in calls]
-    outcomes = _verifier_outcomes(
-        [{"tool": c.tool, "id": c.id, "params": c.params} for c in calls],
-        ttext,
-    )
+    outcomes = [
+        bool(result.get("success", False))
+        for c in calls
+        if c.tool in VERIFIERS
+        for result in [_find_result_for(c.id, ttext)]
+        if result is not None
+    ]
     has_verifier = bool(outcomes) or any(t in VERIFIERS for t in tools)
     has_patch = "apply_patch" in tools
     has_final = "FINAL:" in atext

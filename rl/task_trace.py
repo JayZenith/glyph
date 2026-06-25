@@ -80,37 +80,6 @@ def _structure_reward(assistant_text: str, result_text: str, validator: SimpleTr
 # Reward scoring (operates on full transcript; no execution side-effects here)
 # ---------------------------------------------------------------------------
 
-# VITAL, walks backward through calls and finds last cargo_test or cargo_run; if that terminal
-# verifier succeeded, rollout gets a major reward
-def _terminal_verifier_success(
-    calls: list[dict],
-    tool_text: str,
-) -> tuple[bool, bool]:
-    """Return (success, saw_terminal_verifier) for cargo_test/cargo_run."""
-    for call in reversed(calls):
-        if call["tool"] not in {"cargo_test", "cargo_run"}:
-            continue
-        res = _find_result_for(call["id"], tool_text)
-        if res is None:
-            continue
-        return bool(res.get("success", False)), True
-    return False, False
-
-
-# Ordered pass/fail for every executed cargo_test/cargo_run call, in call order.
-# Lets the reward count failed attempts and detect recovery (fail -> ... -> pass).
-def _verifier_outcomes(calls: list[dict], tool_text: str) -> list[bool]:
-    outcomes: list[bool] = []
-    for call in calls:
-        if call["tool"] not in {"cargo_test", "cargo_run"}:
-            continue
-        res = _find_result_for(call["id"], tool_text)
-        if res is None:
-            continue
-        outcomes.append(bool(res.get("success", False)))
-    return outcomes
-
-
 def _completion_text(completion) -> str:
     if isinstance(completion, str):
         return completion

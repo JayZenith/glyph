@@ -68,6 +68,8 @@ class ProtocolCall:
 # ---------------------------------------------------------------------------
 # ChatML role extraction
 # ---------------------------------------------------------------------------
+# Validation judges model assistant output separately from tool results.
+# Otherwise RESULT text could be mistaken for something the model generated.
 
 def _joined_role_text(text: str, role: str) -> str:
     """Return all content for one role from a ChatML transcript.

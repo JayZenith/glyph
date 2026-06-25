@@ -13,7 +13,12 @@ import unittest
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from agent_runtime.chatml import assert_glyph_template_parity, render_prompt, render_tool_turn
+from agent_runtime.chatml import (
+    assert_glyph_template_parity,
+    render_messages,
+    render_prompt,
+    render_tool_turn,
+)
 from agent_runtime.protocol import call_syntax_errors, ended_cleanly_after_final, parse_calls
 
 
@@ -40,7 +45,6 @@ def _install_verifiers_stub() -> None:
 _install_verifiers_stub()
 from rl.task_trace import (  # noqa: E402
     REWARD_CONFIG,
-    _format_chatml_messages,
     _find_result_for,
     _role_marker_errors,
     _rust_tool_reward,
@@ -524,7 +528,7 @@ class RlPromptFormatTests(unittest.TestCase):
             {"role": "tool", "content": "RESULT c1:\nstatus: success"},
             {"role": "assistant", "content": "FINAL: done"},
         ]
-        rendered = _format_chatml_messages(messages)
+        rendered = render_messages(messages)
         self.assertIn("<|im_start|>tool\nRESULT c1:\nstatus: success\n<|im_end|>", rendered)
         self.assertNotIn("<tool_response>", rendered)
         self.assertNotIn("<|im_start|>user\n<|im_start|>system", rendered)

@@ -18,7 +18,6 @@ from pathlib import Path
 from agent_runtime.chatml import render_tool_turn
 from sft.evals import build_prompt, load_prompts, score_output
 from sft.eval_formal import prepare_eval_items
-from sft.evals.prompt_loader import build_prompt as _bp  # noqa: F401  (keep parity)
 
 from agent_runtime.protocol import assistant_text, extract_pending_call_ids, tool_text
 from agent_runtime.rust.executor import create_executor

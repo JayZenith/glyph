@@ -9,7 +9,6 @@ import verifiers as vf
 from agent_runtime.chatml import (
     message_content,
     message_role,
-    render_message,
     render_messages,
     render_tool_turn,
 )
@@ -122,38 +121,18 @@ def _completion_text(completion) -> str:
         return completion
     if isinstance(completion, list):
         # chat-mode rollout: concatenate everything past the prompt
-        return "\n".join(_message_content(m) for m in completion)
+        return "\n".join(message_content(m) for m in completion)
     return str(completion)
-
-
-def _message_role(message) -> str:
-    return message_role(message)
-
-
-def _message_content(message) -> str:
-    return message_content(message)
 
 
 def _completion_role_text(completion, role: str) -> str:
     if isinstance(completion, list):
         return "\n".join(
-            strip_terminal_chatml_end(_message_content(m)) if role == "assistant" else _message_content(m)
+            strip_terminal_chatml_end(message_content(m)) if role == "assistant" else message_content(m)
             for m in completion
-            if _message_role(m) == role
+            if message_role(m) == role
         )
     return "" if role == "tool" else _completion_text(completion)
-
-
-def _format_chatml_message(role: str, content: str) -> str:
-    return render_message(role, content)
-
-
-def _format_chatml_messages(messages) -> str:
-    if isinstance(messages, str):
-        return messages
-    if isinstance(messages, list):
-        return render_messages(messages).rstrip()
-    return str(messages)
 
 
 def _strip_role_leak_tail(text: str) -> str:
@@ -204,24 +183,20 @@ def _append_unseen_text(prior: str, text: str) -> str:
     return prior + text
 
 
-def _format_chatml_tool_turn(result_block: str) -> str:
-    return render_tool_turn(result_block)
-
-
 def _trajectory_generated_text(state: dict) -> str:
     parts: list[str] = []
     for step in state.get("trajectory") or []:
         for message in step.get("completion") or []:
-            if _message_role(message) == "assistant":
-                parts.append(strip_terminal_chatml_end(_message_content(message)))
+            if message_role(message) == "assistant":
+                parts.append(strip_terminal_chatml_end(message_content(message)))
     return "\n".join(parts)
 
 
 def _trajectory_latest_assistant_turn(state: dict) -> str:
     for step in reversed(state.get("trajectory") or []):
         for message in reversed(step.get("completion") or []):
-            if _message_role(message) == "assistant":
-                return strip_terminal_chatml_end(_message_content(message)).strip()
+            if message_role(message) == "assistant":
+                return strip_terminal_chatml_end(message_content(message)).strip()
     return ""
 
 
@@ -230,8 +205,8 @@ def _trajectory_tool_text(state: dict) -> str:
     for step in state.get("trajectory") or []:
         for field in ("prompt", "completion"):
             for message in step.get(field) or []:
-                if _message_role(message) == "tool":
-                    parts.append(_message_content(message))
+                if message_role(message) == "tool":
+                    parts.append(message_content(message))
     return "\n".join(parts)
 
 
@@ -242,7 +217,7 @@ def _trajectory_full_text(state: dict) -> str:
     for step in state.get("trajectory") or []:
         for field in ("prompt", "completion"):
             for message in step.get(field) or []:
-                parts.append(_message_content(message))
+                parts.append(message_content(message))
     return "\n".join(parts)
 
 
@@ -528,7 +503,11 @@ class RustToolEnv(vf.MultiTurnEnv):
 
     @staticmethod
     def _messages_text(messages) -> str:
-        return _format_chatml_messages(messages)
+        if isinstance(messages, str):
+            return messages
+        if isinstance(messages, list):
+            return render_messages(messages).rstrip()
+        return str(messages)
 
     @staticmethod
     def _trajectory_chars(state: dict) -> int:
@@ -536,7 +515,7 @@ class RustToolEnv(vf.MultiTurnEnv):
         for step in state.get("trajectory") or []:
             for field in ("prompt", "completion"):
                 for message in step.get(field) or []:
-                    total += len(_message_content(message))
+                    total += len(message_content(message))
         return total
 
     def _raw_trace_text(self, state: dict, messages=None) -> str:
@@ -630,7 +609,7 @@ class RustToolEnv(vf.MultiTurnEnv):
                 )
             executed.add(cid)
             result_block = format_result_block(cid, er)
-            tool_turn = _format_chatml_tool_turn(result_block)
+            tool_turn = render_tool_turn(result_block)
             state.setdefault("executed_tool_calls", []).append(call)
             state.setdefault("executed_result_blocks", []).append(result_block)
             prior_trace = _append_unseen_text(prior_trace, incoming_text)

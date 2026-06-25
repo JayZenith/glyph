@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from agent_runtime.chatml import render_prompt
+
 _PROMPTS_FILE = Path(__file__).parent / "eval_prompts.yaml"
 _USER_RE = re.compile(r"<\|im_start\|>user\n(.*?)\n<\|im_end\|>", re.DOTALL)
 
@@ -38,19 +40,7 @@ def load_prompts(section: str, prompt_file: str | None = None) -> list[dict]:
 
 def build_prompt(user_message: str, system_message: str | None = None) -> str:
     """Render a simple CALL/RESULT prompt up to the assistant header."""
-    system = system_message or "You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately."
-    parts = [
-        "<|im_start|>system",
-        system,
-        "<|im_end|>",
-        "",
-        "<|im_start|>user",
-        user_message,
-        "<|im_end|>",
-        "",
-        "<|im_start|>assistant",
-    ]
-    return "\n".join(parts) + "\n"
+    return render_prompt(user_message, system_message)
 
 
 def assert_no_prompt_overlap(prompts: list[dict], train_data_path: str) -> None:

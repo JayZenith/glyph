@@ -13,6 +13,7 @@ import unittest
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from agent_runtime.chatml import assert_glyph_template_parity, render_prompt, render_tool_turn
 from agent_runtime.protocol import call_syntax_errors, ended_cleanly_after_final, parse_calls
 
 
@@ -527,6 +528,24 @@ class RlPromptFormatTests(unittest.TestCase):
         self.assertIn("<|im_start|>tool\nRESULT c1:\nstatus: success\n<|im_end|>", rendered)
         self.assertNotIn("<tool_response>", rendered)
         self.assertNotIn("<|im_start|>user\n<|im_start|>system", rendered)
+
+    def test_shared_chatml_renderer_matches_expected_bytes(self) -> None:
+        self.assertEqual(
+            render_prompt("fix crate", "sys"),
+            (
+                "<|im_start|>system\nsys\n<|im_end|>\n\n"
+                "<|im_start|>user\nfix crate\n<|im_end|>\n\n"
+                "<|im_start|>assistant\n"
+            ),
+        )
+        self.assertEqual(
+            render_tool_turn("RESULT c1:\nstatus: success"),
+            (
+                "\n\n<|im_start|>tool\nRESULT c1:\nstatus: success\n<|im_end|>\n\n"
+                "<|im_start|>assistant\n"
+            ),
+        )
+        assert_glyph_template_parity()
 
 
 def main() -> int:

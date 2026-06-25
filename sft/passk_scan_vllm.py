@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from agent_runtime.chatml import render_tool_turn
 from sft.evals import build_prompt, load_prompts, score_output
 from sft.eval_formal import prepare_eval_items
 from sft.evals.prompt_loader import build_prompt as _bp  # noqa: F401  (keep parity)
@@ -91,9 +92,7 @@ def _exec_round(rollout: Rollout, executor, expected_output: str | None) -> bool
             expected_output=expected_output if call["tool"] == "cargo_run" else None,
         )
         block = format_result_block(call["id"], result)
-        injections.append(
-            "\n\n<|im_start|>tool\n" f"{block}\n" "<|im_end|>\n\n<|im_start|>assistant\n"
-        )
+        injections.append(render_tool_turn(block))
     if not injections:
         return False
     rollout.accumulated += "".join(injections)

@@ -9,6 +9,7 @@ from threading import Thread
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
+from agent_runtime.chatml import render_tool_turn
 from agent_runtime.protocol import assistant_text, extract_pending_call_ids, tool_text
 from agent_runtime.rust.executor import create_executor
 from agent_runtime.rust.results import format_result_block, parse_call_blocks
@@ -225,13 +226,7 @@ def generate(
                 expected_output=execution.get("expected_output") if call["tool"] == "cargo_run" else None,
             )
             result_block = format_result_block(call["id"], result)
-            injections.append(
-                "\n\n"
-                "<|im_start|>tool\n"
-                f"{result_block}\n"
-                "<|im_end|>\n\n"
-                "<|im_start|>assistant\n"
-            )
+            injections.append(render_tool_turn(result_block))
 
         if not injections:
             break
@@ -341,13 +336,7 @@ def generate_batch(
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 for state, result_blocks in pool.map(_run_state_tools, tool_jobs_by_state):
                     for result_block in result_blocks:
-                        state.accumulated += (
-                            "\n\n"
-                            "<|im_start|>tool\n"
-                            f"{result_block}\n"
-                            "<|im_end|>\n\n"
-                            "<|im_start|>assistant\n"
-                        )
+                        state.accumulated += render_tool_turn(result_block)
                     state.cur_prompt = state.prompt + state.accumulated
 
     return [(state.accumulated.strip(), state.total_new_tokens) for state in states]

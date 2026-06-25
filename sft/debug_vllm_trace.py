@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from agent_runtime.chatml import render_tool_turn
 from sft.evals import build_prompt, load_prompts, score_output
 from sft.eval_formal import prepare_eval_items
 from agent_runtime.protocol import assistant_text, extract_pending_call_ids, tool_text
@@ -70,7 +71,7 @@ def main() -> None:
             res = execute_rust_tool(executor, call["tool"], params,
                                     expected_output=item.get("expected_output") if call["tool"] == "cargo_run" else None)
             print(f"  EXEC {call['tool']} {params} -> success={res.success} stdout={repr(res.stdout)[:120]} stderr={repr(res.stderr)[:150]}")
-            injected += "\n\n<|im_start|>tool\n" + format_result_block(call["id"], res) + "\n<|im_end|>\n\n<|im_start|>assistant\n"
+            injected += render_tool_turn(format_result_block(call["id"], res))
         acc += injected
         cur = prompt + acc
 

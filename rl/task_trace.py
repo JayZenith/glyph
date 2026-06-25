@@ -6,6 +6,13 @@ from pathlib import Path
 from datasets import Dataset
 
 import verifiers as vf
+from agent_runtime.chatml import (
+    message_content,
+    message_role,
+    render_message,
+    render_messages,
+    render_tool_turn,
+)
 from agent_runtime.protocol import (
     GIBBERISH_RE,
     REPETITION_RE,
@@ -119,21 +126,12 @@ def _completion_text(completion) -> str:
     return str(completion)
 
 
-def _message_value(message, key: str, default=""):
-    if isinstance(message, dict):
-        return message.get(key, default)
-    value = getattr(message, key, default)
-    if value is default and hasattr(message, "model_dump"):
-        value = message.model_dump().get(key, default)
-    return default if value is None else value
-
-
 def _message_role(message) -> str:
-    return str(_message_value(message, "role", ""))
+    return message_role(message)
 
 
 def _message_content(message) -> str:
-    return str(_message_value(message, "content", ""))
+    return message_content(message)
 
 
 def _completion_role_text(completion, role: str) -> str:
@@ -147,18 +145,14 @@ def _completion_role_text(completion, role: str) -> str:
 
 
 def _format_chatml_message(role: str, content: str) -> str:
-    return f"<|im_start|>{role}\n{content.rstrip()}\n<|im_end|>"
+    return render_message(role, content)
 
 
 def _format_chatml_messages(messages) -> str:
     if isinstance(messages, str):
         return messages
     if isinstance(messages, list):
-        return "\n".join(
-            _format_chatml_message(_message_role(m), _message_content(m))
-            for m in messages
-            if _message_role(m)
-        )
+        return render_messages(messages).rstrip()
     return str(messages)
 
 
@@ -211,13 +205,7 @@ def _append_unseen_text(prior: str, text: str) -> str:
 
 
 def _format_chatml_tool_turn(result_block: str) -> str:
-    return (
-        "\n\n"
-        "<|im_start|>tool\n"
-        f"{result_block}\n"
-        "<|im_end|>\n\n"
-        "<|im_start|>assistant\n"
-    )
+    return render_tool_turn(result_block)
 
 
 def _trajectory_generated_text(state: dict) -> str:

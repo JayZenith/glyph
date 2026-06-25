@@ -14,72 +14,9 @@ from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoTokenizer
 import tomli_w
 
+from agent_runtime.chatml import GLYPH_CHAT_TEMPLATE, assert_glyph_template_parity
 
 CONFIG_DIR = Path(__file__).resolve().parent / "configs" / "task_trace"
-# Must render byte-identical to the SFT trace format and the eval harness
-# (sft/evals/prompt_loader.build_prompt + the tool-injection string):
-#   <|im_start|>role\n{content}\n<|im_end|>\n\n
-# Assistant content is preserved verbatim (the trainer re-tokenizes exactly
-# what was sampled); only the turn boundaries are normalized.
-GLYPH_CHAT_TEMPLATE = """{%- for message in messages %}
-{%- set role = message['role'] %}
-{%- set content = message['content'] %}
-{%- if role == 'assistant' %}
-{{- '<|im_start|>assistant\n' + content.rstrip() }}
-{%- if not content.rstrip().endswith('<|im_end|>') %}
-{{- '\n<|im_end|>' }}
-{%- endif %}
-{{- '\n\n' }}
-{%- else %}
-{{- '<|im_start|>' + role + '\n' + content.rstrip() + '\n<|im_end|>\n\n' }}
-{%- endif %}
-{%- endfor %}
-{%- if add_generation_prompt %}
-{{- '<|im_start|>assistant\n' }}
-{%- endif %}"""
-
-
-def assert_glyph_template_parity(tokenizer=None) -> None:
-    """Hard-fail at launch if the RL chat template drifts from the SFT/eval
-    trace format. Renders a sample conversation and byte-compares against the
-    format produced by sft/evals (build_prompt + tool injection).
-
-    When a tokenizer is given, renders through tokenizer.apply_chat_template —
-    the exact path vLLM and the trainer use. transformers renders templates
-    with trim_blocks/lstrip_blocks, which silently reformatted the previous
-    template (single newline between turns, no newline before <|im_end|>), so
-    a plain-jinja check is not sufficient on its own.
-    """
-    messages = [
-        {"role": "system", "content": "SYS"},
-        {"role": "user", "content": "USR"},
-        {"role": "assistant", "content": 'CALL read_file(id="c1", file_path="x")\n<|im_end|>'},
-        {"role": "tool", "content": "RESULT c1:\nstatus: success"},
-    ]
-    if tokenizer is not None:
-        rendered = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-    else:
-        from jinja2.sandbox import ImmutableSandboxedEnvironment
-
-        env = ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True)
-        rendered = env.from_string(GLYPH_CHAT_TEMPLATE).render(
-            messages=messages, add_generation_prompt=True
-        )
-    expected = (
-        "<|im_start|>system\nSYS\n<|im_end|>\n\n"
-        "<|im_start|>user\nUSR\n<|im_end|>\n\n"
-        '<|im_start|>assistant\nCALL read_file(id="c1", file_path="x")\n<|im_end|>\n\n'
-        "<|im_start|>tool\nRESULT c1:\nstatus: success\n<|im_end|>\n\n"
-        "<|im_start|>assistant\n"
-    )
-    if rendered != expected:
-        raise RuntimeError(
-            "GLYPH_CHAT_TEMPLATE no longer matches the SFT/eval trace format.\n"
-            f"rendered: {rendered!r}\n"
-            f"expected: {expected!r}"
-        )
 
 
 # turns "0,2,3" into [0,2,3] for --prime-rl-gpu-ids

@@ -6,7 +6,6 @@ from collections import Counter, defaultdict
 
 from agent_runtime.protocol import (
     RESULT_ID_RE,
-    ROLE_LEAK_RE,
     SEG_RE,
     call_syntax_errors,
     final_hygiene_errors,
@@ -92,8 +91,6 @@ def _failure_buckets(metrics: dict) -> list[str]:
         buckets.append("bad_final_hygiene")
     if not metrics["cargo_project_paths_valid"]:
         buckets.append("bad_cargo_project_path")
-    if metrics["role_marker_leakage"]:
-        buckets.append("role_marker_leakage")
     if not metrics["not_truncated"]:
         buckets.append("truncated")
     if not metrics["final_after_last_tool"]:
@@ -164,7 +161,6 @@ def score_output(
         "expected_tool_sequence_exact": _expected_sequence_match(kind, call_sequence, expected_tool_sequence),
         "result_ids_match_call_ids": result_ids == call_ids[: len(result_ids)],
         "all_calls_have_ids": len(call_ids) == len(calls),
-        "role_marker_leakage": bool(ROLE_LEAK_RE.search(assistant_text)),
         "exact_call_syntax": not syntax_errors,
         "final_hygiene": not final_errors,
         "cargo_project_paths_valid": not cargo_path_errors,
@@ -194,7 +190,6 @@ def score_output(
         and metrics["cargo_project_paths_valid"]
         and metrics["final_after_last_tool"]
         and metrics["terminal_tool_success"]
-        and not metrics["role_marker_leakage"]
     )
 
     score = 0

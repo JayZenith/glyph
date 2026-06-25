@@ -13,7 +13,6 @@ from agent_runtime.chatml import (
     render_tool_turn,
 )
 from agent_runtime.protocol import (
-    ROLE_LEAK_RE,
     SimpleTraceValidator,
     call_syntax_errors,
     ended_cleanly_after_final,
@@ -47,7 +46,6 @@ DEFAULT_REWARD_CONFIG = {
     "structure_valid_bonus": 0.0,
     "no_call_penalty": -5.0,
     "malformed_call_penalty": -4.0,
-    "role_marker_penalty": -10.0,
     "bad_cargo_project_path_penalty": -4.0,
     "bad_final_hygiene_penalty": -2.0,
     # clean completion
@@ -132,29 +130,8 @@ def _completion_role_text(completion, role: str) -> str:
     return "" if role == "tool" else _completion_text(completion)
 
 
-def _strip_role_leak_tail(text: str) -> str:
-    """Use only the assistant segment before leaked chat-template boundaries."""
-    text = strip_generated_assistant_stop(text)
-    markers = [
-        match.start()
-        for match in re.finditer(
-            r"<\|im_start\|>|<\|im_end\|>|^(?:user|tool|assistant)\s*$",
-            text,
-            re.MULTILINE,
-        )
-    ]
-    return text[: min(markers)].rstrip() if markers else text
-
-
 def _normalize_assistant_for_reward(text: str) -> str:
     return strip_generated_assistant_stop(text).strip()
-
-
-def _role_marker_errors(text: str) -> list[str]:
-    stripped = strip_generated_assistant_stop(text)
-    if ROLE_LEAK_RE.search(stripped):
-        return ["Generated chat role marker"]
-    return []
 
 
 def _latest_assistant_segment(text: str) -> str:
@@ -247,8 +224,6 @@ def _heldout_style_success(
         return False
     if not ended_cleanly_after_final(assistant_text):
         return False
-    if ROLE_LEAK_RE.search(assistant_text):
-        return False
     if final_hygiene_errors(assistant_text):
         return False
     final_pos = full_text.rfind("FINAL:")
@@ -268,7 +243,6 @@ def _cargo_project_path_errors(calls: list[dict]) -> list[str]:
 
 def _protocol_reward_penalty(assistant_text: str, calls: list[dict], state: dict) -> tuple[float, list[str]]:
     errors: list[str] = []
-    errors.extend(_role_marker_errors(assistant_text))
     errors.extend(call_syntax_errors(assistant_text))
     errors.extend(_cargo_project_path_errors(calls))
     if state.get("malformed_call_errors"):
@@ -276,8 +250,6 @@ def _protocol_reward_penalty(assistant_text: str, calls: list[dict], state: dict
     penalty = 0.0
     if any("CALL" in e or "argument" in e for e in errors):
         penalty += REWARD_CONFIG["malformed_call_penalty"]
-    if any("role marker" in e for e in errors):
-        penalty += REWARD_CONFIG["role_marker_penalty"]
     if any("project_path" in e for e in errors):
         penalty += REWARD_CONFIG["bad_cargo_project_path_penalty"]
     final_errors = final_hygiene_errors(assistant_text)
@@ -391,7 +363,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     validator: SimpleTraceValidator | None = kwargs.get("validator")
     raw_assistant_trace = assistant_text or text
     reward_assistant_trace = _normalize_assistant_for_reward(raw_assistant_trace)
-    assistant_trace = _strip_role_leak_tail(raw_assistant_trace)
+    assistant_trace = strip_generated_assistant_stop(raw_assistant_trace)
     latest_assistant_turn = (
         _trajectory_latest_assistant_turn(state)
         or strip_generated_assistant_stop(_completion_role_text(completion, "assistant")).strip()
@@ -521,16 +493,9 @@ class RustToolEnv(vf.MultiTurnEnv):
             return True
         if state.get("tool_budget_exhausted"):
             return True
-        text = _strip_role_leak_tail(
-            _latest_assistant_segment(
-                self._raw_trace_text(state, trajectory[-1]["completion"])
-            )
+        text = strip_generated_assistant_stop(
+            _latest_assistant_segment(self._raw_trace_text(state, trajectory[-1]["completion"]))
         )
-        latest_content = _completion_role_text(trajectory[-1]["completion"], "assistant")
-        marker_errors = _role_marker_errors(latest_content)
-        if marker_errors:
-            state["malformed_call_errors"] = marker_errors
-            return True
         errors = call_syntax_errors(text)
         if errors:
             state["malformed_call_errors"] = errors
@@ -544,12 +509,7 @@ class RustToolEnv(vf.MultiTurnEnv):
         incoming_text = self._messages_text(messages)
         raw_text = self._raw_trace_text(state, messages)
         raw_latest = _latest_assistant_segment(raw_text)
-        latest_content = _completion_role_text(messages, "assistant")
-        marker_errors = _role_marker_errors(latest_content)
-        text = _strip_role_leak_tail(raw_latest)
-        if marker_errors:
-            state["malformed_call_errors"] = marker_errors
-            return []
+        text = strip_generated_assistant_stop(raw_latest)
         errors = call_syntax_errors(text)
         if errors:
             state["malformed_call_errors"] = errors

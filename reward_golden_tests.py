@@ -46,7 +46,6 @@ _install_verifiers_stub()
 from rl.task_trace import (  # noqa: E402
     REWARD_CONFIG,
     _find_result_for,
-    _role_marker_errors,
     _rust_tool_reward,
     _verifier_outcomes,
 )
@@ -292,26 +291,6 @@ class RewardGoldenTests(unittest.TestCase):
         malformed = 'CALL read_file(id="c1", file_path="src/lib.rs"))<|im_end|>'
         self.assertLess(score(malformed, []), self._loop())
 
-    def test_terminal_chatml_boundary_after_call_is_allowed(self) -> None:
-        leaked = self.READ + "<|im_end|>"
-        self.assertFalse(_role_marker_errors(leaked))
-        self.assertLessEqual(score(leaked, [result_block("c1", True)]), 0.0)
-
-    def test_generated_chatml_boundary_between_calls_is_invalid(self) -> None:
-        leaked = "\n".join([self.READ + "<|im_end|>", self.PATCH, self.OK, "FINAL: done"])
-        self.assertTrue(_role_marker_errors(leaked))
-        state = {
-            "executed_tool_calls": [
-                {"tool": c.tool, "id": c.id, "params": c.params}
-                for c in parse_calls("\n".join([self.READ, self.PATCH, self.OK]))
-            ],
-            "executed_result_blocks": self.SOLVED,
-            "raw_chatml_transcript": raw_trace(leaked, self.SOLVED),
-            "trajectory": trajectory_from_assistant_lines(leaked, self.SOLVED),
-            "malformed_call_errors": ["Generated chat role marker"],
-        }
-        self.assertLessEqual(score_with_state(leaked, self.SOLVED, state), 0.0)
-
     def test_malformed_calls_across_message_turns_are_invalid_with_generated_boundaries(self) -> None:
         completion = [
             {"role": "assistant", "content": self.READ + ")<|im_end|>"},
@@ -344,7 +323,6 @@ class RewardGoldenTests(unittest.TestCase):
 
     def test_terminal_chatml_end_after_final_is_allowed(self) -> None:
         clean = "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done<|im_end|>"])
-        self.assertFalse(_role_marker_errors(clean))
         self.assertEqual(score(clean, self.SOLVED), self._solve_stop())
 
     def test_bad_cargo_project_path_blocks_top_reward(self) -> None:

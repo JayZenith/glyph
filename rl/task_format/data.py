@@ -12,7 +12,7 @@ def _chatml_to_messages(prompt: str) -> list[dict[str, str]]:
     """Convert stored ChatML prompts to chat messages for PRIME-RL.
 
     Passing a ChatML string as the dataset prompt makes verifiers wrap the whole
-    thing inside a user message. That trains on nested role markers instead of
+    thing inside a user message. That trains on nested ChatML markers instead of
     the SFT/eval protocol. Keep only non-empty system/user turns; generation
     starts at the assistant turn.
     """

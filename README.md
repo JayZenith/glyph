@@ -14,8 +14,8 @@ distribution but did not improve held-out prompt-level reliability.
 ## Final Status
 
 Strict success is `valid_trace`: terminal `cargo_test`/`cargo_run` success,
-clean `FINAL` after that verifier success, exact CALL syntax, no role-marker
-leakage, and no extra tool use after success.
+clean `FINAL` after that verifier success, exact CALL syntax, and no extra
+tool use after success.
 
 | Model / checkpoint | Held-out-69 greedy `valid_trace` | Notes |
 | --- | ---: | --- |

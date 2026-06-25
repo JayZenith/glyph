@@ -53,11 +53,10 @@ valid_trace =
   terminal cargo_test or cargo_run success
   + clean FINAL after that verifier success
   + exact CALL syntax
-  + no role-marker leakage
   + no extra tool use after successful verification
 ```
 
-If the model passes tests but keeps patching, emits malformed calls, leaks role markers, or never finalizes, it is not a usable tool-use agent.
+If the model passes tests but keeps patching, emits malformed calls, or never finalizes, it is not a usable tool-use agent.
 
 ## Debugging the RLVR Harness
 
@@ -77,7 +76,7 @@ RL checkpoint export must match the policy actually served during training.
 ```
 
 Reward first: cargo passing somewhere in the trace is not enough. The highest reward had to require held-out-style success: terminal verifier pass, exact CALL syntax,
-clean final, no role leakage, and no tool use after success.
+clean final, and no tool use after success.
 
 Protocol next: the model was trained on literal ChatML-style tool turns:
 

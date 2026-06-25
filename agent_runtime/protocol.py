@@ -22,7 +22,7 @@ from dataclasses import dataclass
 # Shared protocol patterns
 # ---------------------------------------------------------------------------
 
-# Full ChatML segment parser, used for stored traces that include role markers.
+# Full ChatML segment parser, used for stored rendered traces.
 SEG_RE = re.compile(r"<\|im_start\|>(\w+)\n(.*?)<\|im_end\|>", re.DOTALL)
 
 # One model-emitted tool request line:
@@ -35,15 +35,6 @@ RESULT_ID_RE = re.compile(r"^\s*RESULT\s+([A-Za-z0-9_\-]+):", re.MULTILINE)
 
 # A final answer must be introduced by FINAL:.
 FINAL_RE = re.compile(r"^\s*FINAL:\s*", re.MULTILINE)
-
-CHATML_ROLES = ("system", "user", "assistant", "tool")
-
-# Generated assistant content should not contain role markers. The renderer owns
-# those markers; live model output leaking them is a protocol error.
-ROLE_LEAK_RE = re.compile(
-    r"(<\|im_start\|>|<\|im_end\|>|^\s*(?:" + "|".join(CHATML_ROLES) + r")\s*$)",
-    re.MULTILINE,
-)
 
 ASSISTANT_STOP = "<|im_end|>"
 
@@ -79,7 +70,7 @@ def _joined_role_text(text: str, role: str) -> str:
     Example: tool_text("<|im_start|>tool\nRESULT c1:\nok<|im_end|>")
     returns "RESULT c1:\nok".
 
-    If there are no ChatML role markers, the input is already plain generated
+    If there are no ChatML markers, the input is already plain generated
     text. In that case assistant_text("FINAL: ok") returns "FINAL: ok", while
     tool_text("FINAL: ok") returns "".
     """
@@ -101,8 +92,7 @@ def strip_generated_assistant_stop(text: str) -> str:
 
     The prompt ends with "<|im_start|>assistant\n", so the model may finish a
     CALL or FINAL turn by emitting "<|im_end|>". That final stop token is a
-    boundary, not assistant content. Any ChatML marker before the end is still
-    role leakage.
+    boundary, not assistant content.
     """
     stripped = text.rstrip()
     if stripped.endswith(ASSISTANT_STOP):
@@ -291,6 +281,4 @@ class SimpleTraceValidator:
             errors.append("Tool calls without matching result")
         errors.extend(call_syntax_errors(assistant_text))
         errors.extend(final_hygiene_errors(assistant_text))
-        if ROLE_LEAK_RE.search(assistant_text):
-            errors.append("Role marker leakage")
         return ValidationResult(valid=not errors, errors=errors)

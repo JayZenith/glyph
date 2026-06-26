@@ -56,7 +56,8 @@ class RustToolEnv(vf.MultiTurnEnv):
         state["blueprint_root"] = blueprint_root
         return state["sandbox_path"]
 
-    async def is_completed(self, state, **kwargs) -> bool:
+    @vf.stop
+    async def glyph_completed(self, state, **kwargs) -> bool:
         trajectory = state.get("trajectory") or []
         if not trajectory:
             return False

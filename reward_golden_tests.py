@@ -36,6 +36,7 @@ def _install_verifiers_stub() -> None:
         return
     vf = types.ModuleType("verifiers")
     vf.MultiTurnEnv = type("MultiTurnEnv", (), {"__init__": lambda self, *a, **k: None})
+    vf.stop = lambda fn: fn
     vf.Rubric = type(
         "Rubric",
         (),
@@ -336,7 +337,7 @@ class RewardGoldenTests(unittest.TestCase):
         }
         env = RustToolEnv(executor=object(), max_tool_rounds=3)
 
-        completed = asyncio.run(env.is_completed(state))
+        completed = asyncio.run(env.glyph_completed(state))
         reward = score_with_state(assistant, self.SOLVED, state)
 
         self.assertTrue(completed)

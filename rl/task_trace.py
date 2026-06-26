@@ -16,7 +16,6 @@ def load_environment(
     env_id: str = "task-trace",
     timeout: int = 30,
     max_tool_rounds: int = 5,
-    max_tool_calls: int | None = None,
     structure_valid_bonus: float | None = None,
     no_call_penalty: float | None = None,
     malformed_call_penalty: float | None = None,
@@ -88,6 +87,5 @@ def load_environment(
         env_id=env_id,
         executor=executor,
         max_tool_rounds=max_tool_rounds,
-        max_tool_calls=max_tool_calls,
         trace_infos=trace_infos,
     )

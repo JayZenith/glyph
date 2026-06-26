@@ -33,7 +33,6 @@ class RustToolEnv(vf.MultiTurnEnv):
         *args,
         executor: RustExecutor,
         max_tool_rounds: int = 5,
-        max_tool_calls: int | None = None,
         sandbox_root: Path | None = None,
         trace_infos: dict[str, dict] | None = None,
         **kwargs,
@@ -41,9 +40,6 @@ class RustToolEnv(vf.MultiTurnEnv):
         super().__init__(*args, **kwargs)
         self.executor = executor
         self.max_tool_rounds = max_tool_rounds
-        self.max_tool_calls = (
-            max_tool_calls if max_tool_calls is not None else max_tool_rounds * 4
-        )
         self.sandbox_root = Path(sandbox_root) if sandbox_root else Path("runs/rlvr1/sandboxes")
         self.trace_infos = trace_infos or {}
 
@@ -67,7 +63,7 @@ class RustToolEnv(vf.MultiTurnEnv):
         if state.get("rounds_used", 0) >= self.max_tool_rounds:
             state["tool_budget_exhausted"] = True
             return True
-        if len(state.get("executed_call_ids") or []) >= self.max_tool_calls:
+        if len(state.get("executed_call_ids") or []) >= self.max_tool_rounds:
             state["tool_budget_exhausted"] = True
             return True
         if state.get("tool_budget_exhausted"):
@@ -104,7 +100,7 @@ class RustToolEnv(vf.MultiTurnEnv):
         sandbox_path = self._ensure_sandbox(state, blueprint_root) if blueprint_root else None
 
         responses: list[dict[str, str]] = []
-        remaining = max(self.max_tool_calls - len(executed), 0)
+        remaining = max(self.max_tool_rounds - len(executed), 0)
         if remaining <= 0:
             state["tool_budget_exhausted"] = True
             return []

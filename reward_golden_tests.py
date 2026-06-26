@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
-import math
-import re
-import statistics
 import sys
 import tempfile
 import types
 import unittest
-from collections import Counter, defaultdict
-from pathlib import Path
 from unittest.mock import patch
 
 from agent_runtime.chatml import (
@@ -21,15 +15,8 @@ from agent_runtime.chatml import (
     render_prompt,
     render_tool_turn,
 )
-from agent_runtime.protocol import call_syntax_errors, ended_cleanly_after_final, parse_calls
+from agent_runtime.protocol import call_syntax_errors, parse_calls
 from agent_runtime.rust.executor import ExecutionResult
-
-
-ROLLOUT_PATHS = [
-    Path("results/RLVR1/rollouts4/step_0/train_rollouts.jsonl"),
-    Path("results/RLVR1/rollouts4/step_95/train_rollouts.jsonl"),
-]
-VERIFIERS = {"cargo_test", "cargo_run"}
 
 
 def _install_verifiers_stub() -> None:
@@ -140,25 +127,6 @@ def score(assistant: str, results: list[str], expected_tool: str = "read_file") 
     )
 
 
-def score_with_raw_trace(assistant: str, results: list[str], raw: str) -> float:
-    calls = parse_calls(assistant)
-    return asyncio.run(
-        _rust_tool_reward(
-            [{"role": "assistant", "content": assistant}],
-            state={
-                "executed_tool_calls": calls,
-                "executed_results": executed_results_from_blocks(results),
-                "executed_result_blocks": results,
-                "raw_chatml_transcript": raw,
-                "trajectory": trajectory_from_assistant_lines(assistant, results),
-            },
-            info={
-                "expected_tool": "read_file",
-            },
-        )
-    )
-
-
 def score_with_state(assistant: str, results: list[str], state: dict) -> float:
     return asyncio.run(
         _rust_tool_reward(
@@ -179,25 +147,33 @@ class RewardGoldenTests(unittest.TestCase):
 
     READ = call("read_file", "c1", file_path="src/lib.rs")
     PATCH = call("apply_patch", "c2", file_path="src/lib.rs", find="bug", replace="fix")
-    OK = call("cargo_test", "c3", project_path=".")
-    FAIL = call("cargo_test", "c3", project_path=".")
+    CARGO_TEST = call("cargo_test", "c3", project_path=".")
     SOLVED = [result_block("c1", True), result_block("c2", True), result_block("c3", True)]
     UNSOLVED = [result_block("c1", True), result_block("c2", True), result_block("c3", False)]
 
     def _solve_stop(self):
-        return score("\n".join([self.READ, self.PATCH, self.OK, "FINAL: done"]), self.SOLVED)
+        return score(
+            "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done"]),
+            self.SOLVED,
+        )
 
     def _solve_nostop(self):
-        return score("\n".join([self.READ, self.PATCH, self.OK]), self.SOLVED)
+        return score("\n".join([self.READ, self.PATCH, self.CARGO_TEST]), self.SOLVED)
 
     def _solve_stop_with_generated_chatml_end(self):
-        return score("\n".join([self.READ, self.PATCH, self.OK, "FINAL: done<|im_end|>"]), self.SOLVED)
+        return score(
+            "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done<|im_end|>"]),
+            self.SOLVED,
+        )
 
     def _graceful(self):
-        return score("\n".join([self.READ, self.PATCH, self.FAIL, "FINAL: tried"]), self.UNSOLVED)
+        return score(
+            "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: tried"]),
+            self.UNSOLVED,
+        )
 
     def _loop(self):
-        return score("\n".join([self.READ, self.PATCH, self.FAIL]), self.UNSOLVED)
+        return score("\n".join([self.READ, self.PATCH, self.CARGO_TEST]), self.UNSOLVED)
 
     def test_json_call_parser(self) -> None:
         parsed = parse_calls('CALL read_file {"id":"c1","file_path":"src/lib.rs"}')
@@ -229,7 +205,7 @@ class RewardGoldenTests(unittest.TestCase):
     def test_churn_after_success_is_penalized(self) -> None:
         read_again = call("read_file", "c4", file_path="src/lib.rs")
         more = score(
-            "\n".join([self.READ, self.PATCH, self.OK, read_again, "FINAL: done"]),
+            "\n".join([self.READ, self.PATCH, self.CARGO_TEST, read_again, "FINAL: done"]),
             self.SOLVED + [result_block("c4", True)],
         )
         self.assertLess(more, self._solve_stop())
@@ -246,13 +222,13 @@ class RewardGoldenTests(unittest.TestCase):
 
     def test_dirty_final_after_cargo_success_is_not_positive(self) -> None:
         dirty = score(
-            "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done", "extra tokens"]),
+            "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done", "extra tokens"]),
             self.SOLVED,
         )
         self.assertLessEqual(dirty, 0.0)
 
     def test_leading_prose_before_final_does_not_get_clean_solve_reward(self) -> None:
-        assistant = "\n".join([self.READ, self.PATCH, self.OK, "Fixed it.\nFINAL: done"])
+        assistant = "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "Fixed it.\nFINAL: done"])
         calls = parse_calls(assistant)
         dirty = score_with_state(
             assistant,
@@ -263,9 +239,24 @@ class RewardGoldenTests(unittest.TestCase):
                 "executed_result_blocks": self.SOLVED,
                 "raw_chatml_transcript": raw_trace(assistant, self.SOLVED),
                 "trajectory": [
-                    {"completion": [{"role": "assistant", "content": self.READ}, {"role": "tool", "content": self.SOLVED[0]}]},
-                    {"completion": [{"role": "assistant", "content": self.PATCH}, {"role": "tool", "content": self.SOLVED[1]}]},
-                    {"completion": [{"role": "assistant", "content": self.OK}, {"role": "tool", "content": self.SOLVED[2]}]},
+                    {
+                        "completion": [
+                            {"role": "assistant", "content": self.READ},
+                            {"role": "tool", "content": self.SOLVED[0]},
+                        ]
+                    },
+                    {
+                        "completion": [
+                            {"role": "assistant", "content": self.PATCH},
+                            {"role": "tool", "content": self.SOLVED[1]},
+                        ]
+                    },
+                    {
+                        "completion": [
+                            {"role": "assistant", "content": self.CARGO_TEST},
+                            {"role": "tool", "content": self.SOLVED[2]},
+                        ]
+                    },
                     {"completion": [{"role": "assistant", "content": "Fixed it.\nFINAL: done"}]},
                 ],
             },
@@ -274,8 +265,8 @@ class RewardGoldenTests(unittest.TestCase):
 
     def test_unexecuted_trailing_call_after_success_blocks_clean_solve_reward(self) -> None:
         trailing = call("read_file", "c4", file_path="src/lib.rs")
-        assistant = "\n".join([self.READ, self.PATCH, self.OK, trailing, "FINAL: done"])
-        executed_calls = parse_calls("\n".join([self.READ, self.PATCH, self.OK]))
+        assistant = "\n".join([self.READ, self.PATCH, self.CARGO_TEST, trailing, "FINAL: done"])
+        executed_calls = parse_calls("\n".join([self.READ, self.PATCH, self.CARGO_TEST]))
         state = {
             "executed_tool_calls": executed_calls,
             "executed_results": executed_results_from_blocks(self.SOLVED),
@@ -296,7 +287,7 @@ class RewardGoldenTests(unittest.TestCase):
         self.assertLess(unverified, 0.0)
 
     def test_reward_uses_resolved_info_fallback(self) -> None:
-        assistant = "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done"])
+        assistant = "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done"])
         reward = asyncio.run(
             _rust_tool_reward(
                 [{"role": "assistant", "content": assistant}],
@@ -313,8 +304,8 @@ class RewardGoldenTests(unittest.TestCase):
         self.assertEqual(reward, self._solve_stop())
 
     def test_trajectory_full_text_wins_over_stale_raw_transcript(self) -> None:
-        assistant = "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done"])
-        stale_raw = raw_trace("\n".join([self.READ, self.PATCH, self.OK]), self.SOLVED)
+        assistant = "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done"])
+        stale_raw = raw_trace("\n".join([self.READ, self.PATCH, self.CARGO_TEST]), self.SOLVED)
         reward = score_with_state(
             assistant,
             self.SOLVED,
@@ -342,7 +333,7 @@ class RewardGoldenTests(unittest.TestCase):
         ]
         final_turn = [
             *second_turn,
-            {"role": "assistant", "content": self.OK},
+            {"role": "assistant", "content": self.CARGO_TEST},
             {"role": "tool", "content": self.SOLVED[2]},
             {"role": "assistant", "content": "FINAL: done"},
         ]
@@ -361,7 +352,7 @@ class RewardGoldenTests(unittest.TestCase):
         self.assertEqual(rollout.full.count("FINAL: done"), 1)
 
     def test_exact_tool_limit_clean_final_is_not_exhausted(self) -> None:
-        assistant = "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done"])
+        assistant = "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done"])
         state = {
             "executed_tool_calls": parse_calls(assistant),
             "executed_call_ids": ["c1", "c2", "c3"],
@@ -385,7 +376,7 @@ class RewardGoldenTests(unittest.TestCase):
             def validate(self, assistant_text: str, result_text: str):
                 return types.SimpleNamespace(valid=False, errors=["invalid"])
 
-        assistant = "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done"])
+        assistant = "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done"])
         reward = asyncio.run(
             _rust_tool_reward(
                 [{"role": "assistant", "content": assistant}],
@@ -437,7 +428,7 @@ class RewardGoldenTests(unittest.TestCase):
         completion = [
             {"role": "assistant", "content": self.READ + ")<|im_end|>"},
             {"role": "assistant", "content": self.PATCH + "<|im_end|>"},
-            {"role": "assistant", "content": self.OK + "<|im_end|>"},
+            {"role": "assistant", "content": self.CARGO_TEST + "<|im_end|>"},
             {"role": "assistant", "content": "FINAL: done"},
         ]
         calls = parse_calls("\n".join(m["content"] for m in completion))
@@ -461,7 +452,7 @@ class RewardGoldenTests(unittest.TestCase):
         self.assertLessEqual(reward, 0.0)
 
     def test_terminal_chatml_end_after_final_is_allowed(self) -> None:
-        clean = "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done<|im_end|>"])
+        clean = "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done<|im_end|>"])
         self.assertEqual(score(clean, self.SOLVED), self._solve_stop())
 
     def test_bad_cargo_project_path_blocks_top_reward(self) -> None:
@@ -474,7 +465,7 @@ class RewardGoldenTests(unittest.TestCase):
 
     def test_multiline_final_does_not_get_clean_solve_reward(self) -> None:
         dirty_final = score(
-            "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done", ".waitKey" * 9]),
+            "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done", ".waitKey" * 9]),
             self.SOLVED,
         )
         self.assertLess(dirty_final, self._solve_stop())
@@ -482,143 +473,11 @@ class RewardGoldenTests(unittest.TestCase):
 
     def test_generated_token_final_tail_is_not_clean(self) -> None:
         dirty_final = score(
-            "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done<|endoftext|>"]),
+            "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done<|endoftext|>"]),
             self.SOLVED,
         )
         self.assertLess(dirty_final, self._solve_stop())
         self.assertLessEqual(dirty_final, 0.0)
-
-
-def assistant_text(row: dict) -> str:
-    return "\n".join(
-        str(m.get("content") or "")
-        for m in row.get("completion", [])
-        if isinstance(m, dict) and m.get("role") == "assistant"
-    )
-
-
-def tool_text(row: dict) -> str:
-    return "\n".join(
-        str(m.get("content") or "")
-        for m in row.get("completion", [])
-        if isinstance(m, dict) and m.get("role") == "tool"
-    )
-
-
-def _result_for(call_id: str, text: str) -> dict | None:
-    match = re.search(
-        r"RESULT\s+" + re.escape(call_id) + r":\n(.*?)(?=\nRESULT\s+[A-Za-z0-9_\-]+:|\Z)",
-        text,
-        re.DOTALL,
-    )
-    if not match:
-        return None
-    body = match.group(1)
-    return {"success": "status: success" in body}
-
-
-def trajectory(row: dict) -> tuple[list[str], str, bool, bool, bool]:
-    atext = assistant_text(row)
-    ttext = tool_text(row)
-    calls = parse_calls(atext)
-    tools = [c.tool for c in calls]
-    outcomes = [
-        bool(result.get("success", False))
-        for c in calls
-        if c.tool in VERIFIERS
-        for result in [_result_for(c.id, ttext)]
-        if result is not None
-    ]
-    has_verifier = bool(outcomes) or any(t in VERIFIERS for t in tools)
-    has_patch = "apply_patch" in tools
-    has_final = "FINAL:" in atext
-    clean_final = ended_cleanly_after_final(atext)
-    executed = {c.tool for c in calls if _result_for(c.id, ttext) is not None}
-    if outcomes and outcomes[-1] and clean_final:
-        stage = "clean_final"
-    elif outcomes and outcomes[-1]:
-        stage = "terminal_pass"
-    elif outcomes:
-        stage = "failed_terminal"
-    elif "apply_patch" in executed:
-        stage = "patch"
-    elif "read_file" in executed:
-        stage = "read"
-    else:
-        stage = "quit"
-    return tools, stage, has_patch, has_verifier, has_final
-
-
-def reward_bucket(value: float) -> str:
-    if math.isnan(value):
-        return "nan"
-    if value < -4:
-        return "<-4"
-    if value < -2:
-        return "[-4,-2)"
-    if value < 0:
-        return "[-2,0)"
-    if value == 0:
-        return "0"
-    if value < 2:
-        return "(0,2)"
-    if value < 4:
-        return "[2,4)"
-    return ">=4"
-
-
-def stream_rows(path: Path, limit: int):
-    with path.open(encoding="utf-8") as handle:
-        for idx, raw in enumerate(handle):
-            if idx >= limit:
-                break
-            yield json.loads(raw)
-
-
-def summarize_rollouts(paths: list[Path], sample: int) -> None:
-    for path in paths:
-        if not path.exists():
-            print(f"\n{path}: missing")
-            continue
-
-        stage_counts: Counter[str] = Counter()
-        reward_counts: Counter[str] = Counter()
-        tool_counts: Counter[tuple[str, ...]] = Counter()
-        pattern_counts: Counter[tuple[str, ...]] = Counter()
-        examples: dict[tuple[str, ...], list[dict]] = defaultdict(list)
-        rewards: list[float] = []
-        patch = verifier = final = total = 0
-
-        for row in stream_rows(path, sample):
-            tools, stage, has_patch, has_verifier, has_final = trajectory(row)
-            reward = float(row.get("reward", 0.0))
-            pattern = tuple(tools) or ("<no_call>",)
-            total += 1
-            rewards.append(reward)
-            stage_counts[stage] += 1
-            reward_counts[reward_bucket(reward)] += 1
-            tool_counts[tuple(tools)] += 1
-            pattern_counts[pattern] += 1
-            patch += has_patch
-            verifier += has_verifier
-            final += has_final
-            if len(examples[pattern]) < 3:
-                examples[pattern].append(
-                    {"id": row.get("example_id"), "reward": round(reward, 3), "stage": stage}
-                )
-
-        print(f"\n{path} sample={total}")
-        if not total:
-            continue
-        print(f"reward mean={statistics.mean(rewards):.3f} min={min(rewards):.3f} max={max(rewards):.3f}")
-        print("stage distribution:", dict(stage_counts.most_common()))
-        print("reward distribution:", dict(reward_counts.most_common()))
-        print("tool sequence frequencies:", {str(k): v for k, v in tool_counts.most_common(10)})
-        print(f"reaches apply_patch={patch / total:.1%} verifier={verifier / total:.1%} FINAL={final / total:.1%}")
-        print("top trajectory patterns:")
-        for pattern, count in pattern_counts.most_common(10):
-            print(f"  {count:4d} {pattern} examples={examples[pattern]}")
-
 
 class RustToolEnvTests(unittest.TestCase):
     READ = call("read_file", "c1", file_path="src/lib.rs")
@@ -751,11 +610,6 @@ class RlPromptFormatTests(unittest.TestCase):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--sample", type=int, default=200, help="Rows to stream per rollout file.")
-    parser.add_argument("--no-rollouts", action="store_true")
-    args = parser.parse_args()
-
     suite = unittest.TestSuite()
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(RewardGoldenTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(RustToolEnvTests))
@@ -763,8 +617,6 @@ def main() -> int:
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     if not result.wasSuccessful():
         return 1
-    if not args.no_rollouts:
-        summarize_rollouts(ROLLOUT_PATHS, args.sample)
     return 0
 
 

@@ -51,6 +51,7 @@ from rl.reward import (  # noqa: E402
     _rust_tool_reward,
 )
 from rl.environment import RustToolEnv  # noqa: E402
+from rl.rollout_text import collect_rollout_text  # noqa: E402
 from rl.task_format import load_prompts  # noqa: E402
 
 
@@ -108,12 +109,14 @@ def trajectory_from_assistant_lines(assistant: str, results: list[str]) -> list[
             by_id[first.removeprefix("RESULT ").removesuffix(":")] = block
 
     trajectory = []
+    history = []
     for line in assistant.splitlines():
         completion = [{"role": "assistant", "content": line}]
         parsed = parse_calls(line)
         if parsed and parsed[0].id in by_id:
             completion.append({"role": "tool", "content": by_id[parsed[0].id]})
-        trajectory.append({"completion": completion})
+        trajectory.append({"prompt": list(history), "completion": completion})
+        history.extend(completion)
     return trajectory
 
 
@@ -323,6 +326,38 @@ class RewardGoldenTests(unittest.TestCase):
             },
         )
         self.assertEqual(reward, self._solve_stop())
+
+    def test_rollout_full_text_uses_last_cumulative_trajectory_step(self) -> None:
+        user = {"role": "user", "content": "fix it"}
+        first_turn = [
+            user,
+            {"role": "assistant", "content": self.READ},
+            {"role": "tool", "content": self.SOLVED[0]},
+        ]
+        second_turn = [
+            *first_turn,
+            {"role": "assistant", "content": self.PATCH},
+            {"role": "tool", "content": self.SOLVED[1]},
+        ]
+        final_turn = [
+            *second_turn,
+            {"role": "assistant", "content": self.OK},
+            {"role": "tool", "content": self.SOLVED[2]},
+            {"role": "assistant", "content": "FINAL: done"},
+        ]
+        rollout = collect_rollout_text(
+            {
+                "trajectory": [
+                    {"prompt": [user], "completion": first_turn[1:]},
+                    {"prompt": first_turn, "completion": second_turn[len(first_turn):]},
+                    {"prompt": second_turn, "completion": final_turn[len(second_turn):]},
+                ],
+            }
+        )
+
+        self.assertEqual(rollout.full.count(self.READ), 1)
+        self.assertEqual(rollout.full.count(self.SOLVED[0]), 1)
+        self.assertEqual(rollout.full.count("FINAL: done"), 1)
 
     def test_exact_tool_limit_clean_final_is_not_exhausted(self) -> None:
         assistant = "\n".join([self.READ, self.PATCH, self.OK, "FINAL: done"])

@@ -54,15 +54,14 @@ class RolloutText:
 def collect_rollout_text(state: dict) -> RolloutText:
     assistant_parts: list[str] = []
     tool_parts: list[str] = []
-    full_parts: list[str] = []
     latest_assistant = ""
+    trajectory = state.get("trajectory") or []
 
-    for step in state.get("trajectory") or []:
+    for step in trajectory:
         for field in ("prompt", "completion"):
             for message in step.get(field) or []:
                 content = message_content(message)
                 role = message_role(message)
-                full_parts.append(content)
                 if role == "tool":
                     tool_parts.append(content)
                 if field == "completion" and role == "assistant":
@@ -70,7 +69,12 @@ def collect_rollout_text(state: dict) -> RolloutText:
                     assistant_parts.append(assistant)
                     latest_assistant = assistant.strip()
 
-    full = "\n".join(full_parts)
+    full = ""
+    if trajectory:
+        last = trajectory[-1]
+        full = messages_text(
+            [*(last.get("prompt") or []), *(last.get("completion") or [])]
+        )
     if not full and state.get("raw_chatml_transcript"):
         full = str(state["raw_chatml_transcript"])
     return RolloutText(

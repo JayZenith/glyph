@@ -26,6 +26,13 @@ from rl.rollout_text import (
 # heldout-style valid trace: cargo verifier pass, no later tools, exactly one
 # clean FINAL after the passing result, and no protocol errors. Invalid cargo
 # success is not rewarded; it only avoids some failure penalties.
+#
+# Default reward table:
+# valid structure -> 0; no CALL -> -5; malformed CALL -> -4
+# no cargo verifier -> -3; cargo project_path points at source file -> -4
+# bad FINAL hygiene -> -2; missing FINAL -> -3; clean verifier success -> +10
+# tool after verifier success -> -6; tool budget exhausted -> -5
+# failed verifier before success -> -1 each, bounded at -4
 DEFAULT_REWARD_CONFIG = MappingProxyType({
     # format floor
     "structure_valid_bonus": 0.0,
@@ -51,12 +58,15 @@ DEFAULT_REWARD_CONFIG = MappingProxyType({
 RewardConfig = Mapping[str, float]
 
 
+# Consumes CLI/env overrides and returns the numeric reward table used by the scorer.
 def build_reward_config(overrides: dict[str, float | None]) -> dict[str, float]:
     config = dict(DEFAULT_REWARD_CONFIG)
     config.update({k: v for k, v in overrides.items() if v is not None})
     return config
 
 
+# Consumes assistant/tool text and owns the protocol-validity gate used by the
+# clean-success bonus. Returns (structure scalar, validator_valid).
 def _structure_reward(
     assistant_text: str,
     result_text: str,
@@ -70,6 +80,7 @@ def _structure_reward(
     return structure, v.valid
 
 
+# Consumes assistant text and owns the single-FINAL shaping decision. Returns a scalar.
 def _finalization_reward(assistant_text: str, reward_config: RewardConfig) -> float:
     """Exactly one FINAL -> small bonus; otherwise the missing-FINAL penalty."""
     if final_count(assistant_text) == 1:
@@ -77,10 +88,13 @@ def _finalization_reward(assistant_text: str, reward_config: RewardConfig) -> fl
     return reward_config["missing_final_penalty"]
 
 
+# Consumes a CALL id and full transcript. Returns the byte offset of its RESULT block.
 def _result_offset(call_id: str, full_text: str) -> int:
     return full_text.find(f"RESULT {call_id}:")
 
 
+# Consumes normalized transcript facts and owns the exact heldout-style success
+# predicate. Returns a boolean, not reward points.
 def _heldout_style_success(
     assistant_text: str,
     full_text: str,
@@ -105,6 +119,7 @@ def _heldout_style_success(
     return final_pos > success_pos
 
 
+# Consumes parsed CALLs and owns cargo-specific argument validation. Returns errors.
 def _cargo_project_path_errors(calls: list[ProtocolCall]) -> list[str]:
     errors: list[str] = []
     for call in calls:
@@ -116,6 +131,8 @@ def _cargo_project_path_errors(calls: list[ProtocolCall]) -> list[str]:
     return errors
 
 
+# Consumes assistant text, parsed calls, and runtime state. Returns
+# (protocol penalty scalar, protocol error strings).
 def _protocol_reward_penalty(
     assistant_text: str,
     calls: list[ProtocolCall],
@@ -139,6 +156,8 @@ def _protocol_reward_penalty(
     return penalty, errors
 
 
+# Consumes parsed calls plus structured execution results and owns verifier
+# success/failure reward. Returns a scalar.
 def _outcome_reward(
     calls: list[ProtocolCall],
     executed_results: dict[str, ExecutionResult],
@@ -199,6 +218,7 @@ def _outcome_reward(
 
 async def _rust_tool_reward(completion, **kwargs) -> float:
     """Score the full multi-turn rollout from the transcript the env produced."""
+    # 1. Reconstruct rollout text/state from Verifiers completion + env state.
     state = kwargs.get("state") or {}
     text = completion_text(completion)
     reward_config = kwargs.get("reward_config") or DEFAULT_REWARD_CONFIG
@@ -217,6 +237,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     info = kwargs.get("info") or state.get("resolved_info") or {}
     expected_tool = info.get("expected_tool")
     validator: SimpleTraceValidator | None = kwargs.get("validator")
+
     raw_assistant_trace = assistant_text or text
     reward_assistant_trace = strip_generated_assistant_stop(raw_assistant_trace).strip()
     assistant_trace = strip_generated_assistant_stop(raw_assistant_trace)
@@ -224,6 +245,8 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
         rollout_text.latest_assistant
         or strip_generated_assistant_stop(completion_role_text(completion, "assistant")).strip()
     )
+
+    # 2. Validate protocol structure. Validator validity gates the +10 clean success.
     structure, validator_valid = _structure_reward(
         assistant_trace,
         tool_text,
@@ -234,6 +257,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     if not expected_tool:
         return structure
 
+    # 3. Parse CALLs from assistant text, falling back to env-recorded calls.
     calls = parse_calls(assistant_trace) or executed_calls
     if not calls:
         protocol_penalty, _ = _protocol_reward_penalty(
@@ -244,6 +268,7 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
         )
         return reward_config["no_call_penalty"] + protocol_penalty + structure
 
+    # 4. Calculate malformed/protocol penalties.
     reward = 0.0
     malformed = len(re.findall(r"\bCALL[A-Z]", raw_assistant_trace))
     reward += min(malformed, 4) * reward_config["malformed_call_penalty"]
@@ -255,7 +280,10 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     )
     reward += protocol_penalty
 
+    # 5. Calculate FINAL penalties.
     reward += _finalization_reward(reward_assistant_trace, reward_config)
+
+    # 6-7. Inspect cargo verifier results and award exact clean success if valid.
     reward += _outcome_reward(
         calls,
         executed_results,
@@ -269,7 +297,9 @@ async def _rust_tool_reward(completion, **kwargs) -> float:
     if protocol_errors:
         reward = min(reward, 0.0)
 
+    # 8. Apply tool-budget penalty if the environment marked the rollout exhausted.
     if state.get("tool_budget_exhausted"):
         reward += reward_config["tool_budget_exhausted_penalty"]
 
+    # 9. Return one scalar reward to Verifiers/PRIME-RL.
     return reward + structure

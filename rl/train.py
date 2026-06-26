@@ -21,6 +21,7 @@ from agent_runtime.chatml import GLYPH_CHAT_TEMPLATE, assert_glyph_template_pari
 CONFIG_DIR = Path(__file__).resolve().parent / "configs" / "task_trace"
 
 
+# CLI parsing
 # turns "0,2,3" into [0,2,3] for --prime-rl-gpu-ids
 def parse_int_list(value: str) -> list[int]:
     items = [item.strip() for item in value.split(",") if item.strip()]
@@ -111,6 +112,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+# Config and model preparation
 # Reads one TOML file into Python dict
 def load_toml(path: Path) -> dict[str, Any]:
     with path.open("rb") as f:
@@ -167,7 +169,8 @@ def materialize_glyph_chat_model(model_name: str, output_dir: Path) -> str:
     return str(dest)
 
 
-# write CLI vlaue into config if user passes it
+# Generic config utilities
+# write CLI value into config if user passes it
 def maybe_set(container: dict[str, Any], key: str, value: Any) -> None:
     if value is not None:
         container[key] = value
@@ -182,6 +185,7 @@ def set_filter_enforcement(orchestrator: dict[str, Any], filter_type: str, enfor
     filters.append({"type": filter_type, "enforce": enforce})
 
 
+# Sampling safety
 # loads model config + tokenizer, if model vocab > tokenizer vocab we ban extra token IDs with logit bias -100
 # prevents vLLM from sampling garbage invalid tokens
 def add_invalid_token_logit_bias(sampling: dict[str, Any], model_name: str) -> None:
@@ -215,46 +219,29 @@ def add_chat_boundary_stop_tokens(sampling: dict[str, Any], model_name: str) -> 
     extra_body["stop_token_ids"] = sorted({*existing, *stop_ids})
     extra_body["stop"] = ["<|im_end|>", "<|im_start|>"]
 
-def build_config(args: argparse.Namespace) -> dict[str, Any]:
-    trainer, orchestrator, inference = load_templates()
-    trainer.pop("buffer", None)
-    orchestrator.pop("model", None)
 
-    output_dir = args.output.resolve()
-    data_path = args.data.resolve() if args.data else None
-    use_lora = args.lora_rank is not None
-    adapter_name = None
-    auto_lora_name = None
-
-    base_model = args.model
-    if use_lora:
-        rank = args.lora_rank
-        alpha = float(args.lora_alpha if args.lora_alpha is not None else 2 * rank)
-        dropout = float(args.lora_dropout)
-        target_modules = [m.strip() for m in args.lora_target_modules.split(",") if m.strip()]
-        modules_to_save = [m.strip() for m in args.lora_modules_to_save.split(",") if m.strip()]
-        adapter_name = args.lora_name or f"glyph-rlvr-r{rank}-a{int(alpha)}"
-        auto_lora_name = f"r{rank}-a{float(alpha)}"
-
-    teacher_model_name = args.teacher_model or base_model
-    if not args.dry_run:
-        base_model = materialize_glyph_chat_model(base_model, output_dir)
-        teacher_model_name = materialize_glyph_chat_model(teacher_model_name, output_dir)
-
+# Config sections
+def configure_trainer(
+    trainer: dict[str, Any],
+    args: argparse.Namespace,
+    base_model: str,
+    use_lora: bool,
+    lora: dict[str, Any],
+) -> None:
+    # Trainer config controls optimization/backprop for the student model.
     trainer_model = trainer.setdefault("model", {})
     trainer_optim = trainer.setdefault("optim", {})
     trainer_loss = trainer.setdefault("loss", {})
     trainer_ckpt = trainer.setdefault("ckpt", {})
 
-    # set trainable model name and trainer configs
     trainer_model["name"] = base_model
     if use_lora:
         trainer_model["lora"] = {
-            "rank": rank,
-            "alpha": alpha,
-            "dropout": dropout,
-            "target_modules": target_modules,
-            "modules_to_save": modules_to_save,
+            "rank": lora["rank"],
+            "alpha": lora["alpha"],
+            "dropout": lora["dropout"],
+            "target_modules": lora["target_modules"],
+            "modules_to_save": lora["modules_to_save"],
         }
     maybe_set(trainer_model, "seq_len", args.seq_len)
     if args.activation_checkpointing:
@@ -275,22 +262,30 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
     maybe_set(trainer_ckpt, "resume_step", args.resume_step)
     maybe_set(trainer, "max_steps", args.max_steps)
 
+
+def configure_orchestrator(
+    orchestrator: dict[str, Any],
+    inference: dict[str, Any],
+    args: argparse.Namespace,
+    base_model: str,
+    use_lora: bool,
+    lora: dict[str, Any],
+) -> dict[str, Any]:
+    # Orchestrator config controls rollout collection and reward calls.
     orch_student = orchestrator.setdefault("student", {})
     orch_student_client = orch_student.setdefault("client", {})
     orch_train = orchestrator.setdefault("train", {})
     orch_sampling = orch_train.setdefault("sampling", {})
     env_list = orch_train.setdefault("env", [{"id": "task-trace", "args": {}}])
-    env_args = env_list[0].setdefault("args", {})
     orch_ckpt = orchestrator.setdefault("ckpt", {})
 
-    # set rollout model and related configs
     orch_student_model = orch_student.setdefault("model", {})
     orch_student_model["name"] = base_model
     if use_lora:
         orch_student_model["lora"] = {
-            "name": adapter_name,
-            "rank": rank,
-            "alpha": alpha,
+            "name": lora["adapter_name"],
+            "rank": lora["rank"],
+            "alpha": lora["alpha"],
         }
     student_port = args.port if args.port is not None else inference.get("server", {}).get("port", 8000)
     orch_student_client["base_url"] = [f"http://localhost:{student_port}/v1"]
@@ -309,8 +304,11 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
     if not args.dry_run:
         add_invalid_token_logit_bias(orch_sampling, base_model)
         add_chat_boundary_stop_tokens(orch_sampling, base_model)
+    return env_list[0].setdefault("args", {})
 
-    # env args
+
+def configure_environment(env_args: dict[str, Any], args: argparse.Namespace, data_path: Path | None) -> None:
+    # Environment config is passed to load_environment() for each Verifiers task.
     if data_path is not None:
         env_args["data_path"] = str(data_path)
     maybe_set(env_args, "max_samples", args.max_samples)
@@ -331,26 +329,48 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
     maybe_set(env_args, "failed_verifier_penalty", args.failed_verifier_penalty)
     maybe_set(env_args, "max_failed_verifier_penalty", args.max_failed_verifier_penalty)
 
-    # Inference
+
+def configure_inference(
+    inference: dict[str, Any],
+    args: argparse.Namespace,
+    base_model: str,
+    use_lora: bool,
+    lora: dict[str, Any],
+) -> None:
+    # Inference config controls the student vLLM server used for rollouts.
     infer_model = inference.setdefault("model", {})
     infer_server = inference.setdefault("server", {})
     infer_model["name"] = base_model
     maybe_set(infer_model, "max_model_len", args.max_model_len)
     maybe_set(infer_server, "port", args.port)
     maybe_set(inference, "gpu_memory_utilization", args.gpu_memory_utilization)
+
     served_aliases: list[str] = []
     candidates = [base_model]
     if use_lora:
-        candidates += [adapter_name, auto_lora_name]
+        candidates += [lora["adapter_name"], lora["auto_lora_name"]]
     for name in candidates:
         if name and name not in served_aliases:
             served_aliases.append(name)
     inference.setdefault("vllm_extra", {})["served_model_name"] = served_aliases
 
-    # teacher section
-    training_mode = "opd"
 
-    # GPU section
+def configure_teacher(
+    orchestrator: dict[str, Any],
+    args: argparse.Namespace,
+    teacher_model_name: str,
+) -> None:
+    # Teacher config controls OPD reference outputs consumed during training.
+    orchestrator["teacher"] = {
+        "model": {"name": teacher_model_name},
+        "client": {
+            "base_url": [args.teacher_base_url or f"http://127.0.0.1:{args.teacher_port}"],
+        },
+    }
+
+
+def configure_deployment(args: argparse.Namespace) -> dict[str, Any]:
+    # Deployment config assigns inference and trainer GPUs inside PRIME-RL.
     managed_gpu_ids = args.prime_rl_gpu_ids
     num_train_gpus = args.num_train_gpus if args.num_train_gpus is not None else 1
     num_infer_gpus = args.num_infer_gpus if args.num_infer_gpus is not None else 1
@@ -367,6 +387,56 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
     elif gpus_per_node is None:
         gpus_per_node = 2
 
+    return {
+        "type": "single_node",
+        "gpus_per_node": gpus_per_node,
+        "num_train_gpus": num_train_gpus,
+        "num_infer_gpus": num_infer_gpus,
+    }
+
+
+# Final assembly and launch
+def build_config(args: argparse.Namespace) -> dict[str, Any]:
+    trainer, orchestrator, inference = load_templates()
+    trainer.pop("buffer", None)
+    orchestrator.pop("model", None)
+
+    output_dir = args.output.resolve()
+    data_path = args.data.resolve() if args.data else None
+    use_lora = args.lora_rank is not None
+    lora: dict[str, Any] = {}
+
+    base_model = args.model
+    if use_lora:
+        rank = args.lora_rank
+        alpha = float(args.lora_alpha if args.lora_alpha is not None else 2 * rank)
+        dropout = float(args.lora_dropout)
+        target_modules = [m.strip() for m in args.lora_target_modules.split(",") if m.strip()]
+        modules_to_save = [m.strip() for m in args.lora_modules_to_save.split(",") if m.strip()]
+        lora = {
+            "rank": rank,
+            "alpha": alpha,
+            "dropout": dropout,
+            "target_modules": target_modules,
+            "modules_to_save": modules_to_save,
+            "adapter_name": args.lora_name or f"glyph-rlvr-r{rank}-a{int(alpha)}",
+            "auto_lora_name": f"r{rank}-a{float(alpha)}",
+        }
+
+    teacher_model_name = args.teacher_model or base_model
+    if not args.dry_run:
+        base_model = materialize_glyph_chat_model(base_model, output_dir)
+        teacher_model_name = materialize_glyph_chat_model(teacher_model_name, output_dir)
+
+    configure_trainer(trainer, args, base_model, use_lora, lora)
+    env_args = configure_orchestrator(orchestrator, inference, args, base_model, use_lora, lora)
+    configure_environment(env_args, args, data_path)
+    configure_inference(inference, args, base_model, use_lora, lora)
+    configure_teacher(orchestrator, args, teacher_model_name)
+    deployment = configure_deployment(args)
+
+    training_mode = "opd"
+
     config: dict[str, Any] = {
         "trainer": trainer,
         "orchestrator": orchestrator,
@@ -374,29 +444,19 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
         "output_dir": str(output_dir),
         "training_mode": training_mode,
         "wandb": {"offline": True, "shared": False},
-        "deployment": {
-            "type": "single_node",
-            "gpus_per_node": gpus_per_node,
-            "num_train_gpus": num_train_gpus,
-            "num_infer_gpus": num_infer_gpus,
-        },
+        "deployment": deployment,
     }
     if args.resume_step is not None:
         config["ckpt"] = {"resume_step": args.resume_step}
         if args.checkpoint_interval is not None:
             config["ckpt"]["interval"] = args.checkpoint_interval
-
-    orchestrator["teacher"] = {
-        "model": {"name": teacher_model_name},
-        "client": {
-            "base_url": [args.teacher_base_url or f"http://127.0.0.1:{args.teacher_port}"],
-        },
-    }
-
     return config
 
 
 def patch_gpu_mapping(managed_gpu_ids: list[int] | None) -> None:
+    # Monkey patch: PRIME-RL normally chooses visible GPUs itself. Glyph exposes
+    # an explicit physical-GPU mapping so the external teacher can stay outside
+    # the managed PRIME-RL GPU set.
     import prime_rl.entrypoints.rl as rl_mod
     import torch
 
@@ -420,6 +480,8 @@ def patch_gpu_mapping(managed_gpu_ids: list[int] | None) -> None:
 
 
 def patch_prime_orchestrator_httpx_import() -> None:
+    # Monkey patch: some pinned PRIME-RL installs use httpx.AsyncClient without
+    # importing httpx in orchestrator utils.
     import prime_rl.orchestrator.utils as utils_mod
 
     path = Path(utils_mod.__file__).resolve()
@@ -461,6 +523,8 @@ def main() -> None:
     patch_gpu_mapping(managed_gpu_ids)
 
     config = RLConfig.model_validate(raw_config)
+    # rl_local() transfers control to PRIME-RL: it starts inference/trainer
+    # workers, runs Verifiers rollouts, and applies scored updates.
     rl_mod.rl_local(config)
 
 

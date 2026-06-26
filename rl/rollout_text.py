@@ -10,6 +10,9 @@ from agent_runtime.chatml import (
 from agent_runtime.protocol import strip_generated_assistant_stop
 
 
+# Verifiers stores rollout data across completion lists and cumulative
+# trajectory steps. Reward code wants normalized strings: assistant text,
+# latest assistant turn, tool RESULT text, and the full rendered transcript.
 def completion_text(completion) -> str:
     if isinstance(completion, str):
         return completion

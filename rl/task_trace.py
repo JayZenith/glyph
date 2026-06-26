@@ -66,7 +66,7 @@ def load_environment(
     for item in prompts:
         info = {k: item[k] for k in info_keys if k in item}
         rows.append({"prompt": item["prompt"], "info": info, "task": env_id})
-        trace_prefix = info.get("trace_prefix")
+        trace_prefix = info.get("trace_prefix") or info.get("blueprint_root")
         if trace_prefix:
             trace_infos[str(trace_prefix)] = info
     dataset = Dataset.from_list(rows)

@@ -67,13 +67,6 @@ if [ "$INSTALL_VLLM" = "1" ] && [ -z "$VLLM_VERSION" ]; then
     2.5.1)
       VLLM_VERSION="0.7.3"
       ;;
-    *)
-      INSTALL_VLLM=0
-      cat >&2 <<EOF
-Skipping vLLM: no default vLLM pin is known for torch==${TORCH_VERSION}.
-Set VLLM_VERSION explicitly to install a compatible vLLM build, or set INSTALL_VLLM=0 to silence this message.
-EOF
-      ;;
   esac
 fi
 
@@ -282,6 +275,11 @@ PYINFO
 fi
 
 if [ "$INSTALL_VLLM" = "1" ]; then
+  if [ -n "$VLLM_VERSION" ]; then
+    VLLM_SPEC="vllm==${VLLM_VERSION}"
+  else
+    VLLM_SPEC="vllm"
+  fi
   retry_uv_pip_install 3 \
     --python "$VENV_PY" \
     --index-url "$PYPI_INDEX_URL" \
@@ -290,7 +288,7 @@ if [ "$INSTALL_VLLM" = "1" ]; then
     "$TORCH_SPEC" \
     "transformers==4.57.5" \
     "tokenizers==0.22.2" \
-    "vllm==${VLLM_VERSION}"
+    "$VLLM_SPEC"
 fi
 
 cat <<EOF
@@ -303,7 +301,7 @@ Installed:
   $TORCH_SPEC from $TORCH_INDEX_URL
   accelerate==1.10.1
   flash-attn wheel only
-  vllm==$VLLM_VERSION (INSTALL_VLLM=$INSTALL_VLLM, USER_SET_VLLM_VERSION=$USER_SET_VLLM_VERSION)
+  ${VLLM_SPEC:-vllm not installed} (INSTALL_VLLM=$INSTALL_VLLM, USER_SET_VLLM_VERSION=$USER_SET_VLLM_VERSION)
   rust toolchain via apt (cargo/rustc)
   pinned SFT deps from requirements-train.txt
 EOF

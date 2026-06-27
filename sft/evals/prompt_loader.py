@@ -1,4 +1,4 @@
-"""Load eval prompts from evals/eval_prompts.yaml and render them to CALL/RESULT format."""
+"""Load heldout eval prompts and render them to Glyph ChatML."""
 import json
 import re
 from difflib import SequenceMatcher
@@ -8,7 +8,7 @@ import yaml
 
 from agent_runtime.chatml import render_prompt
 
-_PROMPTS_FILE = Path(__file__).parent / "eval_prompts.yaml"
+_PROMPTS_FILE = Path(__file__).parent / "eval_prompts_heldout_69.yaml"
 _USER_RE = re.compile(r"<\|im_start\|>user\n(.*?)\n<\|im_end\|>", re.DOTALL)
 
 def load_prompts(section: str, prompt_file: str | None = None) -> list[dict]:

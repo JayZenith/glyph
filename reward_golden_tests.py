@@ -108,6 +108,25 @@ def trajectory_from_assistant_lines(assistant: str, results: list[str]) -> list[
     return trajectory
 
 
+def trajectory_from_assistant_turns(turns: list[str], results: list[str]) -> list[dict]:
+    by_id = {}
+    for block in results:
+        first = block.splitlines()[0]
+        if first.startswith("RESULT ") and first.endswith(":"):
+            by_id[first.removeprefix("RESULT ").removesuffix(":")] = block
+
+    trajectory = []
+    history = []
+    for turn in turns:
+        completion = [{"role": "assistant", "content": turn}]
+        parsed = parse_calls(turn)
+        if parsed and parsed[0].id in by_id:
+            completion.append({"role": "tool", "content": by_id[parsed[0].id]})
+        trajectory.append({"prompt": list(history), "completion": completion})
+        history.extend(completion)
+    return trajectory
+
+
 def score(assistant: str, results: list[str], expected_tool: str = "read_file") -> float:
     calls = parse_calls(assistant)
     return asyncio.run(
@@ -220,12 +239,24 @@ class RewardGoldenTests(unittest.TestCase):
         self.assertLessEqual(self._solve_nostop(), 0.0)
         self.assertGreater(self._solve_stop(), 8.0)
 
-    def test_dirty_final_after_cargo_success_is_not_positive(self) -> None:
-        dirty = score(
-            "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done", "extra tokens"]),
+    def test_multiline_final_after_cargo_success_is_positive(self) -> None:
+        final_turn = "FINAL: done\nextra tokens"
+        assistant = "\n".join([self.READ, self.PATCH, self.CARGO_TEST, final_turn])
+        reward = score_with_state(
+            assistant,
             self.SOLVED,
+            {
+                "executed_tool_calls": parse_calls(assistant),
+                "executed_results": executed_results_from_blocks(self.SOLVED),
+                "executed_result_blocks": self.SOLVED,
+                "raw_chatml_transcript": raw_trace(assistant, self.SOLVED),
+                "trajectory": trajectory_from_assistant_turns(
+                    [self.READ, self.PATCH, self.CARGO_TEST, final_turn],
+                    self.SOLVED,
+                ),
+            },
         )
-        self.assertLessEqual(dirty, 0.0)
+        self.assertEqual(reward, self._solve_stop())
 
     def test_leading_prose_before_final_does_not_get_clean_solve_reward(self) -> None:
         assistant = "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "Fixed it.\nFINAL: done"])
@@ -463,21 +494,31 @@ class RewardGoldenTests(unittest.TestCase):
         )
         self.assertLess(reward, self._solve_nostop())
 
-    def test_multiline_final_does_not_get_clean_solve_reward(self) -> None:
-        dirty_final = score(
-            "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done", ".waitKey" * 9]),
+    def test_stdout_style_multiline_final_gets_clean_solve_reward(self) -> None:
+        final_turn = "FINAL: done\n" + ".waitKey" * 9
+        assistant = "\n".join([self.READ, self.PATCH, self.CARGO_TEST, final_turn])
+        reward = score_with_state(
+            assistant,
             self.SOLVED,
+            {
+                "executed_tool_calls": parse_calls(assistant),
+                "executed_results": executed_results_from_blocks(self.SOLVED),
+                "executed_result_blocks": self.SOLVED,
+                "raw_chatml_transcript": raw_trace(assistant, self.SOLVED),
+                "trajectory": trajectory_from_assistant_turns(
+                    [self.READ, self.PATCH, self.CARGO_TEST, final_turn],
+                    self.SOLVED,
+                ),
+            },
         )
-        self.assertLess(dirty_final, self._solve_stop())
-        self.assertLessEqual(dirty_final, 0.0)
+        self.assertEqual(reward, self._solve_stop())
 
-    def test_generated_token_final_tail_is_not_clean(self) -> None:
-        dirty_final = score(
+    def test_generated_token_text_inside_final_is_allowed(self) -> None:
+        reward = score(
             "\n".join([self.READ, self.PATCH, self.CARGO_TEST, "FINAL: done<|endoftext|>"]),
             self.SOLVED,
         )
-        self.assertLess(dirty_final, self._solve_stop())
-        self.assertLessEqual(dirty_final, 0.0)
+        self.assertEqual(reward, self._solve_stop())
 
 class RustToolEnvTests(unittest.TestCase):
     READ = call("read_file", "c1", file_path="src/lib.rs")

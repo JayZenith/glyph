@@ -5,7 +5,7 @@ like:
 - Which assistant text belongs to assistant turns?
 - Which CALL lines are syntactically valid?
 - Which RESULT ids have appeared?
-- Is there exactly one clean FINAL?
+- Is there exactly one FINAL and no later CALL?
 
 RL uses these checks as protocol/format gates, then adds task-specific reward
 logic in rl/task_trace.py for cargo success, recovery attempts, post-success
@@ -34,7 +34,7 @@ TOOL_NAME_RE = re.compile(r"^[A-Za-z_]\w*$")
 # RESULT c1:
 RESULT_ID_RE = re.compile(r"^\s*RESULT\s+([A-Za-z0-9_\-]+):", re.MULTILINE)
 
-# A final answer must be introduced by FINAL:.
+# A final answer can contain arbitrary answer text after FINAL:.
 FINAL_RE = re.compile(r"^\s*FINAL:\s*", re.MULTILINE)
 
 ASSISTANT_STOP = "<|im_end|>"
@@ -202,37 +202,6 @@ def ended_cleanly_after_final(assistant_text: str) -> bool:
     return "CALL " not in tail[6:]
 
 
-def final_hygiene_errors(assistant_text: str) -> list[str]:
-    """Validate the contents of a single FINAL line.
-
-    This intentionally says nothing when there are zero or multiple FINAL lines;
-    callers use final_count()/has_final() for that structural check.
-    """
-    errors: list[str] = []
-    finals = [
-        line.strip()
-        for line in assistant_text.splitlines()
-        if line.strip().startswith("FINAL:")
-    ]
-    if len(finals) != 1:
-        return errors
-    clean_text = strip_generated_assistant_stop(assistant_text)
-    final_pos = clean_text.rfind("FINAL:")
-    tail = clean_text[final_pos + len("FINAL:"):].strip()
-    body = tail
-    if not body:
-        errors.append("Empty FINAL")
-    if "\n" in body or "\r" in body:
-        errors.append("FINAL must be a single line")
-    if any((ord(ch) < 32 and ch not in "\n\r\t") or ord(ch) > 126 for ch in body):
-        errors.append("Non-ASCII FINAL")
-    if "\ufffd" in body or "<|endoftext|>" in assistant_text:
-        errors.append("Corrupt/generated special token in FINAL")
-    if re.search(r"\b[A-Z][A-Za-z]{7,}(?:Style|State|View|Manager)\b$", body):
-        errors.append("Suspicious FINAL suffix")
-    return errors
-
-
 # ---------------------------------------------------------------------------
 # Coarse structural validator
 # ---------------------------------------------------------------------------
@@ -261,5 +230,4 @@ class SimpleTraceValidator:
         if result_ids != call_ids[: len(result_ids)] or len(result_ids) < len(call_ids):
             errors.append("Tool calls without matching result")
         errors.extend(call_syntax_errors(assistant_text))
-        errors.extend(final_hygiene_errors(assistant_text))
         return ValidationResult(valid=not errors, errors=errors)

@@ -8,7 +8,6 @@ from agent_runtime.protocol import (
     RESULT_ID_RE,
     SEG_RE,
     call_syntax_errors,
-    final_hygiene_errors,
     parse_calls,
 )
 from agent_runtime.rust.results import parse_call_blocks
@@ -87,8 +86,6 @@ def _failure_buckets(metrics: dict) -> list[str]:
         buckets.append("missing_call_ids")
     if not metrics["exact_call_syntax"]:
         buckets.append("malformed_call_syntax")
-    if not metrics["final_hygiene"]:
-        buckets.append("bad_final_hygiene")
     if not metrics["cargo_project_paths_valid"]:
         buckets.append("bad_cargo_project_path")
     if not metrics["not_truncated"]:
@@ -135,7 +132,6 @@ def score_output(
     result_ids = _extract_result_ids(tool_bodies)
     parsed_calls = parse_call_blocks(assistant_text)
     syntax_errors = call_syntax_errors(assistant_text)
-    final_errors = final_hygiene_errors(assistant_text)
     cargo_path_errors = _cargo_project_path_errors(parsed_calls)
     expected_tool_sequence = item.get("expected_tool_sequence", [])
     kind = item.get("kind", "other")
@@ -162,7 +158,6 @@ def score_output(
         "result_ids_match_call_ids": result_ids == call_ids[: len(result_ids)],
         "all_calls_have_ids": len(call_ids) == len(calls),
         "exact_call_syntax": not syntax_errors,
-        "final_hygiene": not final_errors,
         "cargo_project_paths_valid": not cargo_path_errors,
         "not_truncated": new_token_count < max_new_tokens - 10,
         "terminal_tool_success": terminal_tool_success,
@@ -186,7 +181,6 @@ def score_output(
         and metrics["result_ids_match_call_ids"]
         and metrics["all_calls_have_ids"]
         and metrics["exact_call_syntax"]
-        and metrics["final_hygiene"]
         and metrics["cargo_project_paths_valid"]
         and metrics["final_after_last_tool"]
         and metrics["terminal_tool_success"]
@@ -198,7 +192,6 @@ def score_output(
     score += 2 if metrics["result_ids_match_call_ids"] else 0
     score += 1 if metrics["all_calls_have_ids"] else 0
     score += 1 if metrics["exact_call_syntax"] else 0
-    score += 1 if metrics["final_hygiene"] else 0
     score += 1 if metrics["final_after_last_tool"] else 0
     score += 1 if metrics["not_truncated"] else 0
     metrics["score"] = score
@@ -225,7 +218,6 @@ def summarize(name: str, rows: list[dict]) -> dict:
             "expected_tool_sequence_rate": sum(r["metrics"]["expected_tool_sequence_exact"] for r in kind_rows) / n,
             "result_id_match_rate": sum(r["metrics"]["result_ids_match_call_ids"] for r in kind_rows) / n,
             "exact_call_syntax_rate": sum(r["metrics"]["exact_call_syntax"] for r in kind_rows) / n,
-            "final_hygiene_rate": sum(r["metrics"]["final_hygiene"] for r in kind_rows) / n,
             "final_after_last_tool_rate": sum(r["metrics"]["final_after_last_tool"] for r in kind_rows) / n,
             "terminal_tool_success_rate": sum(r["metrics"]["terminal_tool_success"] for r in kind_rows) / n,
         }
@@ -239,7 +231,6 @@ def summarize(name: str, rows: list[dict]) -> dict:
         "expected_tool_sequence_rate": sum(1 for row in rows if row["metrics"]["expected_tool_sequence_exact"]) / total,
         "result_id_match_rate": sum(1 for row in rows if row["metrics"]["result_ids_match_call_ids"]) / total,
         "exact_call_syntax_rate": sum(1 for row in rows if row["metrics"]["exact_call_syntax"]) / total,
-        "final_hygiene_rate": sum(1 for row in rows if row["metrics"]["final_hygiene"]) / total,
         "final_after_last_tool_rate": sum(1 for row in rows if row["metrics"]["final_after_last_tool"]) / total,
         "terminal_tool_success_rate": sum(1 for row in rows if row["metrics"]["terminal_tool_success"]) / total,
         "not_truncated_rate": sum(1 for row in rows if row["metrics"]["not_truncated"]) / total,

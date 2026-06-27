@@ -18,7 +18,6 @@ from sft.evals import (
     score_output,
     summarize,
 )
-from sft.evals.real_cases import materialize_case
 
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
@@ -33,21 +32,41 @@ def prepare_eval_items(items: list[dict], cases_root: Path) -> list[dict]:
     prepared: list[dict] = []
     for item in items:
         row = dict(item)
-        real_case_name = row.get("real_case_name")
-        user_template = row.pop("user_template", None)
         if row.get("blueprint_root"):
             row["blueprint_root"] = str(row["blueprint_root"])
             row["trace_prefix"] = row.get("trace_prefix") or row["blueprint_root"]
-        elif real_case_name:
-            case = materialize_case(real_case_name, cases_root / row["name"])
-            row["blueprint_root"] = case.blueprint_root
-            row["trace_prefix"] = case.blueprint_root
-            if case.expected_output is not None:
-                row["expected_output"] = case.expected_output
-            if user_template:
-                row["user"] = user_template.format(project_root=case.blueprint_root)
         prepared.append(row)
     return prepared
+
+
+def _git_commit() -> str | None:
+    try:
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    except Exception:
+        return None
+
+
+def _write_eval_payload(
+    output: Path,
+    args: argparse.Namespace,
+    results: dict[str, list[dict]],
+    n_prompts: int,
+    commit: str | None,
+) -> None:
+    payload = {
+        "run": {
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "git_commit": commit,
+            "args": vars(args),
+            "n_prompts": n_prompts,
+        },
+        "summary": {"sft": summarize("sft", results["sft"])},
+        "results": results,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    tmp = output.with_suffix(output.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2))
+    tmp.replace(output)
 
 
 def main() -> int:
@@ -58,9 +77,9 @@ def main() -> int:
         default=None,
         help="Optional PEFT adapter to load on top of --sft-model. Use this for RLVR LoRA checkpoints.",
     )
-    parser.add_argument("--prompt-section", default="post_eval")
+    parser.add_argument("--prompt-section", default="post_eval_heldout_69")
     parser.add_argument("--prompt-file", default=None,
-                        help="Optional yaml file to load prompts from instead of sft/evals/eval_prompts.yaml")
+                        help="Optional yaml file to load prompts from instead of the heldout-69 prompt file")
     parser.add_argument("--train-data", required=True,
                         help="Train dataset JSONL used to reject exact eval prompt overlap")
     parser.add_argument("--max-prompt-similarity", type=float, default=None,
@@ -84,6 +103,8 @@ def main() -> int:
                         help="Number of eval prompts to generate together. Default 1 preserves legacy serial behavior.")
     parser.add_argument("--tool-workers", type=int, default=None,
                         help="Max parallel Rust tool executions in batched mode. Defaults to min(8, pending calls).")
+    parser.add_argument("--no-resume", action="store_true",
+                        help="Ignore an existing output JSON instead of skipping completed prompt names.")
     args = parser.parse_args()
     if args.prompt_batch_size < 1:
         raise ValueError("--prompt-batch-size must be >= 1")
@@ -100,7 +121,22 @@ def main() -> int:
         assert_prompt_similarity_below(prompts, args.train_data, args.max_prompt_similarity)
     if args.limit is not None:
         prompts = prompts[:args.limit]
+    output_path = Path(args.output)
     results = {"sft": []}
+    prompt_names = {item["name"] for item in prompts}
+    completed: set[str] = set()
+    if output_path.exists() and not args.no_resume:
+        existing = json.loads(output_path.read_text())
+        results["sft"] = [
+            row for row in existing.get("results", {}).get("sft", [])
+            if row.get("name") in prompt_names
+        ]
+        completed = {row["name"] for row in results["sft"]}
+        prompts = [item for item in prompts if item["name"] not in completed]
+        print(f"resuming: {len(completed)} complete, {len(prompts)} remaining", flush=True)
+
+    total_prompts = len(prompts) + len(completed)
+    commit = _git_commit()
     for start in range(0, len(prompts), args.prompt_batch_size):
         batch = prompts[start:start + args.prompt_batch_size]
         batch_prompts = [build_prompt(item["user"], item.get("system")) for item in batch]
@@ -170,25 +206,10 @@ def main() -> int:
                 "output": sft_out,
                 "metrics": score_output(prompt, sft_out, item, sft_n, args.max_new_tokens),
             })
+        _write_eval_payload(output_path, args, results, total_prompts, commit)
 
-    try:
-        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    except Exception:
-        commit = None
-
-    summary = {"sft": summarize("sft", results["sft"])}
-
-    payload = {
-        "run": {
-            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-            "git_commit": commit,
-            "args": vars(args),
-            "n_prompts": len(prompts),
-        },
-        "summary": summary,
-        "results": results,
-    }
-    Path(args.output).write_text(json.dumps(payload, indent=2))
+    if results["sft"]:
+        _write_eval_payload(output_path, args, results, total_prompts, commit)
     print(f"Wrote {args.output}")
     return 0
 

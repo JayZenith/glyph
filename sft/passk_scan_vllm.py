@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""vLLM-backed pass@k scan. Identical output schema to sft/passk_scan.py, but the
-k rollouts of each prompt are driven as one batched, multi-turn generation through
-a single vllm.LLM (continuous batching) with cargo executed for the k rollouts in
+"""vLLM-backed pass@k scan.
+
+The k rollouts of each prompt are driven as one batched, multi-turn generation
+through a single vllm.LLM, with cargo executed for the active rollouts in
 parallel. Same CALL/RESULT/FINAL protocol, same real cargo, same banding.
 
 Use on a free GPU while RL trains, e.g. CUDA_VISIBLE_DEVICES=0.

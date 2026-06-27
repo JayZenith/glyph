@@ -51,6 +51,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=Path("outputs/prime_rl"))
     parser.add_argument("--max-steps", type=int)
     parser.add_argument("--batch-size", type=int)
+    parser.add_argument("--max-inflight-rollouts", type=int,
+                        help="Maximum concurrent rollout requests; usually tune with --batch-size.")
     parser.add_argument("--rollouts-per-example", type=int)
     parser.add_argument("--seq-len", type=int)
     parser.add_argument("--max-model-len", type=int)
@@ -77,7 +79,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--malformed-call-penalty", type=float)
     parser.add_argument("--no-verifier-penalty", type=float)
     parser.add_argument("--bad-cargo-project-path-penalty", type=float)
-    parser.add_argument("--bad-final-hygiene-penalty", type=float)
+    parser.add_argument("--bad-final-hygiene-penalty", type=float,
+                        help="Deprecated no-op; kept so older launch commands still parse.")
     parser.add_argument("--tool-budget-exhausted-penalty", type=float)
     parser.add_argument("--final-once-bonus", type=float)
     parser.add_argument("--missing-final-penalty", type=float)
@@ -289,6 +292,7 @@ def configure_orchestrator(
     student_port = args.port if args.port is not None else inference.get("server", {}).get("port", 8000)
     orch_student_client["base_url"] = [f"http://localhost:{student_port}/v1"]
     maybe_set(orchestrator, "batch_size", args.batch_size)
+    maybe_set(orchestrator, "max_inflight_rollouts", args.max_inflight_rollouts)
     maybe_set(orchestrator, "rollouts_per_example", args.rollouts_per_example)
     maybe_set(orchestrator, "seq_len", args.seq_len)
     maybe_set(orchestrator, "max_steps", args.max_steps)

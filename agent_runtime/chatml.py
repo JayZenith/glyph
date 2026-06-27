@@ -1,18 +1,31 @@
-"""Render structured messages into Glyph ChatML.
+"""Render structured message objects into Glyph ChatML.
 
-This is for JSONL/YAML/runtime messages, not raw model output repair.
-If generated model text misses a boundary, scoring should treat that as a
-model failure.
+This module is for JSONL/YAML/runtime message dictionaries, not raw model output
+repair. Example: {"role": "user", "content": "Fix the bug"} renders as
+<|im_start|>user\nFix the bug\n<|im_end|>.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-
 IM_START = "<|im_start|>"
 IM_END = "<|im_end|>"
-DEFAULT_SYSTEM_PROMPT = "You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately."
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a Rust coding agent. Use tools when needed. After FINAL, stop immediately."
+)
+
+
+def render_message(role: str, content: str) -> str:
+    """Render one structured message as one ChatML turn."""
+    body = content.rstrip()
+    rendered = f"{IM_START}{role}\n{body}"
+
+    # Stored assistant turns may already include the generated boundary. Avoid
+    # doubling it; this renderer does not repair live model output.
+    if role != "assistant" or not body.endswith(IM_END):
+        rendered += f"\n{IM_END}"
+    return rendered
 
 
 def _message_value(message: Any, key: str, default: str = "") -> Any:
@@ -32,18 +45,6 @@ def message_role(message: Any) -> str:
 
 def message_content(message: Any) -> str:
     return str(_message_value(message, "content", ""))
-
-
-def render_message(role: str, content: str) -> str:
-    """Render one structured message as one ChatML turn."""
-    body = content.rstrip()
-    rendered = f"{IM_START}{role}\n{body}"
-
-    # Structured assistant traces may already include the delimiter. Avoid
-    # doubling it; this is not fixing live model output.
-    if role != "assistant" or not body.endswith(IM_END):
-        rendered += f"\n{IM_END}"
-    return rendered
 
 
 def render_messages(messages: list[Any], add_generation_prompt: bool = False) -> str:
@@ -99,7 +100,10 @@ def assert_glyph_template_parity(tokenizer: Any | None = None) -> None:
     messages = [
         {"role": "system", "content": "SYS"},
         {"role": "user", "content": "USR"},
-        {"role": "assistant", "content": 'CALL read_file {"id":"c1","file_path":"x"}\n<|im_end|>'},
+        {
+            "role": "assistant",
+            "content": 'CALL read_file {"id":"c1","file_path":"x"}\n<|im_end|>',
+        },
         {"role": "tool", "content": "RESULT c1:\nstatus: success"},
     ]
 
@@ -125,6 +129,7 @@ def assert_glyph_template_parity(tokenizer: Any | None = None) -> None:
 
 
 def install_glyph_chat_template(tokenizer: Any) -> Any:
+    """Install Glyph ChatML into a tokenizer and verify byte parity."""
     tokenizer.chat_template = GLYPH_CHAT_TEMPLATE
     assert_glyph_template_parity(tokenizer)
     return tokenizer

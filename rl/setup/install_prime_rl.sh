@@ -191,7 +191,7 @@ else:
     raise RuntimeError("Could not resolve prime_rl package path")
 PY
 )"
-"$PRIME_RL_DIR/.venv/bin/python" "$ROOT_DIR/rl/setup/patch_install.py" "$SITE_PACKAGES_DIR"
+"$PRIME_RL_DIR/.venv/bin/python" "$ROOT_DIR/rl/scripts/patch_prime_rl_install.py" "$SITE_PACKAGES_DIR"
 
 cat <<EOF
 PRIME-RL ready at: $PRIME_RL_DIR
@@ -199,5 +199,5 @@ Activate with:
   source "$PRIME_RL_DIR/.venv/bin/activate"
 
 Run glyph RL wrappers from the repo root:
-  cd "$ROOT_DIR" && bash rl/setup/run_task_trace_2xa100.sh
+  cd "$ROOT_DIR" && python rl/train.py --help
 EOF

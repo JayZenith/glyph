@@ -10,7 +10,6 @@ from agent_runtime.protocol import (
     call_syntax_errors,
     ended_cleanly_after_final,
     final_count,
-    final_hygiene_errors,
     parse_calls,
     strip_generated_assistant_stop,
 )
@@ -30,7 +29,7 @@ from rl.rollout_text import (
 # Default reward table:
 # valid structure -> 0; no CALL -> -5; malformed CALL -> -4
 # no cargo verifier -> -3; cargo project_path points at source file -> -4
-# bad FINAL hygiene -> -2; missing FINAL -> -3; clean verifier success -> +10
+# missing FINAL -> -3; clean verifier success -> +10
 # tool after verifier success -> -6; tool budget exhausted -> -5
 # failed verifier before success -> -1 each, bounded at -4
 DEFAULT_REWARD_CONFIG = MappingProxyType({
@@ -40,7 +39,8 @@ DEFAULT_REWARD_CONFIG = MappingProxyType({
     "malformed_call_penalty": -4.0,
     "no_verifier_penalty": -3.0,
     "bad_cargo_project_path_penalty": -4.0,
-    "bad_final_hygiene_penalty": -2.0,
+    # Deprecated no-op kept so old launch commands/configs still validate.
+    "bad_final_hygiene_penalty": 0.0,
     # clean completion
     "final_once_bonus": 0.0,
     "missing_final_penalty": -3.0,
@@ -113,8 +113,6 @@ def _heldout_style_success(
         return False
     if not ended_cleanly_after_final(assistant_text):
         return False
-    if final_hygiene_errors(assistant_text):
-        return False
     final_pos = full_text.rfind("FINAL:")
     return final_pos > success_pos
 
@@ -149,10 +147,6 @@ def _protocol_reward_penalty(
         penalty += reward_config["malformed_call_penalty"]
     if any("project_path" in e for e in errors):
         penalty += reward_config["bad_cargo_project_path_penalty"]
-    final_errors = final_hygiene_errors(assistant_text)
-    if final_errors:
-        errors.extend(final_errors)
-        penalty += reward_config["bad_final_hygiene_penalty"]
     return penalty, errors
 
 

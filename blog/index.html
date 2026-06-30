@@ -92,14 +92,16 @@ td.num { text-align: right; font-family: ui-monospace, monospace; }
   <p class="kicker">GLYPH</p>
   <h1>A verifiable RL environment for a Rust tool-use agent</h1>
   <p class="lede">
-    I built the full post-training stack for a Rust tool-use coding agent (Qwen3-4B)
-    <strong>end to end</strong> — synthetic data, SFT, verifiable-reward RLVR on PRIME-RL,
-    and a strict held-out eval. SFT learns the agent contract; the first RLVR run came out
-    <strong>flat</strong>; I traced that to no gradient on the hard tail and fixed it with a
-    <strong>dense partial-credit reward</strong> for a small, reproducible pass@8 lift —
-    with seed replication, not a single lucky run. I then A/B'd a more "principled"
-    Rust-compiler-aware reward against it, and it <strong>lost</strong> — a real result
-    about reward design, not just another win.
+    At step 0 of my first RLVR run, the orchestrator filtered the entire batch — 96 rollouts,
+    zero advantage, no gradient. The reward was binary: <code>+10</code> for a clean trace
+    that passed cargo tests, nothing otherwise. Every rollout failed, so every rollout scored
+    identically. I fixed it with a <strong>dense partial-credit reward</strong> and got a
+    small, reproducible pass@8 lift. Then I tested a "smarter" compiler-aware reward, and it
+    <strong>made things worse</strong>. Along the way, reading individual traces instead of
+    trusting scores, I caught the model satisfying the test suite while silently violating
+    the user's actual written spec. This is the full post-training stack for a Rust tool-use
+    coding agent (Qwen3-4B) — data, SFT, RLVR, eval — and what each of those findings actually
+    looked like.
   </p>
   <p class="links">
     <a href="https://github.com/JayZenith/GLYPH" target="_blank" rel="noreferrer">code</a>
@@ -1215,10 +1217,27 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
   <p>
     The hard tail splits in two. The <em>reachable</em> part — problems the model solves
     sometimes at pass@8 — is where RL has trajectories to reinforce, and the dense reward
-    captured a sliver of it. The rest (~49/150 fail even at pass@8) is a 4B-base Rust
-    capability ceiling: the model essentially never produces a correct trajectory, so no
-    reward shaping can move it. Raising that needs richer compiler feedback to the agent or a
-    stronger base, not a fancier reward.
+    captured a sliver of it. The rest is the 48 cases (of 150) that never get a clean cargo
+    success across any of 8 attempts at T=0.8. I classified all 48 by what actually happens in
+    their rollouts, instead of asserting a capability ceiling:
+  </p>
+  <table>
+    <thead><tr><th>failure mode</th><th class="num">count</th><th class="num">%</th></tr></thead>
+    <tbody>
+      <tr><td>never compiles / runs, in any of 8 tries</td><td class="num">0</td><td class="num">0%</td></tr>
+      <tr><td>compiles or runs, but zero credit ever (mostly exact-stdout <code>cargo_run</code> tasks that never match)</td><td class="num">20</td><td class="num">41.7%</td></tr>
+      <tr><td>compiles and passes <em>some</em> tests in some attempt, never closes out a full pass</td><td class="num">28</td><td class="num">58.3%</td></tr>
+    </tbody>
+  </table>
+  <p>
+    Zero of the 48 are a raw Rust-syntax wall — every one compiles or runs at least once across
+    8 tries. The real ceiling is precision, not capability: 58.3% are cases the dense reward
+    already targets directly (compile bonus + test-pass fraction is exactly the signal these
+    need), and they still don't close out at pass@8. The dense reward isn't blind to this
+    bucket — it sees it and still can't solve it in 8 samples. That's a stronger, narrower claim
+    than "capability ceiling": raising it needs either more samples/better search, richer
+    feedback on the specific failing assertion, or a stronger base — not just more reward
+    shaping on the same signal.
   </p>
 
   <h2>Testing that prediction: a compiler-aware reward (it lost)</h2>
@@ -1294,9 +1313,21 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
     (the written spec), because the proxy has a coverage gap the model's training never penalized.
     A binary or dense reward built on this verifier would have no way to penalize this trace — it
     looks identical to a fully correct one. I didn't catch it from a number; I caught it from
-    reading a trace. To be precise about scope: this is one observed instance, not a measured
-    systemic exploit across the dataset — I don't have evidence the model is reliably hunting for
-    test-coverage gaps, only that this verifier let one slip through uncaught.
+    reading a trace.
+  </p>
+  <p>
+    How common is this? I went and checked, rather than guess: I read 28 more successful traces,
+    randomly sampled. 11 had a written constraint beyond "make the tests pass" that I could
+    independently check the final patch against (the rest only ever said "fix it so tests pass,"
+    with no separate spec to violate — the tests <em>are</em> the spec for those, so gaming in
+    this sense isn't even defined). All 11 were fully correct. One case hardcoded the literal
+    test-fixture strings ("skip", "ban") as a banned-list instead of a general rule — a softer,
+    related overfitting pattern, though the task never actually defined what "banned" meant, so
+    it isn't a clean spec violation either. Combined with the original case, that's
+    <strong>1 confirmed instance out of 29 traces examined (~3%)</strong>, and most of those 29
+    didn't have an independently checkable spec to violate in the first place. I don't have
+    evidence this is systemic — only that it happens, the verifier can't see it, and reading
+    traces is the only way I found it.
   </p>
 
   <h2>What I claim / don't</h2>
@@ -1310,9 +1341,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
   <h2>Reusable lessons</h2>
   <ul>
-    <li>Verifier RL only works if the verifier matches the full behavior you want — for agents, the contract is the whole trace, not just "cargo passed."</li>
-    <li>"Tests pass" is not "spec correct" — it's only as strong as the test suite. Specification gaming through verifier exploitation (see above) is invisible to every metric in this post; you only catch it by reading traces.</li>
-    <li>A binary verifiable reward silently discards the hard tail via zero-advantage filtering. Dense, unhackable partial credit recovers it.</li>
+    <li>"Tests pass" is not "spec correct" — it's only as strong as the test suite. Specification gaming through verifier exploitation is invisible to every metric in this post; the only way I found it was reading traces, and a 28-trace audit found it again at roughly 1-in-29.</li>
+    <li>A binary verifiable reward silently discards the hard tail via zero-advantage filtering. Dense, unhackable partial credit recovers it — but a more "principled" version of that same reward can still lose, so denser isn't automatically better.</li>
     <li>Greedy pass@1 hides small effects in noise; pass@k + seed replication is the minimum honest bar (a single-run +7 here was seed luck).</li>
     <li>Export the <em>served</em> policy: <code>run_default/broadcasts/step_N</code> as a PEFT adapter, not <code>weights/step_N</code>.</li>
   </ul>

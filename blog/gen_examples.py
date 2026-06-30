@@ -85,32 +85,61 @@ def render_trace(trace: dict) -> str:
     return "\n\n".join(parts)
 
 
-def render_example(trace_id: str, trace: dict, crate_src: str | None) -> str:
+def render_example(trace_id: str, trace: dict, crate_src: str | None, active: bool) -> str:
     label = esc(trace["label"])
     model = trace["model"]
     desc = esc(EXAMPLE_DESCRIPTIONS[trace_id])
     note = EXAMPLE_NOTES.get(trace_id)
     note_html = (
-        f'\n  <div class="panel note"><p>{esc(note)}</p></div>' if note else ""
+        f'\n    <div class="panel note"><p>{esc(note)}</p></div>' if note else ""
     )
     src_html = ""
     if crate_src:
         src_html = (
-            f'\n  <div class="panel"><pre>{esc(crate_src.strip())}</pre></div>'
+            f'\n    <div class="panel"><pre>{esc(crate_src.strip())}</pre></div>'
         )
     trace_html = render_trace(trace)
-    return f"""<h3>{label}</h3>
-  <p class="meta">{model} &middot; RL reward {trace["reward"]} &middot; {len(trace["turns"])} trace turns</p>
-  <p>{desc}</p>{note_html}{src_html}
-  <div class="panel trace scroll"><pre>{trace_html}</pre></div>
+    hidden = "" if active else " hidden"
+    return f"""  <div class="example-panel" id="example-{trace_id}"{hidden}>
+    <p class="meta">{model} &middot; RL reward {trace["reward"]} &middot; {len(trace["turns"])} trace turns</p>
+    <p>{desc}</p>{note_html}{src_html}
+    <div class="panel trace scroll"><pre>{trace_html}</pre></div>
+  </div>
 """
+
+
+def render_tabs(traces: dict) -> str:
+    buttons = []
+    for i, tid in enumerate(ORDER):
+        cls = "example-tab active" if i == 0 else "example-tab"
+        buttons.append(
+            f'<button class="{cls}" data-target="example-{tid}" '
+            f'onclick="showExample(this)">{esc(tid)}</button>'
+        )
+    return '  <div class="example-tabs">' + "".join(buttons) + "</div>\n"
 
 
 def main():
     traces = load_traces()
     crate_sources = load_crate_sources()
-    sections = [render_example(tid, traces[tid], crate_sources.get(tid)) for tid in ORDER]
-    body = "\n".join(sections)
+    tabs = render_tabs(traces)
+    sections = [
+        render_example(tid, traces[tid], crate_sources.get(tid), active=(i == 0))
+        for i, tid in enumerate(ORDER)
+    ]
+    script = """  <script>
+    function showExample(btn) {
+      var target = btn.getAttribute('data-target');
+      document.querySelectorAll('.example-panel').forEach(function (el) {
+        el.hidden = el.id !== target;
+      });
+      document.querySelectorAll('.example-tab').forEach(function (el) {
+        el.classList.toggle('active', el === btn);
+      });
+    }
+  </script>
+"""
+    body = tabs + "\n".join(sections) + script
 
     index = ROOT / "blog/index.html"
     text = index.read_text()

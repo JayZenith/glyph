@@ -90,24 +90,50 @@ python -m sft.train \
   --gradient-checkpointing
 ```
 
-## RLVR Train (dense reward)
+## RLVR Train — reward-shape A/B
 
 Runs on 4 GPUs. PRIME-RL launches the frozen teacher itself
 (`--num-teacher-gpus 1`) and wires `orchestrator.teacher` to it — no manual
-teacher server. The dense partial-credit reward is enabled by
-`--progress-compile-bonus` / `--progress-test-frac-bonus`; omit both for the
-sparse baseline.
+teacher server.
+
+The reward shape is the **only** thing that changes between arms — a controlled
+A/B to test whether a Rust-compiler-aware verifier extracts more signal than a
+generic dense one:
+
+- **Sparse baseline:** omit all `--progress-*` flags.
+- **Arm A — generic dense:** `--progress-compile-bonus 0.5
+  --progress-test-frac-bonus 2.0` (compile bonus + test-pass fraction).
+- **Arm B — compiler-aware:** `--progress-error-ladder-bonus 2.5` (and dense
+  flags off). Scores failed rollouts by the furthest rustc phase reached —
+  `parse → type → borrow → compiles`, scaled `stage/4`. A borrow error proves
+  the code type-checked, so the ladder is monotone in real progress and isn't
+  gamed by churning error counts (see `rl/tests/test_reward_progress.py`).
+
+Both arms run the **identical** command below — same base model
+(`SFT_HALF_A_V8`), same `--data`, same `--max-steps`, same hyperparameters and
+GPU layout. Only `$REWARD_FLAGS` (and `--lora-name` / `--output`, so artifacts
+don't collide) differ. `train.py` exposes no training-seed flag, so fairness on
+the run-to-run variance comes from evaluating **both** resulting adapters under
+the same 3-seed pass@8 harness below — not from a single greedy number.
 
 ```bash
+# Arm A — generic dense:
+REWARD_FLAGS="--progress-compile-bonus 0.5 --progress-test-frac-bonus 2.0"
+NAME=glyph-pool-b-dense-r64-a128;          OUT=outputs/RLVR_POOL_B_DENSE_R64_A128
+
+# Arm B — compiler-aware (run this block instead for the other arm):
+REWARD_FLAGS="--progress-error-ladder-bonus 2.5"
+NAME=glyph-pool-b-compiler-aware-r64-a128; OUT=outputs/RLVR_POOL_B_COMPILER_AWARE_R64_A128
+
 python rl/train.py \
   --model JayZenith/SFT_HALF_A_V8 \
   --teacher-model JayZenith/SFT_HALF_A_V8 \
   --lora-rank 64 \
   --lora-alpha 128 \
   --lora-dropout 0.0 \
-  --lora-name glyph-signal-v4002-pool-b-dense-r64-a128 \
+  --lora-name "$NAME" \
   --data synthetic_data/rl_prompts_signal_v3_pool_b_mixed_oversampled.jsonl \
-  --output outputs/RLVR_SIGNAL_V4002_POOL_B_DENSE_LORA_R64_A128 \
+  --output "$OUT" \
   --max-steps 30 \
   --batch-size 96 \
   --max-inflight-rollouts 96 \
@@ -133,8 +159,7 @@ python rl/train.py \
   --port 8000 \
   --enforce-gibberish-filter \
   --enforce-repetition-filter \
-  --progress-compile-bonus 0.5 \
-  --progress-test-frac-bonus 2.0
+  $REWARD_FLAGS
 ```
 
 > External teacher instead of the auto-launched one: drop `--num-teacher-gpus`

@@ -60,6 +60,14 @@ DEFAULT_REWARD_CONFIG = MappingProxyType({
     # default (0.0) to preserve the sparse reward; enable per-run via CLI.
     "progress_compile_bonus": 0.0,
     "progress_test_frac_bonus": 0.0,
+    # Compiler-phase ladder: a Rust-specific dense signal. rustc fails in a fixed
+    # phase order (parse -> type/resolve -> borrow/lifetime -> compiles), and
+    # reaching a later phase requires passing every earlier one, so the furthest
+    # phase a crate reaches is a principled, hard-to-game distance-to-compiling.
+    # Rewards graded progress in the never-compiles region that the coarse
+    # compile-bonus leaves flat. Off by default; the compiler-aware run sets this
+    # alone (compile/test-frac bonuses 0) for a clean A/B vs the generic dense reward.
+    "progress_error_ladder_bonus": 0.0,
 })
 
 
@@ -162,6 +170,37 @@ def _protocol_reward_penalty(
 # success/failure reward. Returns a scalar.
 _TEST_RESULT_RE = re.compile(r"test result:\s*\w+\.\s*(\d+)\s+passed;\s*(\d+)\s+failed")
 
+# rustc error codes raised during borrow check / lifetime resolution. Their
+# presence implies the crate already passed lexing, parsing, name resolution,
+# and type check — i.e. it reached a late compiler phase. Everything else with
+# an error[Ennnn] code is treated as an earlier (type/resolution) failure, and a
+# bare "error:" with no code as an earliest (parse/syntax) failure.
+_E_CODE_RE = re.compile(r"error\[E(\d{4})\]")
+_BORROW_LIFETIME_CODES = frozenset({
+    "0382", "0499", "0502", "0503", "0505", "0506", "0507", "0508", "0509",
+    "0515", "0597", "0716",  # borrow / move / temporary lifetime
+    "0106", "0309", "0310", "0311", "0621", "0623",  # explicit lifetime
+})
+
+
+def _compiler_phase_stage(out: str, compiled: bool) -> int:
+    """Furthest rustc phase the crate reached, as a 0-4 ladder.
+
+    4 compiles · 3 borrow/lifetime (type-checked) · 2 type/resolution (parsed) ·
+    1 parse/syntax · 0 nothing. Monotone in real progress because each phase
+    gates the next, so the model cannot climb it without genuinely better Rust.
+    """
+    if compiled:
+        return 4
+    codes = set(_E_CODE_RE.findall(out))
+    if codes & _BORROW_LIFETIME_CODES:
+        return 3
+    if codes:
+        return 2
+    if "error" in out:
+        return 1
+    return 0
+
 
 def _progress_reward(
     calls: list[ProtocolCall],
@@ -171,18 +210,21 @@ def _progress_reward(
     """Dense partial credit for the no-success region.
 
     Scans cargo verifier results for the best partial progress across the
-    rollout: whether the crate compiled, and the highest test-pass fraction
-    observed. Both are objective task facts the model cannot game (tests and
-    expected output are fixed by the case). Returns 0.0 when the shaping bonuses
-    are disabled, so the default sparse reward is unchanged.
+    rollout: whether the crate compiled, the highest test-pass fraction, and
+    (compiler-aware arm) the furthest rustc phase reached. All are objective task
+    facts the model cannot game (tests/expected output are fixed by the case;
+    the phase ladder is monotone in real progress). Returns 0.0 when every
+    shaping bonus is disabled, so the default sparse reward is unchanged.
     """
     compile_bonus = reward_config.get("progress_compile_bonus", 0.0)
     test_bonus = reward_config.get("progress_test_frac_bonus", 0.0)
-    if not compile_bonus and not test_bonus:
+    ladder_bonus = reward_config.get("progress_error_ladder_bonus", 0.0)
+    if not compile_bonus and not test_bonus and not ladder_bonus:
         return 0.0
 
     compiled = False
     best_test_frac = 0.0
+    best_stage = 0
     for call in calls:
         if call.tool not in {"cargo_test", "cargo_run"}:
             continue
@@ -191,16 +233,22 @@ def _progress_reward(
             continue
         out = f"{result.stdout or ''}\n{result.stderr or ''}"
         compile_failed = ("error[E" in out) or ("could not compile" in out)
-        if not compile_failed and (
+        call_compiled = not compile_failed and (
             result.success or "test result:" in out or "Finished" in out or "Running `" in out
-        ):
+        )
+        if call_compiled:
             compiled = True
         for match in _TEST_RESULT_RE.finditer(out):
             passed, failed = int(match.group(1)), int(match.group(2))
             if passed + failed > 0:
                 best_test_frac = max(best_test_frac, passed / (passed + failed))
+        if ladder_bonus:
+            best_stage = max(best_stage, _compiler_phase_stage(out, call_compiled))
 
-    return (compile_bonus if compiled else 0.0) + test_bonus * best_test_frac
+    reward = (compile_bonus if compiled else 0.0) + test_bonus * best_test_frac
+    if ladder_bonus:
+        reward += ladder_bonus * (best_stage / 4.0)
+    return reward
 
 
 def _outcome_reward(

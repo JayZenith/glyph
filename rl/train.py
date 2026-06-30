@@ -96,6 +96,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--progress-test-frac-bonus", type=float,
                         help="Dense partial credit scaled by the best test-pass fraction on "
                              "failed rollouts. Keep small (e.g. 2.0) vs the +10 success bonus.")
+    parser.add_argument("--progress-error-ladder-bonus", type=float,
+                        help="Compiler-aware partial credit scaled by the furthest rustc phase "
+                             "reached (parse->type->borrow->compiles). The compiler-aware arm "
+                             "sets this alone (compile/test-frac off) for a clean A/B.")
     parser.add_argument("--port", type=int)
     parser.add_argument("--teacher-model", default="JayZenith/SFT_V1")
     parser.add_argument("--teacher-base-url",
@@ -345,6 +349,7 @@ def configure_environment(env_args: dict[str, Any], args: argparse.Namespace, da
     maybe_set(env_args, "max_failed_verifier_penalty", args.max_failed_verifier_penalty)
     maybe_set(env_args, "progress_compile_bonus", args.progress_compile_bonus)
     maybe_set(env_args, "progress_test_frac_bonus", args.progress_test_frac_bonus)
+    maybe_set(env_args, "progress_error_ladder_bonus", args.progress_error_ladder_bonus)
 
 
 def configure_inference(

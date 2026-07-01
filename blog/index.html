@@ -104,6 +104,7 @@ td.num { text-align: right; font-family: ui-monospace, monospace; }
   </p>
   <p class="links">
     <a href="https://github.com/JayZenith/GLYPH" target="_blank" rel="noreferrer">code</a>
+    <a href="https://app.primeintellect.ai/dashboard/environments/jayzenith/glyph" target="_blank" rel="noreferrer">environments hub</a>
     <a href="https://huggingface.co/JayZenith/SFT_HALF_A_V8" target="_blank" rel="noreferrer">SFT model</a>
     <a href="https://huggingface.co/JayZenith/RLVR_VFINAL_STEP10" target="_blank" rel="noreferrer">RLVR adapter</a>
   </p>
@@ -115,8 +116,11 @@ td.num { text-align: right; font-family: ui-monospace, monospace; }
     <code>cargo_run</code> prints exact stdout, or run an already-correct crate. The model
     emits <code>CALL tool {…}</code>, tools execute against real cargo, and it must end with a
     clean <code>FINAL</code>. The reward is verifiable — cargo actually compiles and runs.
-    <code>rl/task_trace.py</code> exposes <code>load_environment() -&gt; vf.Environment</code>,
-    the Environments-Hub-standard shape.
+    Published as a standalone environment on the
+    <a href="https://app.primeintellect.ai/dashboard/environments/jayzenith/glyph">Prime Intellect
+    Environments Hub</a> — <code>prime env install jayzenith/glyph</code> gets the same
+    <code>load_environment() -&gt; vf.Environment</code> this write-up is about, runnable
+    outside this repo.
   </p>
   <div class="panel trace"><pre><span class="call">CALL read_file {"id":"c1","file_path":"src/lib.rs"}</span>
 <span class="result">RESULT &lt;source&gt;</span>

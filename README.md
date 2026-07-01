@@ -9,6 +9,12 @@ real Rust crates via cargo, and it must finish with a clean `FINAL`. Built on
 Full write-up (deployed): <https://jayzenith.github.io/GLYPH/> (source:
 [`blog/index.html`](blog/index.html)).
 
+Published as a standalone [`verifiers`](https://github.com/PrimeIntellect-ai/verifiers)
+environment on the [Prime Intellect Environments Hub](https://app.primeintellect.ai/dashboard/environments/jayzenith/glyph)
+(`environments/glyph/`, crate data on the companion
+[`JayZenith/glyph-crates`](https://huggingface.co/datasets/JayZenith/glyph-crates)
+dataset) — install with `prime env install jayzenith/glyph`.
+
 ## Results (held-out 150 unseen crates)
 
 Strict `valid_trace` = terminal cargo success + one clean `FINAL` after it +

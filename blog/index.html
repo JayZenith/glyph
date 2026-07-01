@@ -1212,6 +1212,24 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
     partly seed luck. The honest effect is ~+4, not +7. The sparse run was flat, so the lift is
     attributable to the reward change.
   </p>
+  <p>
+    <code>valid_trace</code> also gates on protocol cleanliness (clean <code>FINAL</code>, no
+    trailing tool use), not just whether cargo actually passed — worth separating the two.
+    Per-rollout across the pass@8 eval, the gap is tiny: cargo success and valid_trace differ by
+    0.3% (SFT), 0.2% (dense), 0.8% (compiler-aware). One case is worth flagging by name: the
+    compiler-aware model shows 0/8 valid_trace on a prompt it actually solved 1/8 at the cargo
+    level — the rollout hit the tool-round budget and got cut off right after a successful
+    <code>cargo_run</code>, before it could emit <code>FINAL</code>. A truncation artifact, not a
+    formatting mistake, and rare enough not to change any of the numbers above.
+  </p>
+  <p>
+    Separately: the 150 held-out cases aren't 150 independent problems. Keyword-clustering the
+    case names shows real concentration — config-merge/precedence, enum-dispatch, and
+    leaderboard-ranking variants alone cover roughly half the set. Leakage against the RL training
+    data is checked at the exact-ID and normalized-structure level (zero overlap across 703
+    training crates vs. these 150), but the effective sample size behind every number in this post
+    is smaller than n=150 implies.
+  </p>
 
   <h2>Where the method's limit is</h2>
   <p>

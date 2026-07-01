@@ -61,6 +61,26 @@ Artifacts: `JayZenith/SFT_HALF_A_V8` · dense adapters
 `JayZenith/RLVR_VFINAL2_STEP{5,10}` · sparse baseline
 `JayZenith/RLVR_POOL_B_V8_STEP{10,20,30}`.
 
+Raw per-rollout eval data (every trace behind every number above, not just
+aggregates): [`JayZenith/Glyph-RLVR-Eval-Results`](https://huggingface.co/datasets/JayZenith/Glyph-RLVR-Eval-Results)
+on the Hub.
+
+### Known limitations of the eval
+
+- **The 150 held-out cases are not 150 independent tasks.** Keyword-clustering
+  the case names shows real concentration: ~18% are config-merge/precedence
+  variants, ~17% enum-dispatch variants, ~11% leaderboard/ranking variants —
+  roughly half the set falls into 3 recognizable template families, re-skinned
+  with different field names and sample data. The effective sample size behind
+  the pass@8 numbers (and the p-values) is smaller than n=150 implies.
+- **Leakage is checked, not fully ruled out.** RL training data and the eval
+  set share zero exact `case_id`/`blueprint_root` overlap, and zero crate
+  source files match after normalizing away literal numbers and strings (703
+  training crates vs. 150 eval crates, full comparison). What isn't ruled out:
+  the same *logical* bug pattern (e.g. a precedence bug) appearing under
+  different field/function names in both sets — a soft template overlap a
+  hash can't catch, and plausible given the family concentration above.
+
 ## Hardware
 
 Run on vast.ai (NVIDIA RTX PRO 6000 Blackwell, 96 GB each):
